@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>lancee — Platform Documentation</title>
+<link rel="icon" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;1,9..144,500;1,9..144,600&family=Manrope:wght@500;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0e09;
+    --bg-soft:#0f1310;
+    --bg-elevated:#141911;
+    --bg-card:#171c14;
+    --border:rgba(240,240,225,0.09);
+    --border-strong:rgba(240,240,225,0.16);
+    --text:#f2efe4;
+    --text-dim:#a8b09e;
+    --text-faint:#6e7666;
+    --grad-1:#ff7a59;
+    --grad-2:#ec4899;
+    --grad-3:#8b5cf6;
+    --grad-4:#3b9eff;
+    --lime:#a9cc5c;
+    --lime-dim:rgba(169,204,92,0.12);
+    --amber:#e8b34d;
+    --amber-dim:rgba(232,179,77,0.1);
+    --slate:#8a9182;
+    --slate-dim:rgba(138,145,130,0.1);
+    --blue-dim:rgba(59,158,255,0.1);
+    --radius:16px;
+    --radius-sm:9px;
+    --mono:'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    --sans:'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --display:'Manrope', var(--sans);
+    --serif:'Fraunces', Georgia, serif;
+    --header-h:68px;
+  }
+
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    font-size:15.5px;
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  body::before{
+    content:"";
+    position:fixed; inset:0;
+    background:
+      radial-gradient(1100px 620px at 14% -8%, rgba(255,122,89,0.10), transparent 60%),
+      radial-gradient(900px 560px at 82% 4%, rgba(59,158,255,0.09), transparent 60%);
+    pointer-events:none;
+    z-index:0;
+  }
+  a{color:var(--grad-4); text-decoration:none;}
+  a:hover{text-decoration:underline;}
+  img{max-width:100%; display:block;}
+  code{
+    font-family:var(--mono);
+    font-size:0.86em;
+    background:rgba(255,255,255,0.06);
+    padding:0.1em 0.42em;
+    border-radius:5px;
+    color:#f0d9c4;
+  }
+  pre{
+    background:#0a0d08;
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);
+    padding:16px 18px;
+    overflow-x:auto;
+    margin:14px 0 22px;
+  }
+  pre code{
+    background:none;
+    padding:0;
+    color:#d9e0cf;
+    font-size:0.84em;
+    line-height:1.6;
+  }
+  h1,h2,h3,h4{
+    font-family:var(--display);
+    font-weight:800;
+    letter-spacing:-0.01em;
+    color:var(--text);
+    margin:0 0 12px;
+  }
+  p{margin:0 0 14px; color:var(--text-dim);}
+  ul,ol{margin:0 0 16px; padding-left:1.3em; color:var(--text-dim);}
+  li{margin-bottom:6px;}
+  li::marker{color:var(--grad-2);}
+  strong{color:var(--text); font-weight:600;}
+
+  .gradient-text{
+    background:linear-gradient(100deg, var(--grad-1), var(--grad-2) 38%, var(--grad-3) 68%, var(--grad-4));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .accent-italic{
+    font-family:var(--serif);
+    font-style:italic;
+    font-weight:500;
+  }
+
+  /* ---------- header ---------- */
+  header.topbar{
+    position:sticky; top:0; z-index:50;
+    height:var(--header-h);
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 28px;
+    background:rgba(11,14,9,0.86);
+    backdrop-filter:blur(14px) saturate(140%);
+    border-bottom:1px solid var(--border);
+  }
+  .brand{display:flex; align-items:center; gap:10px;}
+  .brand img{width:28px; height:28px;}
+  .brand span{font-family:var(--display); font-weight:800; font-size:19px; letter-spacing:-0.01em;}
+  .topbar-actions{display:flex; align-items:center; gap:10px;}
+  .btn{
+    display:inline-flex; align-items:center; gap:8px;
+    font-family:var(--sans); font-weight:600; font-size:13.5px;
+    padding:9px 16px; border-radius:999px;
+    cursor:pointer; border:1px solid transparent;
+    white-space:nowrap;
+  }
+  .btn:hover{text-decoration:none;}
+  .btn-gradient{
+    background:linear-gradient(95deg, var(--grad-1), var(--grad-2) 45%, var(--grad-3) 80%, var(--grad-4));
+    color:#0b0e09;
+  }
+  .btn-gradient:hover{filter:brightness(1.08);}
+  .btn-outline{
+    border-color:var(--border-strong);
+    color:var(--text);
+    background:rgba(255,255,255,0.02);
+  }
+  .btn-outline:hover{background:rgba(255,255,255,0.06);}
+  .menu-toggle{
+    display:none;
+    background:none; border:1px solid var(--border-strong); border-radius:8px;
+    width:38px; height:38px; color:var(--text); cursor:pointer;
+    align-items:center; justify-content:center;
+  }
+
+  /* ---------- hero ---------- */
+  .hero{
+    position:relative; z-index:1;
+    padding:64px 28px 52px;
+    border-bottom:1px solid var(--border);
+    max-width:1180px; margin:0 auto;
+  }
+  .eyebrow{
+    display:flex; align-items:center; gap:8px;
+    font-family:var(--mono); font-size:12px; letter-spacing:0.14em;
+    text-transform:uppercase; color:var(--text-dim); margin-bottom:22px;
+  }
+  .eyebrow .dot{width:6px; height:6px; border-radius:50%; background:linear-gradient(95deg,var(--grad-1),var(--grad-3));}
+  .hero h1{
+    font-size:clamp(34px, 5.4vw, 58px);
+    line-height:1.04;
+    margin-bottom:22px;
+    max-width:15ch;
+  }
+  .hero h1 .line2{
+    display:block;
+    font-family:var(--serif);
+    font-style:italic;
+    font-weight:500;
+    font-size:1.02em;
+  }
+  .hero-sub{
+    max-width:640px;
+    font-size:17px;
+    color:var(--text-dim);
+    margin-bottom:30px;
+  }
+  .hero-ctas{display:flex; flex-wrap:wrap; gap:12px; margin-bottom:44px;}
+  .hero-ctas .btn{padding:12px 22px; font-size:14.5px;}
+  .hero-facts{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:18px;
+    border-top:1px solid var(--border);
+    padding-top:26px;
+  }
+  .hero-fact{display:flex; align-items:flex-start; gap:11px;}
+  .hero-fact svg{flex-shrink:0; margin-top:2px; color:var(--lime);}
+  .hero-fact div b{display:block; color:var(--text); font-size:14px; font-weight:600; margin-bottom:2px;}
+  .hero-fact div span{font-size:13px; color:var(--text-faint);}
+
+  /* ---------- layout ---------- */
+  .layout{
+    position:relative; z-index:1;
+    max-width:1180px; margin:0 auto;
+    display:grid;
+    grid-template-columns:250px 1fr;
+    gap:0;
+  }
+  nav.sidebar{
+    position:sticky; top:var(--header-h);
+    height:calc(100vh - var(--header-h));
+    overflow-y:auto;
+    padding:36px 18px 60px 28px;
+    border-right:1px solid var(--border);
+  }
+  nav.sidebar::-webkit-scrollbar{width:6px;}
+  nav.sidebar::-webkit-scrollbar-thumb{background:var(--border-strong); border-radius:3px;}
+  .nav-group{margin-bottom:22px;}
+  .nav-group-label{
+    font-family:var(--mono); font-size:11px; letter-spacing:0.1em;
+    text-transform:uppercase; color:var(--text-faint);
+    margin-bottom:8px; padding-left:10px;
+  }
+  .nav-group a{
+    display:block;
+    font-size:13.5px; color:var(--text-dim); font-weight:500;
+    padding:6px 10px; border-radius:8px;
+    border-left:2px solid transparent;
+  }
+  .nav-group a:hover{color:var(--text); text-decoration:none; background:rgba(255,255,255,0.03);}
+  .nav-group a.active{
+    color:var(--text); background:rgba(255,255,255,0.05);
+    border-left-color:var(--grad-2);
+  }
+
+  main.content{
+    padding:48px 5vw 120px 40px;
+    max-width:840px;
+    min-width:0;
+  }
+  section{scroll-margin-top:calc(var(--header-h) + 18px);}
+  .section-block{margin-bottom:56px;}
+  .section-block:first-of-type{margin-top:0;}
+
+  h2.section-heading, h3.subheading{
+    display:flex; align-items:center; gap:13px;
+  }
+  h2.section-heading .fold{
+    width:8px; height:28px; border-radius:2px; flex-shrink:0;
+    background:linear-gradient(160deg,var(--grad-1),var(--grad-3));
+    clip-path:polygon(0 0,100% 14%,100% 100%,0 86%);
+  }
+  h2.section-heading{font-size:26px; margin-top:2px;}
+  h3.subheading{font-size:18px; margin-top:36px;}
+  h3.subheading .fold{
+    width:6px; height:19px;
+    background:linear-gradient(160deg,var(--grad-2),var(--grad-4));
+  }
+  h4{font-size:15px; margin-top:22px; color:var(--text);}
+
+  .kicker{
+    font-family:var(--mono); font-size:11.5px; letter-spacing:0.08em;
+    text-transform:uppercase; color:var(--text-faint); margin-bottom:6px;
+  }
+
+  /* status pills */
+  .pill{
+    display:inline-flex; align-items:center; gap:6px;
+    font-family:var(--mono); font-size:10.5px; letter-spacing:0.05em;
+    text-transform:uppercase; font-weight:600;
+    padding:3px 9px 3px 8px; border-radius:999px; border:1px solid;
+    white-space:nowrap; line-height:1.6;
+  }
+  .pill::before{content:""; width:6px; height:6px; border-radius:50%;}
+  .pill-live{color:var(--lime); border-color:rgba(169,204,92,.38); background:var(--lime-dim);}
+  .pill-live::before{background:var(--lime);}
+  .pill-preview{color:var(--amber); border-color:rgba(232,179,77,.4); background:var(--amber-dim);}
+  .pill-preview::before{background:var(--amber);}
+  .pill-placeholder{color:var(--slate); border-color:rgba(138,145,130,.4); background:var(--slate-dim);}
+  .pill-placeholder::before{background:var(--slate);}
+  .pill-security{color:#8fc0ff; border-color:rgba(59,158,255,.4); background:var(--blue-dim);}
+  .pill-security::before{background:var(--grad-4);}
+
+  .pill-row{display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 18px;}
+
+  /* callouts */
+  .callout{
+    border:1px solid var(--border-strong);
+    background:var(--bg-card);
+    border-radius:var(--radius-sm);
+    padding:16px 18px;
+    margin:16px 0 22px;
+    position:relative;
+    padding-left:20px;
+  }
+  .callout::before{
+    content:""; position:absolute; left:0; top:0; bottom:0; width:3px;
+    border-radius:3px 0 0 3px;
+  }
+  .callout p{margin-bottom:0; font-size:14.5px;}
+  .callout p + p{margin-top:8px;}
+  .callout-note::before{background:var(--grad-4);}
+  .callout-security::before{background:var(--grad-2);}
+  .callout-warning::before{background:var(--amber);}
+  .callout-label{
+    font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:0.08em;
+    display:block; margin-bottom:6px; font-weight:600;
+  }
+  .callout-note .callout-label{color:var(--grad-4);}
+  .callout-security .callout-label{color:var(--grad-2);}
+  .callout-warning .callout-label{color:var(--amber);}
+
+  /* cards / grid */
+  .card-grid{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+    gap:14px; margin:18px 0 26px;
+  }
+  .card{
+    background:var(--bg-card); border:1px solid var(--border);
+    border-radius:var(--radius-sm); padding:16px 18px;
+  }
+  .card h4{margin-top:0; margin-bottom:6px; font-size:14.5px;}
+  .card p{font-size:13.5px; margin-bottom:0;}
+
+  /* tables */
+  .table-wrap{overflow-x:auto; margin:14px 0 24px; border:1px solid var(--border); border-radius:var(--radius-sm);}
+  table{width:100%; border-collapse:collapse; font-size:13.5px; min-width:520px;}
+  th{
+    text-align:left; font-family:var(--mono); font-size:11px; letter-spacing:0.05em;
+    text-transform:uppercase; color:var(--text-faint); font-weight:600;
+    padding:11px 14px; background:var(--bg-elevated); border-bottom:1px solid var(--border);
+  }
+  td{padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text-dim); vertical-align:top;}
+  tr:last-child td{border-bottom:none;}
+  td code, th code{white-space:nowrap;}
+  tr:hover td{background:rgba(255,255,255,0.015);}
+
+  .checklist{list-style:none; padding-left:0;}
+  .checklist li{
+    display:flex; gap:10px; align-items:flex-start;
+    padding:9px 0; border-bottom:1px solid var(--border);
+  }
+  .checklist li:last-child{border-bottom:none;}
+  .checklist li svg{flex-shrink:0; margin-top:3px; color:var(--lime);}
+
+  .divider{height:1px; background:var(--border); margin:44px 0;}
+
+  footer{
+    border-top:1px solid var(--border);
+    padding:36px 28px 60px;
+    text-align:center;
+    color:var(--text-faint);
+    font-size:13px;
+    position:relative; z-index:1;
+  }
+  footer .brand{justify-content:center; margin-bottom:10px;}
+  footer a{color:var(--text-dim);}
+
+  /* mobile */
+  @media (max-width: 900px){
+    .menu-toggle{display:flex;}
+    .layout{grid-template-columns:1fr;}
+    nav.sidebar{
+      position:fixed; top:var(--header-h); left:0; bottom:0; width:280px;
+      background:var(--bg-soft); z-index:40;
+      transform:translateX(-105%);
+      transition:transform 0.24s ease;
+      border-right:1px solid var(--border-strong);
+    }
+    nav.sidebar.open{transform:translateX(0);}
+    main.content{padding:36px 20px 100px;}
+    .hero{padding:44px 20px 40px;}
+    .hero-facts{grid-template-columns:1fr;}
+    .btn-outline.hero-only{display:none;}
+  }
+  @media (max-width: 560px){
+    header.topbar{padding:0 16px;}
+    .btn span.full{display:none;}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <button class="menu-toggle" id="menuToggle" aria-label="Toggle navigation">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    <img src="img/icon.png" alt="lancee" style="width:28px;height:28px;border-radius:6px;">
+    <span>lancee <span style="color:var(--text-faint); font-weight:500; font-size:13px;">/ docs</span></span>
+  </div>
+  <div class="topbar-actions">
+    <a class="btn btn-outline" href="#api-reference"><span class="full">API reference</span></a>
+    <a class="btn btn-gradient" href="https://agents.hygridtech.co.za" target="_blank" rel="noopener">Open lancee →</a>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="eyebrow"><span class="dot"></span>PRODUCT · ARCHITECTURE · INTEGRATIONS · REFERENCE</div>
+  <h1>Everything lancee<span class="line2 gradient-text">actually does today.</span></h1>
+  <p class="hero-sub">lancee is a portable operating workspace for freelancers and small business owners — client work, ideas, automations, connections, and money in one calm place. This is the complete platform documentation: product vision, setup, architecture, and every durable integration, combined in one reference.</p>
+  <div class="hero-ctas">
+    <a class="btn btn-gradient" href="#gs-setup">Get started →</a>
+    <a class="btn btn-outline" href="#overview">Read the overview</a>
+  </div>
+  <div class="hero-facts">
+    <div class="hero-fact">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+      <div><b>Six product surfaces</b><span>Home, Work, Ideas, Automations, Connections, Money</span></div>
+    </div>
+    <div class="hero-fact">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
+      <div><b>Real payment path</b><span>Durable ZAR invoices via Paystack, verified by webhook</span></div>
+    </div>
+    <div class="hero-fact">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94Z"/></svg>
+      <div><b>Signed automation bridge</b><span>Bidirectional n8n webhooks, HMAC-signed both ways</span></div>
+    </div>
+  </div>
+</section>
+
+<div class="layout">
+  <nav class="sidebar" id="sidebar">
+    <div class="nav-group">
+      <div class="nav-group-label">Start</div>
+      <a href="#overview">Overview</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Product Vision</div>
+      <a href="#vision-principles">Direction &amp; principles</a>
+      <a href="#vision-ia">Product surfaces</a>
+      <a href="#vision-ai">AI's role</a>
+      <a href="#vision-workflow">Reference workflow</a>
+      <a href="#vision-states">Live vs. placeholder states</a>
+      <a href="#vision-roadmap">Metrics &amp; roadmap</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Getting Started</div>
+      <a href="#gs-prereqs">Prerequisites</a>
+      <a href="#gs-setup">Install &amp; run locally</a>
+      <a href="#gs-first-workspace">First workspace setup</a>
+      <a href="#gs-production">Production deployment</a>
+      <a href="#gs-troubleshooting">Troubleshooting</a>
+      <a href="#gs-env-reference">Environment reference</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Architecture</div>
+      <a href="#architecture">Platform layers</a>
+      <a href="#durable-foundation">Durable foundation</a>
+      <a href="#durable-idempotency">Idempotent mutations</a>
+      <a href="#durable-apikeys">API keys</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Auth &amp; Notifications</div>
+      <a href="#auth-flow">Session &amp; sign-in</a>
+      <a href="#auth-smtp">SMTP notifications</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Connections</div>
+      <a href="#integrations-payments">Payments overview</a>
+      <a href="#integrations-n8n">n8n bridge</a>
+      <a href="#integrations-mcp">MCP service grid</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Money</div>
+      <a href="#paystack">Paystack flow</a>
+      <a href="#paystack-security">Webhook security</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Offline &amp; PWA</div>
+      <a href="#offline-overview">Offline boundary</a>
+      <a href="#offline-notes">Idea notes &amp; conflicts</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Reference</div>
+      <a href="#api-reference">API routes</a>
+      <a href="#project-map">Project map</a>
+      <a href="#checklist">Readiness checklist</a>
+    </div>
+  </nav>
+
+  <main class="content">
+
+    <!-- OVERVIEW -->
+    <section id="overview" class="section-block">
+      <div class="kicker">Start here</div>
+      <h2 class="section-heading"><span class="fold"></span>What lancee is</h2>
+      <p>lancee is a portable operating workspace for freelancers and small business owners. It keeps client work, ideas, lightweight automations, connected tools, invoices, and payments in one calm place. AI is optional and appears only where it removes meaningful effort from an existing workflow.</p>
+      <p>The application is built with <strong>React, TypeScript, Vite</strong>, and a small <strong>Express</strong> backend, persisted to <strong>SQLite</strong>. Live platform: <a href="https://agents.hygridtech.co.za" target="_blank" rel="noopener">agents.hygridtech.co.za</a>.</p>
+
+      <div class="pill-row">
+        <span class="pill pill-live">Live &amp; durable</span>
+        <span class="pill pill-preview">Preview</span>
+        <span class="pill pill-placeholder">Placeholder</span>
+        <span class="pill pill-security">Security-relevant</span>
+      </div>
+      <p style="font-size:13.5px; margin-top:-6px;">These pills follow lancee's own honest product-state philosophy — every capability below is labeled by what it actually does today, not what it will eventually do.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Product surfaces</h3>
+      <div class="card-grid">
+        <div class="card"><h4>Home</h4><p>Attention view — projects, deadlines, outstanding invoices, automations, and recent activity.</p></div>
+        <div class="card"><h4>Work</h4><p>Travel-aware client and project tracking, deadlines, progress, and deliverables.</p></div>
+        <div class="card"><h4>Ideas</h4><p>Visual canvas with durable, versioned quick notes that stay readable and editable offline.</p></div>
+        <div class="card"><h4>Automations</h4><p>Plain-language routines for repetitive work, schedules, and activity history.</p></div>
+        <div class="card"><h4>Connections</h4><p>Design, communication, storage, payment, n8n, and managed MCP services.</p></div>
+        <div class="card"><h4>Money</h4><p>Durable ZAR invoices, real Paystack payment links, and verified webhook reconciliation.</p></div>
+      </div>
+
+      <h3 class="subheading"><span class="fold"></span>What's real right now</h3>
+      <p>Authentication, workspace membership, MCP grants and service activation, API keys, Idea quick notes, Paystack invoices/payment links, and the n8n bridge are all backed by durable server flows. Projects, the broader visual board, automation execution, and standard Stripe/PayPal connections are still typed in-memory placeholders.</p>
+    </section>
+
+    <!-- PRODUCT VISION -->
+    <section id="vision-principles" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>Product vision</h2>
+      <p>The primary reference user is an independent designer who travels frequently and manages many liquor-label and packaging clients. They need to move from a client request to research, concepts, approvals, delivery, and payment without reconstructing context across scattered tools.</p>
+      <p>lancee is not an enterprise collaboration suite, a corporate system of record, or an agent-centric product. The user's business and work remain the organizing model — AI is an optional capability inside that model.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Audience</h3>
+      <ul>
+        <li><strong>Primary:</strong> independent designers, consultants, makers, and other client-service freelancers; small business owners who personally manage delivery and operations; people working across locations, devices, clients, currencies, and external tools.</li>
+        <li><strong>Secondary:</strong> small studios or partnerships needing shared visibility without enterprise administration; solo operators growing from informal workflows into repeatable processes.</li>
+      </ul>
+
+      <h3 class="subheading"><span class="fold"></span>Product principles</h3>
+      <div class="table-wrap"><table>
+        <tr><th>Principle</th><th>What it means</th></tr>
+        <tr><td><strong>Work first</strong></td><td>Organize around clients, projects, deliverables, and outcomes — not agents, prompts, or infrastructure.</td></tr>
+        <tr><td><strong>Portable by default</strong></td><td>Core workflows stay useful across devices, locations, and intermittent connectivity, with clear ownership and export paths.</td></tr>
+        <tr><td><strong>One calm overview</strong></td><td>Surface priorities, risks, and next actions without dashboard overload.</td></tr>
+        <tr><td><strong>Progressive depth</strong></td><td>Simple actions stay simple; advanced automation and configuration appear only when requested.</td></tr>
+        <tr><td><strong>Optional intelligence</strong></td><td>Every essential workflow works without AI. Suggestions require explicit review before consequential changes.</td></tr>
+        <tr><td><strong>Connected, not captive</strong></td><td>Integrate with tools people already trust; make connection status, permissions, and failures visible.</td></tr>
+        <tr><td><strong>Money belongs beside work</strong></td><td>Quotes, invoices, payments, and project status share the same context.</td></tr>
+        <tr><td><strong>Honest product states</strong></td><td>Clearly distinguish live data, sample data, placeholders, drafts, queued actions, and completed actions.</td></tr>
+        <tr><td><strong>Small-business scale</strong></td><td>Prefer speed, clarity, and low setup cost over enterprise controls and organizational complexity.</td></tr>
+      </table></div>
+    </section>
+
+    <section id="vision-ia" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>Navigation &amp; information architecture</h2>
+      <p>The primary navigation is stable and user-centered. Global search and quick capture span every section, and each record links to related clients, projects, ideas, invoices, connections, and automation runs.</p>
+      <ul>
+        <li><strong>Home</strong> — today's priorities, upcoming deadlines, recent activity, blocked work, unpaid invoices, and failed automations. Cards link to their source records; Home is never a separate data silo.</li>
+        <li><strong>Work</strong> — clients, projects, briefs, tasks, milestones, files, approvals, and deliverables. Default hierarchy is <code>Client → Project → Work items</code>, with lightweight work allowed before a client is assigned.</li>
+        <li><strong>Ideas</strong> — fast capture for notes, references, images, links, and early concepts. Ideas can be tagged, grouped, linked to clients/projects, or promoted into a brief, task, or project while retaining provenance.</li>
+        <li><strong>Automations</strong> — user-visible recipes, triggers, runs, approvals, and failure history, described in plain language. Advanced configuration may expose n8n details without making n8n the primary interface.</li>
+        <li><strong>Connections</strong> — external services, credentials, permission scopes, sync health, last successful sync, and reconnect controls.</li>
+        <li><strong>Money</strong> — estimates, invoices, payment links, payment status, expenses where supported, and a simple cash overview. Stripe, PayPal, and Paystack are first-class providers, represented with their real capabilities rather than false parity.</li>
+      </ul>
+    </section>
+
+    <section id="vision-ai" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>AI's role</h2>
+      <p>AI appears only when it removes meaningful effort or helps make sense of existing context — summarizing a brief, extracting tasks from approved notes, drafting client communication, finding related references, or suggesting invoice line items from completed work.</p>
+      <ul>
+        <li>No essential workflow depends on model availability.</li>
+        <li>People can dismiss, disable, or avoid AI entry points entirely.</li>
+        <li>Generated content is labeled and editable.</li>
+        <li>Sending messages, changing project state, creating charges, issuing invoices, or running external actions requires explicit confirmation unless a bounded automation was deliberately configured.</li>
+        <li>AI is never the primary navigation, product identity, or default owner of work.</li>
+      </ul>
+    </section>
+
+    <section id="vision-workflow" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>Reference end-to-end workflow</h2>
+      <ol>
+        <li>While travelling, a designer captures a photo and note in <strong>Ideas</strong> after seeing an interesting bottle treatment.</li>
+        <li>A liquor client sends a packaging brief. The designer creates a project in <strong>Work</strong>, attaches the brief, and links the captured idea.</li>
+        <li>AI optionally summarizes constraints and suggests a task list; the designer reviews and accepts only useful items.</li>
+        <li>The project tracks research, label concepts, regulatory copy, dieline preparation, client review, revisions, and final production files.</li>
+        <li>An approved automation uses n8n to copy final files to connected storage, notify the client, and record the run against the project. Any failure appears on Home and in Automations.</li>
+        <li>The designer creates an invoice in <strong>Money</strong> from approved milestones, selects Stripe, PayPal, or Paystack, verifies amount and recipient, and explicitly sends it.</li>
+        <li>A verified provider webhook marks the invoice paid. Home clears the outstanding-payment alert, and the project timeline records the event.</li>
+      </ol>
+      <p>The full workflow remains possible manually if AI, n8n, MCP, or a payment connection is unavailable.</p>
+    </section>
+
+    <section id="vision-states" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>Live vs. placeholder states</h2>
+      <p>Every surface in lancee exposes its own data state honestly — this documentation uses the same six-state vocabulary throughout, via the status pills you'll see next to features and routes.</p>
+      <div class="table-wrap"><table>
+        <tr><th>State</th><th>Meaning</th></tr>
+        <tr><td><span class="pill pill-live">Live</span></td><td>Backed by persisted user data or a verified provider response, with a last-updated time.</td></tr>
+        <tr><td>Pending</td><td>Submitted but awaiting provider, sync, webhook, or automation completion.</td></tr>
+        <tr><td>Draft / local</td><td>Saved by the user but not sent or synchronized.</td></tr>
+        <tr><td>Sample</td><td>Demo or onboarding content, visually labeled and removable in one action.</td></tr>
+        <tr><td><span class="pill pill-placeholder">Placeholder</span></td><td>Intentionally unavailable capability; non-interactive unless it opens an explanation or waitlist.</td></tr>
+        <tr><td>Error / stale</td><td>Failed or outdated data, with the last successful state preserved and a recovery path.</td></tr>
+      </table></div>
+      <div class="callout callout-warning">
+        <span class="callout-label">No fabrication</span>
+        <p>No fabricated balances, activity, client records, automation success, or payment status may ever appear as live. Prototype actions must never imply an external side effect occurred.</p>
+      </div>
+    </section>
+
+    <section id="vision-roadmap" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>Success metrics &amp; roadmap</h2>
+      <p>Activation, durable use, and business outcomes matter more than raw engagement: time to first client/project, completion rate of <code>brief → delivery → invoice</code>, weekly active owners across two or more core sections, invoice/payment-link send rate, automation success rate, connection/sync health, and four- and twelve-week retention.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Phased roadmap</h3>
+      <div class="table-wrap"><table>
+        <tr><th>Phase</th><th>Focus</th></tr>
+        <tr><td><strong>1 · Coherent core</strong></td><td>Six-section navigation, shared record-linking, Home attention view, basic Money records, explicit sample/live/pending/error states, manual workflows end to end.</td></tr>
+        <tr><td><strong>2 · Get paid &amp; stay connected</strong></td><td>Production-grade Stripe/PayPal/Paystack, invoice sending, provider references, verified webhooks, Connections health and audit history.</td></tr>
+        <tr><td><strong>3 · Repeatable operations</strong></td><td>n8n-backed recipes with approval gates and retries, MCP connections for bounded context/actions, templates for common freelancer workflows.</td></tr>
+        <tr><td><strong>4 · Optional intelligence &amp; growth</strong></td><td>Contextual AI on validated high-effort tasks, cross-workspace search and summaries, lightweight shared access for small studios.</td></tr>
+      </table></div>
+      <p style="font-size:13.5px;">Each phase improves the non-AI product first — optional intelligence can accelerate a working workflow, but never substitutes for one.</p>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- GETTING STARTED -->
+    <section id="gs-prereqs" class="section-block">
+      <div class="kicker">Getting started</div>
+      <h2 class="section-heading"><span class="fold"></span>Prerequisites</h2>
+      <div class="table-wrap"><table>
+        <tr><th>Requirement</th><th>Baseline</th><th>Purpose</th></tr>
+        <tr><td>Node.js</td><td><code>22.x</code></td><td>Frontend build and backend runtime</td></tr>
+        <tr><td>pnpm</td><td><code>11.x</code></td><td>Reproducible dependency installation</td></tr>
+        <tr><td>Git</td><td>Any maintained version</td><td>Source management and deployments</td></tr>
+        <tr><td>PM2</td><td>Current server install</td><td>Recommended production process manager</td></tr>
+        <tr><td>HTTPS reverse proxy</td><td>Nginx Proxy Manager or equivalent</td><td>TLS and public hostname</td></tr>
+      </table></div>
+      <pre><code>node --version
+pnpm --version
+
+# if pnpm is missing and Corepack is installed:
+corepack enable
+corepack prepare pnpm@11 --activate</code></pre>
+      <p>Choose a path: open the production platform and sign in directly, follow the full install below as a developer/operator, or use the Vite-only workflow for frontend-only contribution (auth and server endpoints are unavailable in that mode).</p>
+    </section>
+
+    <section id="gs-setup" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>Install &amp; run locally</h2>
+
+      <h3 class="subheading"><span class="fold"></span>1 · Install the application</h3>
+      <pre><code>cd /home/apps/agent-app
+pnpm install --frozen-lockfile</code></pre>
+      <p><code>pnpm-lock.yaml</code> is the source of truth — use <code>--frozen-lockfile</code> on servers and in CI so a deployment can't silently change dependency versions.</p>
+
+      <h3 class="subheading"><span class="fold"></span>2 · Create the server environment</h3>
+      <pre><code>test -f .env || cp .env.example .env
+chmod 600 .env</code></pre>
+      <p>At minimum, set:</p>
+      <pre><code>APP_ENV=production
+PORT=5177
+PUBLIC_ORIGIN=https://agents.hygridtech.co.za
+
+ADMIN_NAME=Workspace Admin
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD_SALT=
+ADMIN_PASSWORD_HASH=
+SESSION_TTL_HOURS=12
+WORKSPACE_ID=wsp_primary
+WORKSPACE_NAME=Hookitup Solutions
+DATABASE_PATH=.runtime/lancee.sqlite</code></pre>
+      <p>Use the exact public scheme and hostname for <code>PUBLIC_ORIGIN</code>, with no trailing slash. Then generate administrator credentials interactively:</p>
+      <pre><code>pnpm auth:hash</code></pre>
+      <div class="callout callout-security">
+        <span class="callout-label">Never store the plaintext password</span>
+        <p>The password is hidden while typing and must be at least 12 characters. Copy the generated <code>ADMIN_PASSWORD_SALT</code> and <code>ADMIN_PASSWORD_HASH</code> into <code>.env</code> — the plaintext password itself must never enter <code>.env</code>, source code, documentation, shell history, or a support message.</p>
+      </div>
+      <p><code>.runtime/session-secret</code> and <code>.runtime/lancee.sqlite</code> are created with restrictive permissions on first run — preserve both across restarts. Both <code>.env</code> and <code>.runtime/</code> are ignored by Git.</p>
+
+      <h3 class="subheading"><span class="fold"></span>3 · Run the complete platform</h3>
+      <pre><code>pnpm build
+APP_ENV=development PUBLIC_ORIGIN=http://localhost:5177 pnpm start</code></pre>
+      <p>Open <a href="http://localhost:5177">localhost:5177</a> — the public landing page should load before authentication. If you browse through a different local hostname or IP, set <code>PUBLIC_ORIGIN</code> to that exact browser origin, including scheme and port.</p>
+
+      <h4>Frontend-only development</h4>
+      <pre><code>pnpm dev</code></pre>
+      <p>Vite listens on <code>0.0.0.0:5177</code>. This does <strong>not</strong> start Express, so login, SMTP, and MCP endpoints won't work — use the complete workflow above whenever backend behavior matters.</p>
+
+      <h3 class="subheading"><span class="fold"></span>4 · Verify the local install</h3>
+      <pre><code>curl -fsS http://127.0.0.1:5177/api/health
+# {"ok":true,"service":"lancee-agents-platform"}
+
+curl -i http://127.0.0.1:5177/api/auth/session
+# 401 "No active session" is the expected secure result</code></pre>
+      <p>Then confirm the browser flow: load the landing page → sign in with the configured admin email/password → confirm Home opens → sign out and confirm protected content is gone.</p>
+    </section>
+
+    <section id="gs-first-workspace" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>First workspace setup</h2>
+      <ol>
+        <li>Review <strong>Home</strong> for projects, upcoming work, outstanding invoices, and recent activity.</li>
+        <li>Open <strong>Work</strong> and create a sample client project.</li>
+        <li>Open <strong>Ideas</strong> to capture references, colours, notes, and early directions on the project canvas.</li>
+        <li>Open <strong>Automations</strong> and describe one repetitive task in plain language.</li>
+        <li>Open <strong>Connections</strong> to preview Stripe/PayPal, inspect Paystack status, configure n8n, and request managed service access.</li>
+        <li>Open <strong>Money</strong> to review invoice status and create a draft invoice.</li>
+        <li>Open <strong>Settings</strong> to review workspace profile, authentication, and travel preferences.</li>
+      </ol>
+      <p style="font-size:13.5px;">Project, broader idea-canvas, automation, and standard Stripe/PayPal actions are currently in-memory placeholders and may reset. Auth, MCP, API keys, Idea notes, Paystack, and n8n are real and durable.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Install &amp; verify offline Ideas</h3>
+      <ol>
+        <li>Load lancee once over HTTPS and sign in.</li>
+        <li>Open <strong>Ideas</strong>, add a quick note, and wait for its <code>v1</code> synced label.</li>
+        <li>Install lancee from the browser's install/application control.</li>
+        <li>Disconnect the network and reopen the installed app.</li>
+        <li>Confirm the last-viewed Idea notes load, and add another note.</li>
+        <li>Reconnect — the queued label should become a server version automatically.</li>
+      </ol>
+      <p>To verify conflict handling: load the same synced note on two clients, edit it on the first, then submit the stale edit on the second — it must show the server value and require an explicit <strong>Use server</strong> or <strong>Keep mine</strong> choice.</p>
+    </section>
+
+    <section id="gs-production" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>Production deployment</h2>
+      <p>Before starting, confirm: <code>PUBLIC_ORIGIN</code> matches HTTPS production, <code>APP_ENV=production</code>, admin salt/hash are populated, <code>.env</code> is mode <code>600</code>, DNS points to the reverse proxy, the proxy has a valid TLS certificate, and port <code>5177</code> isn't publicly exposed unless intentionally firewalled.</p>
+      <pre><code>pnpm install --frozen-lockfile
+pnpm build
+pm2 startOrReload ecosystem.config.cjs --update-env
+pm2 save
+pm2 describe nexus-agents-platform</code></pre>
+      <p><code>nexus-agents-platform</code> is the legacy internal PM2 process name; the public product and service remain <strong>lancee</strong>.</p>
+
+      <div class="table-wrap"><table>
+        <tr><th>Reverse proxy setting</th><th>Value</th></tr>
+        <tr><td>Public hostname</td><td><code>agents.hygridtech.co.za</code></td></tr>
+        <tr><td>Forward scheme</td><td><code>http</code></td></tr>
+        <tr><td>Forward host</td><td><code>192.168.1.66</code></td></tr>
+        <tr><td>Forward port</td><td><code>5177</code></td></tr>
+        <tr><td>TLS / Force HTTPS</td><td>Enabled</td></tr>
+        <tr><td>WebSocket support</td><td>Enabled</td></tr>
+      </table></div>
+
+      <h3 class="subheading"><span class="fold"></span>Production verification</h3>
+      <pre><code>curl -fsS https://agents.hygridtech.co.za/api/health
+curl -I https://agents.hygridtech.co.za
+pm2 logs nexus-agents-platform --nostream --lines 50</code></pre>
+      <p>In a private browser window, confirm: HTTPS loads without a certificate warning, the landing page appears before sign-in, invalid credentials fail without identifying the wrong field, valid credentials open the workspace, refresh preserves the session, and sign-out clears it.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Updating an existing deployment</h3>
+      <pre><code>cd /home/apps/agent-app
+pnpm install --frozen-lockfile
+pnpm build
+pm2 startOrReload ecosystem.config.cjs --update-env
+curl -fsS https://agents.hygridtech.co.za/api/health</code></pre>
+      <p>Do not overwrite an existing <code>.env</code> during an update.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Backend verification suite</h3>
+      <pre><code>pnpm build
+pnpm lint
+pnpm verify:durability
+pnpm verify:paystack
+pnpm verify:n8n
+pnpm verify:offline
+node --check server/database.mjs
+node --check server/index.mjs
+node --check server/notifications.mjs
+node --check server/paystack.mjs
+node --check server/n8n.mjs
+node --check public/sw.js</code></pre>
+    </section>
+
+    <section id="gs-troubleshooting" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>Troubleshooting</h2>
+      <div class="table-wrap"><table>
+        <tr><th>Symptom</th><th>Check</th><th>Resolution</th></tr>
+        <tr><td>Port <code>5177</code> already in use</td><td><code>ss -ltnp | rg ':5177'</code></td><td>Stop the old process or use the intended PM2 instance</td></tr>
+        <tr><td>Landing page loads but login fails locally</td><td>Which start command is running</td><td>Use the complete Express workflow, not <code>pnpm dev</code></td></tr>
+        <tr><td>Login always returns <code>401</code></td><td>Email vs. generated hash</td><td>Match <code>ADMIN_EMAIL</code> exactly or rerun <code>pnpm auth:hash</code></td></tr>
+        <tr><td>Login returns <code>429</code></td><td>Recent failed attempts</td><td>Wait 15 minutes before retrying</td></tr>
+        <tr><td>Login returns <code>403 Origin not allowed</code></td><td>Browser address vs. <code>PUBLIC_ORIGIN</code></td><td>Match scheme, hostname, and port exactly</td></tr>
+        <tr><td>Cookie not retained locally</td><td><code>APP_ENV</code></td><td>Use <code>APP_ENV=development</code> for local HTTP</td></tr>
+        <tr><td>SMTP test says "not configured"</td><td>SMTP status and <code>.env</code></td><td>Enable SMTP with host/port/from address; restart</td></tr>
+        <tr><td>MCP request stays pending</td><td><code>MCP_API_TOKEN</code></td><td>Expected in manual mode; configure a server token for auto-approval</td></tr>
+        <tr><td>Durable state missing after restart</td><td><code>DATABASE_PATH</code> and permissions</td><td>Confirm every process uses the same writable SQLite path</td></tr>
+        <tr><td>Mutation returns <code>400</code></td><td><code>Idempotency-Key</code> header</td><td>Supply a stable 8–128 character key</td></tr>
+        <tr><td>Mutation returns <code>409</code></td><td>Reused idempotency key</td><td>Reuse the original payload, or issue a new key</td></tr>
+        <tr><td>Paystack card says not configured</td><td><code>PAYSTACK_SECRET_KEY</code></td><td>Add a valid test key and restart</td></tr>
+        <tr><td>Paystack webhook returns <code>401</code></td><td>Raw body / <code>x-paystack-signature</code></td><td>Confirm the exact webhook URL and unmodified body</td></tr>
+        <tr><td>n8n URL rejected</td><td>Scheme, origin, DNS</td><td>Use HTTPS on the exact <code>N8N_BASE_URL</code> with public DNS</td></tr>
+        <tr><td>n8n callback returns <code>401</code></td><td>Timestamp, nonce, canonical signature</td><td>Sign the exact transmitted bytes; clocks within 5 minutes</td></tr>
+        <tr><td>n8n callback returns <code>409</code></td><td>Nonce reuse</td><td>Generate a new random nonce per request</td></tr>
+        <tr><td>Installed app has no offline shell</td><td>First production load / SW state</td><td>Load once online over HTTPS before disconnecting</td></tr>
+        <tr><td>Idea note stays queued after reconnect</td><td>Network / session validity</td><td>Sign in again if the session expired</td></tr>
+        <tr><td>Public URL returns <code>502</code></td><td>PM2 status and listener</td><td>Confirm the process is online on <code>0.0.0.0:5177</code></td></tr>
+        <tr><td>UI stale after deployment</td><td><code>dist/</code> and proxy cache</td><td>Rebuild, reload PM2, hard-refresh the browser</td></tr>
+      </table></div>
+    </section>
+
+    <section id="gs-env-reference" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>Environment variable reference</h2>
+      <div class="table-wrap"><table>
+        <tr><th>Variable</th><th>Required</th><th>Description</th></tr>
+        <tr><td><code>APP_ENV</code></td><td>Yes</td><td><code>production</code> behind HTTPS; <code>development</code> for local HTTP</td></tr>
+        <tr><td><code>PORT</code></td><td>Yes</td><td>Express listener; standard value <code>5177</code></td></tr>
+        <tr><td><code>PUBLIC_ORIGIN</code></td><td>Yes</td><td>Exact browser origin allowed for state-changing requests</td></tr>
+        <tr><td><code>ADMIN_NAME</code></td><td>Recommended</td><td>Display name/initials for the initial administrator</td></tr>
+        <tr><td><code>ADMIN_EMAIL</code></td><td>Yes</td><td>Case-insensitive administrator sign-in email</td></tr>
+        <tr><td><code>ADMIN_PASSWORD_SALT</code></td><td>Yes</td><td>Output from <code>pnpm auth:hash</code></td></tr>
+        <tr><td><code>ADMIN_PASSWORD_HASH</code></td><td>Yes</td><td>Output from <code>pnpm auth:hash</code></td></tr>
+        <tr><td><code>SESSION_TTL_HOURS</code></td><td>Recommended</td><td>Signed-session lifetime; default <code>12</code></td></tr>
+        <tr><td><code>WORKSPACE_ID</code></td><td>Recommended</td><td>Stable id for the bootstrap workspace</td></tr>
+        <tr><td><code>WORKSPACE_NAME</code></td><td>Recommended</td><td>Initial display name for the bootstrap workspace</td></tr>
+        <tr><td><code>DATABASE_PATH</code></td><td>Recommended</td><td>SQLite path; defaults to <code>.runtime/lancee.sqlite</code></td></tr>
+        <tr><td><code>SMTP_ENABLED</code></td><td>No</td><td>Set <code>true</code> only after SMTP is configured</td></tr>
+        <tr><td><code>SMTP_HOST</code> / <code>PORT</code> / <code>SECURE</code></td><td>When enabled</td><td>Transport host, port (587/465), and TLS mode</td></tr>
+        <tr><td><code>SMTP_USER</code> / <code>PASSWORD</code></td><td>Provider-dependent</td><td>SMTP account credentials</td></tr>
+        <tr><td><code>SMTP_FROM_NAME</code> / <code>FROM_EMAIL</code></td><td>Recommended / when enabled</td><td>Sender display name and envelope address</td></tr>
+        <tr><td><code>SMTP_REPLY_TO</code></td><td>No</td><td>Optional reply address</td></tr>
+        <tr><td><code>SMTP_TEST_TO</code></td><td>No</td><td>Test recipient; defaults to <code>ADMIN_EMAIL</code></td></tr>
+        <tr><td><code>MCP_GATEWAY_URL</code></td><td>Recommended</td><td>DNS URL of the managed MCP gateway</td></tr>
+        <tr><td><code>MCP_API_TOKEN</code></td><td>For auto-approval</td><td>Server-only MCP bearer token</td></tr>
+        <tr><td><code>N8N_BASE_URL</code></td><td>Recommended</td><td>DNS URL of the managed n8n instance</td></tr>
+        <tr><td><code>N8N_SIGNING_SECRET</code></td><td>Optional</td><td>Server-side bootstrap signing secret</td></tr>
+        <tr><td><code>N8N_TIMEOUT_MS</code></td><td>Recommended</td><td>Outbound timeout, clamped 250–30,000 ms</td></tr>
+        <tr><td><code>PAYSTACK_SECRET_KEY</code></td><td>For live flow</td><td>Server-only <code>sk_test_...</code> / <code>sk_live_...</code> key</td></tr>
+        <tr><td><code>PAYSTACK_BASE_URL</code></td><td>Recommended</td><td>Defaults to <code>https://api.paystack.co</code></td></tr>
+        <tr><td><code>PAYSTACK_CALLBACK_URL</code></td><td>Recommended</td><td>Browser return URL after hosted checkout</td></tr>
+      </table></div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- ARCHITECTURE -->
+    <section id="architecture" class="section-block">
+      <div class="kicker">Architecture</div>
+      <h2 class="section-heading"><span class="fold"></span>Platform layers</h2>
+      <p>The platform is intentionally split into layers so the UI never depends on a specific database or auth vendor:</p>
+      <ol>
+        <li><code>src/App.tsx</code> owns presentation, navigation, local view state, feedback, and interactions.</li>
+        <li><code>src/lib/mockApi.ts</code> owns remaining placeholder contracts and seeded domain data, while routing durable auth, MCP state, and API-key actions to Express.</li>
+        <li><code>src/lib/offlineStore.ts</code> and <code>src/lib/ideasRepository.ts</code> own workspace-partitioned IndexedDB snapshots, queued Idea mutations, reconnect sync, and conflict resolution.</li>
+        <li><code>server/database.mjs</code> owns the SQLite schema and workspace-scoped durable repositories.</li>
+      </ol>
+
+      <h3 class="subheading"><span class="fold"></span>Backend replacement map</h3>
+      <div class="table-wrap"><table>
+        <tr><th>Capability</th><th>Status</th><th>Route / action</th></tr>
+        <tr><td>Auth session / sign-in / sign-out</td><td><span class="pill pill-live">Live</span></td><td>Signed <code>HttpOnly</code> session, scrypt verification</td></tr>
+        <tr><td>Idea quick-note read/create/edit</td><td><span class="pill pill-live">Live</span></td><td><code>/api/ideas/notes</code></td></tr>
+        <tr><td>Paystack status / invoices / links</td><td><span class="pill pill-live">Live</span></td><td><code>/api/money/paystack/*</code></td></tr>
+        <tr><td>n8n configure / trigger / retry</td><td><span class="pill pill-live">Live</span></td><td><code>/api/n8n/*</code></td></tr>
+        <tr><td>MCP access request / service toggle</td><td><span class="pill pill-live">Live</span></td><td><code>/api/mcp/*</code></td></tr>
+        <tr><td>API key list / create / revoke</td><td><span class="pill pill-live">Live</span></td><td><code>/api/api-keys</code></td></tr>
+        <tr><td>Automations list / create / toggle</td><td><span class="pill pill-placeholder">Placeholder</span></td><td><code>/v1/automations</code> (suggested)</td></tr>
+        <tr><td>Runs list / dispatch</td><td><span class="pill pill-placeholder">Placeholder</span></td><td><code>/v1/runs</code> (suggested)</td></tr>
+        <tr><td>Standard integrations (Stripe/PayPal, storage)</td><td><span class="pill pill-preview">Preview</span></td><td><code>/v1/integrations</code> (suggested)</td></tr>
+        <tr><td>MCP capability discovery / tool invocation</td><td><span class="pill pill-placeholder">Placeholder</span></td><td>Pending live gateway transport</td></tr>
+      </table></div>
+
+      <h3 class="subheading"><span class="fold"></span>UX states covered</h3>
+      <p>Initial data skeletons, disabled/loading actions, success toasts, active/paused/draft/running/completed/failed states, empty API-key state, one-time credential reveal, desktop/tablet/mobile navigation, command palette with escape-key dismissal, reduced-motion preference, offline shell with cached Idea-board state, and queued/synced/conflict-resolution states.</p>
+    </section>
+
+    <section id="durable-foundation" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>Durable foundation</h2>
+      <p>lancee persists identity, workspace membership, MCP grant state, MCP service activation, API keys, Idea notes, payment state, n8n delivery state, and mutation-idempotency records in SQLite at <code>.runtime/lancee.sqlite</code>.</p>
+      <p><code>.runtime/</code> is Git-ignored and restricted to the server operator. On startup the app enforces mode <code>0600</code> on the database and enables foreign-key enforcement, write-ahead logging, full synchronous durability, a five-second busy timeout, and strict SQLite tables.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Schema</h3>
+      <div class="table-wrap"><table>
+        <tr><th>Table</th><th>Responsibility</th></tr>
+        <tr><td><code>users</code></td><td>Durable identity, display name, email, scrypt password material</td></tr>
+        <tr><td><code>workspaces</code></td><td>Stable workspace identity and name</td></tr>
+        <tr><td><code>workspace_members</code></td><td>Owner/collaborator membership boundary</td></tr>
+        <tr><td><code>mcp_access</code></td><td>Workspace-scoped bearer request and approval state</td></tr>
+        <tr><td><code>mcp_service_state</code></td><td>Workspace-scoped service activation</td></tr>
+        <tr><td><code>api_keys</code></td><td>Masked metadata, SHA-256 secret hash, scopes, use/revocation timestamps</td></tr>
+        <tr><td><code>idempotency_requests</code></td><td>Mutation request hash and replayable non-secret response</td></tr>
+        <tr><td><code>payment_connections</code></td><td>Workspace provider status and non-secret credential fingerprint</td></tr>
+        <tr><td><code>invoices</code></td><td>Durable invoice snapshot with immutable provider reference</td></tr>
+        <tr><td><code>payment_links</code></td><td>Idempotent provider initialization and hosted checkout state</td></tr>
+        <tr><td><code>payment_events</code></td><td>Deduplicated normalized webhook outcomes</td></tr>
+        <tr><td><code>n8n_connections</code></td><td>Workspace URL/methods and AES-GCM encrypted signing secret</td></tr>
+        <tr><td><code>n8n_deliveries</code></td><td>Durable outbound/inbound status, correlation, and retry lineage</td></tr>
+        <tr><td><code>n8n_nonces</code></td><td>Workspace-scoped inbound replay protection</td></tr>
+        <tr><td><code>idea_notes</code></td><td>Workspace/board-scoped content with optimistic versions</td></tr>
+      </table></div>
+      <p>The configured administrator is an initial bootstrap identity: on startup lancee upserts it and ensures an owner membership in <code>WORKSPACE_ID</code>. Sessions issued before this migration remain valid, resolved by email; new sessions carry stable user and workspace IDs.</p>
+    </section>
+
+    <section id="durable-idempotency" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>Idempotent mutations</h2>
+      <p>Durable workspace mutations require an <code>Idempotency-Key</code> header, 8–128 characters. The server scopes the key to the workspace and route, hashes the normalized request, and stores the response for 24 hours.</p>
+      <ul>
+        <li>Repeating the same route, key, and payload replays the original response and sets <code>Idempotency-Replayed: true</code>.</li>
+        <li>Reusing the key with a different payload returns <code>409</code>.</li>
+        <li>Omitting or malforming the key returns <code>400</code>.</li>
+        <li>API-key creation stores only non-secret response data — its one-time secret is deterministically reconstructed for an idempotent retry from the server signing secret, workspace, key, and creation timestamp.</li>
+      </ul>
+      <pre><code>POST   /api/mcp/access-request
+POST   /api/mcp/access/revoke
+POST   /api/mcp/services/:serviceId
+POST   /api/api-keys
+DELETE /api/api-keys/:keyId
+POST   /api/ideas/notes
+PATCH  /api/ideas/notes/:noteId
+POST   /api/n8n/config
+POST   /api/n8n/disconnect
+POST   /api/n8n/deliveries
+POST   /api/n8n/deliveries/:deliveryId/retry
+POST   /api/n8n/inbound-self-test</code></pre>
+      <p>Paystack payment-link initialization also requires a stable idempotency key, retaining its request hash alongside provider state since the external call has a longer recovery lifecycle. Idea-note edits add optimistic concurrency: the request includes <code>expectedVersion</code>, and a stale edit returns <code>409</code> with the current server note for an explicit decision.</p>
+    </section>
+
+    <section id="durable-apikeys" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>API keys</h2>
+      <pre><code>GET    /api/api-keys
+POST   /api/api-keys
+DELETE /api/api-keys/:keyId</code></pre>
+      <p>Creation returns the full <code>lnc_live_...</code> value only as the logical creation response; lists return a masked identifier. The database stores a SHA-256 hash of the secret, never the secret itself. Revocation is soft, so audit timestamps stay available.</p>
+      <div class="table-wrap"><table>
+        <tr><th>Scope</th><th>Route</th></tr>
+        <tr><td><code>workspace:read</code></td><td><code>GET /api/v1/workspace</code></td></tr>
+        <tr><td><code>mcp:read</code></td><td><code>GET /api/v1/mcp/access</code></td></tr>
+      </table></div>
+      <p>Each successful bearer-authenticated request updates <code>last_used_at</code>. Missing scopes return <code>403</code>; unknown or revoked keys return <code>401</code>.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Verification</h3>
+      <pre><code>pnpm build
+pnpm lint
+pnpm verify:durability
+pnpm verify:offline</code></pre>
+      <p>The durability verifier starts lancee twice against a temporary database and checks database-backed login and membership, idempotency replay and conflict handling, MCP access/service state after restart, API-key hashing/masking/scoping, database mode <code>0600</code>, and revocation enforcement.</p>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- AUTH -->
+    <section id="auth-flow" class="section-block">
+      <div class="kicker">Authentication &amp; notifications</div>
+      <h2 class="section-heading"><span class="fold"></span>Session &amp; sign-in flow</h2>
+      <p>lancee uses an application-owned Express session rather than Firebase, keeping authentication, MCP grants, n8n signing secrets, SMTP credentials, and future provider tokens behind one trusted backend. Firebase remains a reasonable future identity provider — its ID token would be verified here and exchanged for the same session model.</p>
+      <ol>
+        <li>The public landing page renders for a visitor with no session.</li>
+        <li><code>GET /api/auth/session</code> restores an existing signed session.</li>
+        <li><code>POST /api/auth/login</code> resolves the user and owner membership from SQLite, then verifies the configured administrator with <code>scrypt</code>.</li>
+        <li>The server issues <code>lancee_session</code> as an <code>HttpOnly</code>, <code>Secure</code>, <code>SameSite=Lax</code> cookie.</li>
+        <li><code>POST /api/auth/logout</code> expires the cookie, returns to the landing page, and clears the browser's IndexedDB data.</li>
+      </ol>
+      <div class="pill-row"><span class="pill pill-security">Security defaults</span></div>
+      <ul>
+        <li>12-hour default session expiry, persistent 384-bit signing secret in <code>.runtime/session-secret</code>.</li>
+        <li>Constant-time password comparison; five failed attempts per IP per 15 minutes.</li>
+        <li>Same-origin checks for mutations; CSP, frame denial, MIME-sniffing protection, referrer policy, restrictive permissions.</li>
+        <li><code>Cache-Control: no-store</code> on authentication and MCP grant state.</li>
+      </ul>
+      <p>After one authenticated load, the browser retains a non-secret display snapshot of the last user/workspace so the installed shell can reopen cached Idea notes offline. This snapshot is never accepted by the server and never replaces the signed cookie.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Administrator sign-in &amp; password rotation</h3>
+      <p>Open <a href="https://agents.hygridtech.co.za" target="_blank" rel="noopener">agents.hygridtech.co.za</a>, select <strong>Sign in</strong>, and use the email in <code>ADMIN_EMAIL</code> with the password used to generate the current hash. There is no dashboard bypass and no plaintext password stored on the server.</p>
+      <pre><code>pnpm auth:hash</code></pre>
+      <p>The script prompts without echoing the password and prints a new <code>ADMIN_PASSWORD_SALT</code> / <code>ADMIN_PASSWORD_HASH</code>. Replace both in <code>.env</code>, then reload PM2 with <code>--update-env</code>.</p>
+    </section>
+
+    <section id="auth-smtp" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>SMTP notifications</h2>
+      <p>SMTP is disabled safely by default:</p>
+      <pre><code>SMTP_ENABLED=true
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_FROM_NAME=lancee
+SMTP_FROM_EMAIL=notifications@example.com
+SMTP_REPLY_TO=
+SMTP_TEST_TO=</code></pre>
+      <div class="table-wrap"><table>
+        <tr><th>Provider mode</th><th><code>SMTP_PORT</code></th><th><code>SMTP_SECURE</code></th></tr>
+        <tr><td>STARTTLS</td><td>587</td><td>false</td></tr>
+        <tr><td>Implicit TLS</td><td>465</td><td>true</td></tr>
+      </table></div>
+      <p><code>GET /api/notifications/status</code> reports whether the transport is enabled and configured, without returning credentials. <code>POST /api/notifications/test</code> sends a test message to <code>SMTP_TEST_TO</code> (falls back to <code>ADMIN_EMAIL</code>). MCP bearer requests emit a notification when SMTP is enabled — notification failure never leaks credentials or blocks the access request.</p>
+      <div class="callout callout-note">
+        <span class="callout-label">Files &amp; permissions</span>
+        <p><code>.env</code> is ignored, mode <code>0600</code>. <code>.env.example</code> holds names and safe defaults only. <code>.runtime/session-secret</code> and <code>.runtime/lancee.sqlite</code> are generated with mode <code>0600</code> and ignored. <code>server/notifications.mjs</code> creates the SMTP transport lazily, so missing credentials never block app startup.</p>
+      </div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- INTEGRATIONS -->
+    <section id="integrations-payments" class="section-block">
+      <div class="kicker">Connections</div>
+      <h2 class="section-heading"><span class="fold"></span>Payments &amp; invoicing overview</h2>
+      <p>Stripe, PayPal, and Paystack appear in <strong>Connections</strong> and <strong>Money</strong>. lancee stores normalized business records plus immutable provider references — the provider remains authoritative for settlement, and idempotency, webhook verification, currency, tax, refund, and partial-payment states are handled explicitly.</p>
+      <div class="card-grid">
+        <div class="card"><h4>Stripe <span class="pill pill-preview" style="margin-left:6px;">Preview</span></h4><p>Card/bank payments, hosted links, invoice reconciliation, verified webhooks — intended scope, not yet live.</p></div>
+        <div class="card"><h4>PayPal <span class="pill pill-preview" style="margin-left:6px;">Preview</span></h4><p>PayPal checkout and supported card payments for international clients — intended scope, not yet live.</p></div>
+        <div class="card"><h4>Paystack <span class="pill pill-live" style="margin-left:6px;">Live</span></h4><p>Region-friendly card/bank payments across African markets. Real server-side ZAR flow with verified webhook reconciliation.</p></div>
+      </div>
+      <p>See <a href="#paystack">Paystack flow</a> for full configuration and webhook details.</p>
+    </section>
+
+    <section id="integrations-n8n" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>n8n bridge <span class="pill pill-live" style="margin-left:10px;">Live &amp; durable</span></h2>
+      <p>A bidirectional, signed webhook bridge:</p>
+      <pre><code>lancee -- signed GET/POST --&gt; n8n
+lancee &lt;-- signed GET/POST -- n8n</code></pre>
+      <p>Configuration, nonce use, and every accepted or attempted delivery are durable per workspace.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Server configuration</h3>
+      <pre><code>N8N_BASE_URL=https://n8n.hygridtech.co.za
+N8N_SIGNING_SECRET=
+N8N_TIMEOUT_MS=10000</code></pre>
+      <p><code>N8N_BASE_URL</code> is the only allowed outbound origin. In production: HTTPS is required, embedded credentials/URL fragments are rejected, the origin must exactly match, DNS must resolve only to public addresses, and redirects are rejected. <code>N8N_SIGNING_SECRET</code> is an optional bootstrap secret — the Connections UI can set or rotate a workspace secret, encrypted at rest with AES-256-GCM. <code>N8N_ALLOW_PRIVATE=true</code> exists only for development verification and is ignored in production.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Configure in lancee</h3>
+      <ol>
+        <li>Create and activate an n8n workflow with a production Webhook node.</li>
+        <li>Open <strong>Connections → n8n</strong>.</li>
+        <li>Enter a webhook on the configured n8n origin, e.g. <code>https://n8n.hygridtech.co.za/webhook/lancee</code>.</li>
+        <li>Enter a shared secret of 32–256 characters, then save.</li>
+        <li>Send real outbound GET and POST deliveries.</li>
+        <li>Copy the generated inbound callback into the n8n HTTP Request node.</li>
+      </ol>
+
+      <h3 class="subheading"><span class="fold"></span>Signature contract</h3>
+      <pre><code>X-Lancee-Timestamp: &lt;Unix milliseconds&gt;
+X-Lancee-Nonce: &lt;base64url random value&gt;
+X-Lancee-Signature: &lt;HMAC-SHA256 hex&gt;
+X-Lancee-Correlation-Id: &lt;stable correlation id&gt;
+X-Lancee-Delivery-Id: &lt;delivery id&gt;   # outbound only</code></pre>
+      <p>The canonical signing value is five newline-separated fields:</p>
+      <pre><code>timestamp
+nonce
+UPPERCASE_METHOD
+path_and_query
+sha256_hex_of_exact_body_bytes</code></pre>
+      <pre><code>signature = hex(HMAC-SHA256(shared_secret, canonical_value))</code></pre>
+      <p>For GET, the body is empty and the query string is part of the signed path. Inbound timestamps must be within five minutes of server time; nonces are stored per workspace and accepted once, then retained ten minutes for replay cleanup.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Inbound callback</h3>
+      <pre><code>https://agents.hygridtech.co.za/api/hooks/n8n/&lt;workspace-id&gt;</code></pre>
+      <div class="table-wrap"><table>
+        <tr><th>Response</th><th>Meaning</th></tr>
+        <tr><td><code>202</code></td><td>Signature accepted and event recorded</td></tr>
+        <tr><td><code>401</code></td><td>Missing, invalid, or expired signature metadata</td></tr>
+        <tr><td><code>409</code></td><td>Nonce replay</td></tr>
+        <tr><td><code>415</code></td><td>POST was not sent as JSON</td></tr>
+        <tr><td><code>404</code></td><td>Workspace connection is absent or disconnected</td></tr>
+      </table></div>
+      <p>Verified inbound events are durably recorded; dispatching that event into a persisted automation engine remains later work.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Outbound delivery &amp; retry</h3>
+      <p>Outbound delivery creates a <code>pending</code> record before network I/O, sends with redirects disabled and a bounded timeout, then records <code>succeeded</code> (status + duration) or <code>failed</code> (normalized error code, status, duration). A manual retry creates a new attempt, retains the original correlation ID, links <code>retry_of</code>, and is limited to five attempts.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Server routes</h3>
+      <div class="table-wrap"><table>
+        <tr><th>Method</th><th>Route</th><th>Authentication</th></tr>
+        <tr><td>GET</td><td><code>/api/n8n/config</code></td><td>Workspace session</td></tr>
+        <tr><td>POST</td><td><code>/api/n8n/config</code></td><td>Session + <code>Idempotency-Key</code></td></tr>
+        <tr><td>POST</td><td><code>/api/n8n/disconnect</code></td><td>Session + <code>Idempotency-Key</code></td></tr>
+        <tr><td>GET</td><td><code>/api/n8n/deliveries</code></td><td>Workspace session</td></tr>
+        <tr><td>POST</td><td><code>/api/n8n/deliveries</code></td><td>Session + <code>Idempotency-Key</code></td></tr>
+        <tr><td>POST</td><td><code>/api/n8n/deliveries/:deliveryId/retry</code></td><td>Session + <code>Idempotency-Key</code></td></tr>
+        <tr><td>GET/POST</td><td><code>/api/hooks/n8n/:workspaceId</code></td><td>Timestamped HMAC + unused nonce</td></tr>
+      </table></div>
+      <pre><code>pnpm verify:n8n</code></pre>
+      <p style="font-size:13.5px;">The verifier runs lancee beside a local signed-webhook stub and checks HTTPS policy, exact-origin enforcement, encryption at rest, signatures, idempotent replay, real inbound GET/POST, stale timestamps, nonce replay, failure recording, retry lineage, and restart persistence — it makes no external request.</p>
+    </section>
+
+    <section id="integrations-mcp" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>MCP service grid <span class="pill pill-live" style="margin-left:10px;">Grants live</span></h2>
+      <p>MCP is a platform feature, not an integration people install — every workspace can browse the service catalog immediately. The backend boundary connects to <code>https://mcp.hygridtech.co.za</code>; the browser never receives <code>MCP_API_TOKEN</code>.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Bearer access lifecycle</h3>
+      <pre><code>available → pending or approved → activated services</code></pre>
+      <p>The user selects <strong>Request bearer access</strong>:</p>
+      <pre><code>POST /api/mcp/access-request
+Cookie: lancee_session=&lt;HttpOnly session&gt;</code></pre>
+      <ul>
+        <li>If <code>MCP_API_TOKEN</code> is configured, the request is approved automatically.</li>
+        <li>If not, the request remains pending for a future admin grant workflow.</li>
+        <li>Approved users can activate or deactivate individual services.</li>
+        <li>Revoking bearer access disables services but never removes MCP from the workspace.</li>
+      </ul>
+      <p>Bearer state and per-service activation survive process restarts in <code>mcp_access</code> and <code>mcp_service_state</code>.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Discovery <span class="pill pill-placeholder" style="margin-left:8px;">Placeholder catalog</span></h3>
+      <pre><code>GET /api/v1/capabilities
+Authorization: Bearer &lt;server-side token&gt;</code></pre>
+      <div class="table-wrap"><table>
+        <tr><th>Service</th><th>Tools</th></tr>
+        <tr><td><code>browser-worker</code></td><td>Ten browser, audit, extraction, screenshot, and document tools</td></tr>
+        <tr><td><code>text-worker</code></td><td>Text transformation, statistics, and replacement</td></tr>
+        <tr><td><code>data-worker</code></td><td>Bounded CSV/JSON conversion and field selection</td></tr>
+        <tr><td><code>utility-worker</code></td><td>Hashes, Base64, and UUID generation</td></tr>
+      </table></div>
+      <p>Service activation is durable; capability discovery and representative tool results remain placeholders until the gateway transport is connected. Browser automation tests use <code>website_smoke_test</code>.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Tool invocation</h3>
+      <pre><code>POST /api/v1/tools/{tool_id}/call
+Authorization: Bearer &lt;server-side token&gt;
+Content-Type: application/json</code></pre>
+      <p>The MCP registry resolves the active worker. Disabled services/tools cannot be invoked; a missing live lease returns <code>503</code>.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Credential boundary</h3>
+      <ul>
+        <li><code>PUBLIC_API_TOKEN</code> never enters the browser bundle.</li>
+        <li>Bearer request responses never contain a token or token hint.</li>
+        <li>Provider API keys referenced by MCP tools remain in the server-side secret store.</li>
+        <li>The frontend receives names, descriptions, tool schemas, activation state, and normalized invocation results only.</li>
+        <li>Browser artifacts must be proxied by an authenticated backend before embedding.</li>
+      </ul>
+
+      <h3 class="subheading"><span class="fold"></span>Deployment</h3>
+      <div class="table-wrap"><table>
+        <tr><td>Public URL</td><td><code>https://agents.hygridtech.co.za</code></td></tr>
+        <tr><td>Application listener</td><td><code>0.0.0.0:5177</code></td></tr>
+        <tr><td>PM2 process</td><td><code>nexus-agents-platform</code></td></tr>
+        <tr><td>TLS / reverse proxy</td><td>Nginx Proxy Manager</td></tr>
+        <tr><td>Upstream</td><td><code>http://192.168.1.66:5177</code></td></tr>
+      </table></div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- PAYSTACK -->
+    <section id="paystack" class="section-block">
+      <div class="kicker">Money</div>
+      <h2 class="section-heading"><span class="fold"></span>Paystack payment flow <span class="pill pill-live" style="margin-left:10px;">Live</span></h2>
+      <pre><code>invoice details → Paystack hosted checkout → verified webhook → paid invoice</code></pre>
+      <p>Uses Paystack's documented server-side secret-key authentication — no assumed OAuth flow, and the secret never enters the browser or SQLite.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Configuration</h3>
+      <pre><code>PAYSTACK_SECRET_KEY=sk_test_replace_me
+PAYSTACK_BASE_URL=https://api.paystack.co
+PAYSTACK_CALLBACK_URL=https://agents.hygridtech.co.za/?payment=paystack</code></pre>
+      <p>Start with an <code>sk_test_...</code> key — the Money UI reports test or live mode from the key prefix. lancee stores only a short SHA-256 fingerprint and the fact that the connection comes from the environment. Configure this webhook in the Paystack dashboard:</p>
+      <pre><code>https://agents.hygridtech.co.za/api/webhooks/paystack</code></pre>
+
+      <h3 class="subheading"><span class="fold"></span>User flow</h3>
+      <ol>
+        <li>Open <strong>Money</strong> and confirm the Paystack card says <strong>Connected</strong> (test or live).</li>
+        <li>Select <strong>Create payment link</strong> and enter client, email, project, ZAR amount, description, and optional due date.</li>
+        <li>Confirm creation — lancee initializes a hosted checkout but does not email, message, or charge the client automatically.</li>
+        <li>Review or copy the returned checkout link, then choose how to share it.</li>
+        <li>A verified <code>charge.success</code> webhook reconciles the invoice as paid.</li>
+      </ol>
+      <p style="font-size:13.5px;">The current flow intentionally supports ZAR only — multi-currency remains a later roadmap item.</p>
+    </section>
+
+    <section id="paystack-security" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>Webhook security &amp; boundaries</h2>
+      <div class="table-wrap"><table>
+        <tr><th>Method</th><th>Route</th><th>Authentication</th></tr>
+        <tr><td>GET</td><td><code>/api/money/paystack/status</code></td><td>Workspace session</td></tr>
+        <tr><td>GET</td><td><code>/api/money/invoices</code></td><td>Workspace session</td></tr>
+        <tr><td>POST</td><td><code>/api/money/paystack/payment-links</code></td><td>Session + <code>Idempotency-Key</code></td></tr>
+        <tr><td>POST</td><td><code>/api/webhooks/paystack</code></td><td>Paystack HMAC signature</td></tr>
+      </table></div>
+      <p>The webhook route reads the raw request body before JSON parsing, recomputes <code>x-paystack-signature</code> as HMAC-SHA512 with the server secret, and compares it in constant time. A signed event marks an invoice paid only when:</p>
+      <ul>
+        <li>the event type is <code>charge.success</code>;</li>
+        <li>the provider reference matches a known Paystack payment link;</li>
+        <li>provider status is <code>success</code>;</li>
+        <li>amount and currency exactly match the stored values.</li>
+      </ul>
+      <p>Unknown, irrelevant, or mismatched signed events are acknowledged but never change money records; exact duplicates never reprocess. Raw provider payloads are not retained — lancee stores a hash and normalized result. Database triggers reject changes to invoice/payment-link provider references after insertion.</p>
+
+      <div class="callout callout-warning">
+        <span class="callout-label">Honest boundaries</span>
+        <p>Checkout initialization and webhook reconciliation are live when a key is configured. The app creates a hosted link — it never directly charges stored cards, and nothing is sent to a client automatically. Refunds, partial payments, disputes, verification recovery, tax, and multi-currency are not yet implemented. Stripe and PayPal remain labelled previews.</p>
+      </div>
+
+      <pre><code>pnpm verify:paystack</code></pre>
+      <p style="font-size:13.5px;">Uses a temporary local Paystack stub — never contacts Paystack or creates a real charge. Checks server-side authorization, request shape, idempotent initialization, immutable references, signature rejection, amount matching, reconciliation, duplicate handling, secret absence from SQLite, and persistence after restart.</p>
+      <p style="font-size:13px;">Official references: <a href="https://paystack.com/docs/api/authentication/" target="_blank" rel="noopener">Authentication</a> · <a href="https://paystack.com/docs/api/transaction/" target="_blank" rel="noopener">Transaction initialization</a> · <a href="https://paystack.com/docs/payments/webhooks/" target="_blank" rel="noopener">Webhook verification</a></p>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- OFFLINE / PWA -->
+    <section id="offline-overview" class="section-block">
+      <div class="kicker">Offline &amp; PWA</div>
+      <h2 class="section-heading"><span class="fold"></span>Offline boundary</h2>
+      <p>lancee is installable as a PWA and provides a deliberately narrow offline workflow for quick notes on the Ideas canvas.</p>
+      <div class="table-wrap"><table>
+        <tr><th>Capability</th><th>Offline behavior</th></tr>
+        <tr><td>Application shell</td><td>Cached after the first successful production load</td></tr>
+        <tr><td>Last workspace identity</td><td>Cached only to reopen the local shell</td></tr>
+        <tr><td>Idea quick-note reads</td><td>Last workspace/board snapshot read from IndexedDB</td></tr>
+        <tr><td>Idea quick-note creates/edits</td><td>Optimistically stored, then queued in IndexedDB</td></tr>
+        <tr><td>Payments &amp; payment links</td><td><span class="pill pill-security">Online only</span> — never queued</td></tr>
+        <tr><td>API key / MCP / n8n / connection changes</td><td><span class="pill pill-security">Online only</span> — never queued</td></tr>
+        <tr><td>API responses</td><td>Never stored by the service worker</td></tr>
+      </table></div>
+      <p>The cached identity is a display snapshot, not an authentication credential — the signed session remains an <code>HttpOnly</code> cookie. Explicit sign-out clears the cached identity, Idea snapshots, and queued mutations from IndexedDB.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Install behavior</h3>
+      <p><code>public/manifest.webmanifest</code> defines the standalone identity, colors, scope, and icon. <code>public/sw.js</code> installs only in production and:</p>
+      <ul>
+        <li>precaches the HTML shell and hashed CSS/JS assets;</li>
+        <li>uses a network-first navigation strategy with an offline shell fallback;</li>
+        <li>caches same-origin static GET assets;</li>
+        <li>bypasses every <code>/api/</code> request and every non-GET request;</li>
+        <li>removes previous shell cache versions on activation.</li>
+      </ul>
+      <p>Installation requires HTTPS in production (or localhost in development) and one successful online load before the shell works offline.</p>
+    </section>
+
+    <section id="offline-notes" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>Idea notes, queueing &amp; conflicts</h2>
+      <div class="table-wrap"><table>
+        <tr><th>Method</th><th>Route</th><th>Contract</th></tr>
+        <tr><td>GET</td><td><code>/api/ideas/notes?boardId=...</code></td><td>Authenticated workspace read</td></tr>
+        <tr><td>POST</td><td><code>/api/ideas/notes</code></td><td>Session + stable <code>Idempotency-Key</code></td></tr>
+        <tr><td>PATCH</td><td><code>/api/ideas/notes/:noteId</code></td><td>Session + stable key + <code>expectedVersion</code></td></tr>
+      </table></div>
+      <p>The browser commits the local note and queue record to IndexedDB before trying the network — each mutation retains its body and idempotency key, so a lost response can be retried without creating a duplicate or double-applying an edit.</p>
+      <p>The queue flushes immediately after a local write when online, on the browser's <code>online</code> event, when an authenticated workspace is restored, or after a supported Background Sync event. HTTP <code>5xx</code>, network failure, or expired auth leaves the mutation queued; a permanent client rejection is surfaced for review rather than dropped silently.</p>
+
+      <h3 class="subheading"><span class="fold"></span>Conflict handling</h3>
+      <p>Edits send the version they were based on — the server updates only when <code>expectedVersion</code> matches the current row version, otherwise it returns <code>409</code> with the current server note. The Ideas canvas then offers an explicit choice:</p>
+      <ul>
+        <li><strong>Use server</strong> removes the queued mutation and restores the current server version.</li>
+        <li><strong>Keep mine</strong> issues a new mutation and idempotency key based on the returned server version.</li>
+      </ul>
+      <p>This is deliberate last-writer resolution — the queue never silently overwrites a newer server note.</p>
+      <div class="callout callout-note">
+        <span class="callout-label">Local-data note</span>
+        <p>IndexedDB data is scoped by workspace but not encrypted by lancee — rely on OS-level device encryption and account lock on shared devices. Don't use the Idea quick-note field for credentials or regulated secrets. Broader visual-board records, attachments, projects, and automations are not yet offline domain records.</p>
+      </div>
+      <pre><code>pnpm build
+pnpm lint
+pnpm verify:offline
+node --check public/sw.js</code></pre>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- API REFERENCE -->
+    <section id="api-reference" class="section-block">
+      <div class="kicker">Reference</div>
+      <h2 class="section-heading"><span class="fold"></span>Complete API reference</h2>
+      <div class="table-wrap"><table>
+        <tr><th>Method</th><th>Route</th><th>Auth</th></tr>
+        <tr><td>GET</td><td><code>/api/health</code></td><td>Public</td></tr>
+        <tr><td>GET</td><td><code>/api/auth/session</code></td><td>Session response</td></tr>
+        <tr><td>POST</td><td><code>/api/auth/login</code></td><td>Public, origin-checked, rate-limited</td></tr>
+        <tr><td>POST</td><td><code>/api/auth/logout</code></td><td>Session mutation, origin-checked</td></tr>
+        <tr><td>GET</td><td><code>/api/ideas/notes?boardId=...</code></td><td>Required</td></tr>
+        <tr><td>POST</td><td><code>/api/ideas/notes</code></td><td>Required</td></tr>
+        <tr><td>PATCH</td><td><code>/api/ideas/notes/:noteId</code></td><td>Required</td></tr>
+        <tr><td>GET</td><td><code>/api/mcp/access</code></td><td>Required</td></tr>
+        <tr><td>GET</td><td><code>/api/mcp/services</code></td><td>Required</td></tr>
+        <tr><td>POST</td><td><code>/api/mcp/access-request</code></td><td>Required</td></tr>
+        <tr><td>POST</td><td><code>/api/mcp/access/revoke</code></td><td>Required</td></tr>
+        <tr><td>POST</td><td><code>/api/mcp/services/:serviceId</code></td><td>Required</td></tr>
+        <tr><td>GET</td><td><code>/api/money/paystack/status</code></td><td>Required</td></tr>
+        <tr><td>GET</td><td><code>/api/money/invoices</code></td><td>Required</td></tr>
+        <tr><td>POST</td><td><code>/api/money/paystack/payment-links</code></td><td>Required</td></tr>
+        <tr><td>POST</td><td><code>/api/webhooks/paystack</code></td><td>Paystack signature</td></tr>
+        <tr><td>GET</td><td><code>/api/n8n/config</code></td><td>Required</td></tr>
+        <tr><td>POST</td><td><code>/api/n8n/config</code></td><td>Required</td></tr>
+        <tr><td>POST</td><td><code>/api/n8n/disconnect</code></td><td>Required</td></tr>
+        <tr><td>GET</td><td><code>/api/n8n/deliveries</code></td><td>Required</td></tr>
+        <tr><td>POST</td><td><code>/api/n8n/deliveries</code></td><td>Required</td></tr>
+        <tr><td>POST</td><td><code>/api/n8n/deliveries/:deliveryId/retry</code></td><td>Required</td></tr>
+        <tr><td>POST</td><td><code>/api/n8n/inbound-self-test</code></td><td>Required</td></tr>
+        <tr><td>GET/POST</td><td><code>/api/hooks/n8n/:workspaceId</code></td><td>Timestamped signature + nonce</td></tr>
+        <tr><td>GET</td><td><code>/api/api-keys</code></td><td>Required</td></tr>
+        <tr><td>POST</td><td><code>/api/api-keys</code></td><td>Required</td></tr>
+        <tr><td>DELETE</td><td><code>/api/api-keys/:keyId</code></td><td>Required</td></tr>
+        <tr><td>GET</td><td><code>/api/v1/workspace</code></td><td><code>workspace:read</code> API key</td></tr>
+        <tr><td>GET</td><td><code>/api/v1/mcp/access</code></td><td><code>mcp:read</code> API key</td></tr>
+        <tr><td>GET</td><td><code>/api/notifications/status</code></td><td>Required</td></tr>
+        <tr><td>POST</td><td><code>/api/notifications/test</code></td><td>Required</td></tr>
+      </table></div>
+    </section>
+
+    <section id="project-map" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>Project map</h2>
+      <div class="table-wrap"><table>
+        <tr><th>Path</th><th>Responsibility</th></tr>
+        <tr><td><code>src/App.tsx</code></td><td>Landing page, authenticated workspace, interaction flows</td></tr>
+        <tr><td><code>src/index.css</code></td><td>Complete responsive visual system</td></tr>
+        <tr><td><code>src/lib/mockApi.ts</code></td><td>Typed placeholder actions and durable backend client boundary</td></tr>
+        <tr><td><code>src/lib/offlineStore.ts</code></td><td>IndexedDB identity, Idea snapshots, queued mutations</td></tr>
+        <tr><td><code>src/lib/ideasRepository.ts</code></td><td>Idea API, reconnect sync, idempotent replay, conflict resolution</td></tr>
+        <tr><td><code>public/sw.js</code></td><td>Static-only application-shell cache and sync handoff</td></tr>
+        <tr><td><code>public/manifest.webmanifest</code></td><td>Installable application identity</td></tr>
+        <tr><td><code>server/index.mjs</code></td><td>Express, authentication, sessions, MCP, API keys, routing</td></tr>
+        <tr><td><code>server/database.mjs</code></td><td>SQLite schema and workspace-scoped repositories</td></tr>
+        <tr><td><code>server/paystack.mjs</code></td><td>Paystack auth, initialization, timeout, signature verification</td></tr>
+        <tr><td><code>server/n8n.mjs</code></td><td>URL policy, encryption, canonical signatures, DNS checks, delivery</td></tr>
+        <tr><td><code>server/notifications.mjs</code></td><td>SMTP transport and notification delivery</td></tr>
+        <tr><td><code>scripts/hash-password.mjs</code></td><td>Interactive scrypt credential generator</td></tr>
+        <tr><td><code>scripts/verify-durable-foundation.mjs</code></td><td>Restart, hashing, scoping, idempotency, revocation verification</td></tr>
+        <tr><td><code>scripts/verify-paystack-flow.mjs</code></td><td>Mocked Paystack initialization and webhook verification</td></tr>
+        <tr><td><code>scripts/verify-n8n-bridge.mjs</code></td><td>Signed GET/POST, replay, retry, encryption, restart verification</td></tr>
+        <tr><td><code>scripts/verify-offline-sync.mjs</code></td><td>PWA boundary, durable notes, idempotency, conflicts, restart verification</td></tr>
+        <tr><td><code>.env.example</code></td><td>Safe environment template</td></tr>
+        <tr><td><code>ecosystem.config.cjs</code></td><td>PM2 process definition</td></tr>
+      </table></div>
+    </section>
+
+    <section id="checklist" class="section-block">
+      <h2 class="section-heading"><span class="fold"></span>Production readiness checklist</h2>
+      <ul class="checklist">
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Dependencies install with <code>pnpm install --frozen-lockfile</code></li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> <code>pnpm build</code> succeeds</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> <code>pnpm verify:durability</code>, <code>verify:paystack</code>, <code>verify:n8n</code>, <code>verify:offline</code> all succeed</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Server syntax checks succeed</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> <code>.env</code> exists, excluded from Git, mode <code>600</code>, no plaintext admin password</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> <code>PUBLIC_ORIGIN</code> matches the HTTPS production origin</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Health route responds through the public hostname</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Administrator sign-in, refresh, and sign-out work</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> SMTP test delivery succeeds, or SMTP is explicitly disabled</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> MCP access mode is intentionally manual or automatic</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Paystack stays in test mode until initialization and webhook checks pass</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> <code>.runtime/lancee.sqlite</code> is on a persistent, backed-up volume</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> n8n outbound GET/POST and an externally signed inbound callback pass</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Installed shell opens offline and queued Idea notes sync on reconnect</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> PM2 restarts the service and the reverse proxy stays healthy</li>
+      </ul>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  <div class="brand"><img src="img/icon.png" alt="lancee" style="width:20px;height:20px;border-radius:4px;"><span style="font-size:15px;">lancee</span></div>
+  <p style="color:var(--text-faint); margin-bottom:6px;">Connect · Collaborate · Automate · Deliver</p>
+  <p style="margin-bottom:0;"><a href="https://agents.hygridtech.co.za" target="_blank" rel="noopener">agents.hygridtech.co.za</a> · <a href="#">Documentation</a></p>
+</footer>
+
+<script>
+  const toggle = document.getElementById('menuToggle');
+  const sidebar = document.getElementById('sidebar');
+  toggle.addEventListener('click', () => sidebar.classList.toggle('open'));
+  sidebar.querySelectorAll('a').forEach(a => a.addEventListener('click', () => sidebar.classList.remove('open')));
+
+  const links = Array.from(document.querySelectorAll('nav.sidebar a'));
+  const sections = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      const id = '#' + entry.target.id;
+      const link = links.find(a => a.getAttribute('href') === id);
+      if (!link) return;
+      if (entry.isIntersecting) {
+        links.forEach(a => a.classList.remove('active'));
+        link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-15% 0px -70% 0px', threshold: 0 });
+
+  sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>

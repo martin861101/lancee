@@ -1,0 +1,43 @@
+{
+  "name": "agent-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "start": "node --env-file=.env server/index.mjs",
+    "auth:hash": "node scripts/hash-password.mjs",
+    "verify:durability": "node scripts/verify-durable-foundation.mjs",
+    "verify:paystack": "node scripts/verify-paystack-flow.mjs",
+    "verify:n8n": "node scripts/verify-n8n-bridge.mjs",
+    "verify:offline": "node scripts/verify-offline-sync.mjs"
+  },
+  "dependencies": {
+    "@dnd-kit/helpers": "^0.5.0",
+    "@dnd-kit/react": "^0.5.0",
+    "express": "^5.2.1",
+    "gsap": "^3.15.0",
+    "konva": "^10.3.0",
+    "motion": "^12.42.2",
+    "nodemailer": "^9.0.3",
+    "pg": "^8.22.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-konva": "^19.2.5",
+    "use-image": "^1.1.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "oxlint": "^1.71.0",
+    "pg-mem": "^3.0.14",
+    "typescript": "~6.0.2",
+    "vite": "^8.1.1"
+  }
+}

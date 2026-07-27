@@ -1,0 +1,20 @@
+[Unit]
+Description=lancee — Intelligent work, orchestrated
+Documentation=https://lancee.ai
+After=network.target
+
+[Service]
+Type=exec
+User=root
+WorkingDirectory=/home/apps/agent-app
+Environment=NODE_ENV=production
+Environment=APP_ENV=production
+ExecStart=/usr/bin/node --env-file=/home/apps/agent-app/.env /home/apps/agent-app/server/index.mjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+StandardOutput=append:/home/apps/agent-app/.runtime/service.log
+StandardError=append:/home/apps/agent-app/.runtime/service.log
+
+[Install]
+WantedBy=multi-user.target

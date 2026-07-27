@@ -1,0 +1,38 @@
+services:
+  app:
+    build: .
+    ports:
+      - "5177:5177"
+    environment:
+      - NODE_ENV=production
+      - APP_ENV=production
+      - PGHOST=db
+      - PGPORT=5432
+    env_file:
+      - .env
+    volumes:
+      - .runtime:/app/.runtime
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lancee
+      POSTGRES_PASSWORD: Nui
+      POSTGRES_DB: lancee_app
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lancee -d lancee_app"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
