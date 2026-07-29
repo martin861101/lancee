@@ -1,11 +1,30 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 const MAX_BUFFERED_EVENTS = 300
+const MANAGED_PERMISSION_PROFILE = `# Managed by lancee. Changes are replaced when App Server starts.
+default_permissions = "lancee-workspace"
+
+[permissions.lancee-workspace]
+description = "Write inside the configured lancee workspace only."
+
+[permissions.lancee-workspace.filesystem]
+":root" = "deny"
+":minimal" = "read"
+":tmpdir" = "deny"
+":slash_tmp" = "deny"
+
+[permissions.lancee-workspace.filesystem.":workspace_roots"]
+"." = "write"
+
+[permissions.lancee-workspace.network]
+enabled = false
+`
 
 export class CodexAppServerError extends Error {
   constructor(message, { code = 'CODEX_APP_SERVER_ERROR', status = 502 } = {}) {
@@ -75,6 +94,9 @@ class CodexAppServerClient {
 
     this.startPromise = new Promise((resolve, reject) => {
       mkdirSync(this.codexHome, { recursive: true, mode: 0o700 })
+      writeFileSync(join(this.codexHome, 'config.toml'), MANAGED_PERMISSION_PROFILE, {
+        mode: 0o600,
+      })
       const child = this.spawnProcess(
         this.binary,
         [...this.binaryArguments, 'app-server', '--stdio'],
@@ -299,7 +321,6 @@ class CodexAppServerClient {
     return this.request('thread/start', {
       cwd: this.workspaceRoot,
       approvalPolicy: 'never',
-      sandbox: 'workspace-write',
     })
   }
 
@@ -310,16 +331,6 @@ class CodexAppServerClient {
       input: [{ type: 'text', text: prompt }],
       cwd: this.workspaceRoot,
       approvalPolicy: 'never',
-      sandboxPolicy: {
-        type: 'workspaceWrite',
-        writableRoots: [this.workspaceRoot],
-        readOnlyAccess: {
-          type: 'restricted',
-          includePlatformDefaults: true,
-          readableRoots: [this.workspaceRoot],
-        },
-        networkAccess: false,
-      },
     })
   }
 

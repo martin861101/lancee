@@ -115,9 +115,9 @@ device-code flow, and streams thread events to the authenticated browser over
 SSE.
 
 Each lancee workspace/user pair receives an isolated server-side `CODEX_HOME`.
-Turns are limited to the fixed `CODEX_WORKSPACE_ROOT`, use workspace-write with
-restricted read roots, disable tool network access, and never auto-approve
-privilege escalation.
+Turns use a managed `lancee-workspace` permission profile limited to the fixed
+`CODEX_WORKSPACE_ROOT`, minimal runtime reads, no tool network access, and no
+automatic privilege escalation.
 
 Configure local installations with:
 
@@ -126,8 +126,9 @@ CODEX_BINARY=codex
 CODEX_WORKSPACE_ROOT=/absolute/path/to/project
 ```
 
-The Docker image installs the pinned Codex CLI, and Compose mounts
-`CODEX_WORKSPACE_PATH` at `/workspace`. See
+The Docker image installs the pinned Codex CLI, the OS CA trust store, and the
+Linux `bubblewrap` sandbox; Compose mounts `CODEX_WORKSPACE_PATH` at
+`/workspace`. See
 [`docs/CODEX_APP_SERVER.md`](docs/CODEX_APP_SERVER.md) for connection steps,
 architecture, endpoints, security boundaries, Docker setup, and verification.
 

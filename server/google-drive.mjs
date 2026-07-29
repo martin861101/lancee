@@ -115,12 +115,19 @@ export function getGoogleDriveConfig({ publicOrigin, env = process.env } = {}) {
   }
 }
 
-export function createOAuthState({ workspaceId, userId, serverSecret }) {
+export function createOAuthState({
+  workspaceId,
+  userId,
+  serverSecret,
+  returnTo = 'integrations',
+}) {
   const now = Math.floor(Date.now() / 1000)
+  const returnPage = returnTo === 'files' ? 'files' : 'integrations'
   const payload = Buffer.from(
     JSON.stringify({
       wsp: workspaceId,
       sub: userId,
+      ret: returnPage,
       nonce: randomBytes(12).toString('base64url'),
       iat: now,
       exp: now + OAUTH_STATE_TTL_SECONDS,
@@ -155,11 +162,18 @@ export function parseOAuthState(state, serverSecret) {
   return {
     workspaceId: String(parsed.wsp),
     userId: String(parsed.sub),
+    returnTo: parsed.ret === 'files' ? 'files' : 'integrations',
     nonce: parsed.nonce ? String(parsed.nonce) : null,
   }
 }
 
-export function buildGoogleAuthUrl({ clientId, redirectUri, state, scope = DRIVE_FILE_SCOPE }) {
+export function buildGoogleAuthUrl({
+  clientId,
+  redirectUri,
+  state,
+  scope = DRIVE_FILE_SCOPE,
+  usePicker = true,
+}) {
   const url = new URL(GOOGLE_AUTH_URL)
   url.searchParams.set('client_id', clientId)
   url.searchParams.set('redirect_uri', redirectUri)
@@ -171,6 +185,11 @@ export function buildGoogleAuthUrl({ clientId, redirectUri, state, scope = DRIVE
   url.searchParams.set('include_granted_scopes', 'false')
   url.searchParams.set('scope', scope)
   url.searchParams.set('state', state)
+  if (usePicker) {
+    url.searchParams.set('trigger_onepick', 'true')
+    url.searchParams.set('allow_multiple', 'true')
+    url.searchParams.set('allow_folder_selection', 'true')
+  }
   return url.toString()
 }
 

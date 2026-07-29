@@ -49,6 +49,7 @@ export default function FilesPage({
   const [notice, setNotice] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [driveFiles, setDriveFiles] = useState<DriveFile[]>([])
+  const [driveListLoaded, setDriveListLoaded] = useState(false)
   const [driveLoading, setDriveLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [provider, setProvider] = useState<StorageProvider>('drive')
@@ -67,6 +68,30 @@ export default function FilesPage({
     setIntegrations(integrationList)
   }, [])
 
+  const loadDriveFiles = useCallback(async () => {
+    setError('')
+    setDriveLoading(true)
+    try {
+      setDriveFiles(await api.googleDrive.list())
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to load Drive files')
+      setDriveFiles([])
+    } finally {
+      setDriveListLoaded(true)
+      setDriveLoading(false)
+    }
+  }, [])
+
+  const openDrivePicker = useCallback(async () => {
+    setError('')
+    try {
+      const url = await api.googleDrive.getAuthUrl('files')
+      window.location.assign(url)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to open Google Drive')
+    }
+  }, [])
+
   useEffect(() => {
     let isMounted = true
     load()
@@ -80,6 +105,15 @@ export default function FilesPage({
       isMounted = false
     }
   }, [load])
+
+  const driveConnected = integrations.some(
+    (integration) => integration.id === 'drive' && integration.connected,
+  )
+
+  useEffect(() => {
+    if (loading || !driveConnected || driveListLoaded || driveLoading) return
+    void loadDriveFiles()
+  }, [driveConnected, driveListLoaded, driveLoading, loadDriveFiles, loading])
 
   const storageIntegrations = useMemo(
     () => integrations.filter((item) => item.category === 'Storage'),
@@ -251,27 +285,13 @@ export default function FilesPage({
                     className="button button--primary button--small"
                     onClick={async () => {
                       if (!integration.connected) {
-                        try {
-                          const url = await api.googleDrive.getAuthUrl()
-                          window.location.href = url
-                        } catch (e) {
-                          setError(e instanceof Error ? e.message : 'Unable to connect Google Drive')
-                        }
+                        await openDrivePicker()
                         return
                       }
-                      setError('')
-                      setDriveLoading(true)
-                      try {
-                        const files = await api.googleDrive.list()
-                        setDriveFiles(files)
-                      } catch (e) {
-                        setError(e instanceof Error ? e.message : 'Unable to load Drive files')
-                      } finally {
-                        setDriveLoading(false)
-                      }
+                      await loadDriveFiles()
                     }}
                   >
-                    {driveLoading ? 'Loading…' : integration.connected ? 'View Drive files' : 'Connect Google Drive'}
+                    {driveLoading ? 'Loading…' : integration.connected ? 'Refresh Drive files' : 'Connect & choose files'}
                   </button>
                   {integration.connected && (
                     <button
@@ -281,6 +301,7 @@ export default function FilesPage({
                         try {
                           await api.googleDrive.disconnect()
                           setDriveFiles([])
+                          setDriveListLoaded(false)
                           await load()
                           onToast('Google Drive disconnected')
                         } catch (caught) {
@@ -296,29 +317,51 @@ export default function FilesPage({
             </article>
           )
         })}
-      {/* Drive file list */}
-      {driveFiles.length > 0 && (
-        <section className="dashboard-card-grid" aria-label="Google Drive files">
-          {driveFiles.map((file) => (
-            <article key={file.id} className="dashboard-provider-card">
-              <div className="dashboard-provider-card__head">
-                <div>
-                  <h4>{file.name}</h4>
-                  <p>{file.mimeType}</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                className="button button--secondary button--small"
-                onClick={() => window.open(file.webViewLink, '_blank')}
-              >
-                Open
-              </button>
-            </article>
-          ))}
+      </section>
+
+      {driveConnected && driveListLoaded && (
+        <section className="dashboard-drive-browser" aria-label="Google Drive files">
+          <div className="dashboard-drive-browser__header">
+            <div>
+              <h3>Files shared from Google Drive</h3>
+              <p>Only files and folders you choose are available to this workspace.</p>
+            </div>
+            <button
+              type="button"
+              className="button button--secondary button--small"
+              onClick={() => void openDrivePicker()}
+            >
+              Choose Drive files
+            </button>
+          </div>
+          {driveFiles.length === 0 ? (
+            <div className="dashboard-empty dashboard-drive-browser__empty">
+              No Drive files have been shared with lancee yet. Choose files or folders to make them available here.
+            </div>
+          ) : (
+            <div className="dashboard-card-grid">
+              {driveFiles.map((file) => (
+                <article key={file.id} className="dashboard-provider-card">
+                  <div className="dashboard-provider-card__head">
+                    <div>
+                      <h4>{file.name}</h4>
+                      <p>{file.mimeType}</p>
+                    </div>
+                  </div>
+                  <a
+                    className="button button--secondary button--small"
+                    href={file.webViewLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Open
+                  </a>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
       )}
-      </section>
 
       {formOpen && (
         <form className="dashboard-link-form" onSubmit={handleAddLink}>

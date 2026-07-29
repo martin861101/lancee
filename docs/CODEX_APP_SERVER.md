@@ -83,8 +83,9 @@ and clears the OpenAI account from that user's isolated Codex home.
 
 ## Docker deployment
 
-The production image installs the pinned Codex CLI. Compose mounts the host
-workspace at `/workspace`:
+The production image installs the pinned Codex CLI, the operating-system CA
+trust store required by Codex's native HTTPS client, and `bubblewrap` for the
+Linux sandbox. Compose mounts the host workspace at `/workspace`:
 
 ```dotenv
 CODEX_WORKSPACE_PATH=/srv/repos/customer-project
@@ -100,6 +101,11 @@ POSTGRES_PASSWORD='replace-with-a-long-secret' docker compose up -d --build
 The existing `.runtime:/app/.runtime` mount persists per-user Codex auth and
 thread state across container restarts. Back up and protect this directory as
 credential-bearing application state.
+
+If device login reports `failed to request device code`, verify the runtime
+image contains `/etc/ssl/certs/ca-certificates.crt`. Node's `fetch` can succeed
+without that file because Node ships its own trust roots, while the Codex
+binary requires the operating-system CA bundle.
 
 ## API surface
 
@@ -118,13 +124,19 @@ origin checks.
 
 ## Security boundary
 
-Every web-created thread and turn uses:
+Every App Server process receives a managed `config.toml` in its isolated
+`CODEX_HOME`. The `lancee-workspace` permission profile grants:
 
 - `approvalPolicy: "never"`;
-- workspace-write sandboxing;
-- a single server-configured writable root;
-- restricted read access rooted at that workspace;
-- tool network access disabled.
+- minimal operating-system/runtime reads;
+- writes only through the single server-configured workspace root;
+- denied reads outside the minimal runtime and workspace;
+- denied `/tmp` and `$TMPDIR` access;
+- disabled tool network access.
+
+The bridge deliberately does not send legacy `sandbox`, `sandboxPolicy`, or
+`workspaceWrite.readOnlyAccess` fields. Permission profiles replace those
+settings in current Codex versions.
 
 Unsupported App Server requests are rejected or declined by the backend. The UI
 does not auto-approve command escalation, extra filesystem access, MCP

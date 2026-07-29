@@ -21,8 +21,10 @@ const state = createOAuthState({
   workspaceId: 'wsp_drive_test',
   userId: 'usr_drive_test',
   serverSecret,
+  returnTo: 'files',
 })
 assert.equal(parseOAuthState(state, serverSecret).workspaceId, 'wsp_drive_test')
+assert.equal(parseOAuthState(state, serverSecret).returnTo, 'files')
 assert.throws(() => parseOAuthState(`${state}x`, serverSecret))
 
 const authorizationUrl = new URL(buildGoogleAuthUrl({
@@ -37,6 +39,9 @@ assert.equal(
   authorizationUrl.searchParams.get('include_granted_scopes'),
   'false',
 )
+assert.equal(authorizationUrl.searchParams.get('trigger_onepick'), 'true')
+assert.equal(authorizationUrl.searchParams.get('allow_multiple'), 'true')
+assert.equal(authorizationUrl.searchParams.get('allow_folder_selection'), 'true')
 
 const originalFetch = globalThis.fetch
 const calls = []

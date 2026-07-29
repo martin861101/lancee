@@ -3646,9 +3646,12 @@ app.delete('/api/projects/files/:fileId', secureMutations, requireAuth, async (r
 
 const googleDrive = getGoogleDriveConfig({ publicOrigin })
 
-function redirectDriveResult(response, { status, message = '' }) {
+function redirectDriveResult(
+  response,
+  { status, message = '', returnTo = 'integrations' },
+) {
   const target = new URL(publicOrigin)
-  target.searchParams.set('page', 'integrations')
+  target.searchParams.set('page', returnTo === 'files' ? 'files' : 'integrations')
   target.searchParams.set('drive', status)
   if (message) target.searchParams.set('driveMessage', message.slice(0, 180))
   response.redirect(target.toString())
@@ -3743,6 +3746,10 @@ app.get('/api/google-drive/oauth/url', requireAuth, async (request, response) =>
   }
 
   const selectedWorkspaceId = request.auth.context.workspace.id
+  const returnTo =
+    String(request.query?.returnTo || '').trim() === 'files'
+      ? 'files'
+      : 'integrations'
   const existingToken = await database.getGoogleDriveToken(selectedWorkspaceId)
   if (existingToken && !tokenHasDriveFileScope(existingToken)) {
     await database.deleteGoogleDriveToken(selectedWorkspaceId)
@@ -3752,6 +3759,7 @@ app.get('/api/google-drive/oauth/url', requireAuth, async (request, response) =>
     workspaceId: selectedWorkspaceId,
     userId: request.auth.context.user.id,
     serverSecret: sessionSecret,
+    returnTo,
   })
   const url = buildGoogleAuthUrl({
     clientId: googleDrive.clientId,
@@ -3770,22 +3778,32 @@ app.get(
   ['/oauth/callback', '/api/google-drive/oauth/callback'],
   async (request, response) => {
   response.set('Cache-Control', 'no-store')
+  let returnTo = 'integrations'
+  const state = String(request.query?.state || '').trim()
+  if (state) {
+    try {
+      returnTo = parseOAuthState(state, sessionSecret).returnTo
+    } catch {
+      // The normal callback validation below reports invalid state.
+    }
+  }
   const errorParam = String(request.query?.error || '').trim()
   if (errorParam) {
     const description = String(request.query?.error_description || errorParam).trim()
     redirectDriveResult(response, {
       status: 'error',
       message: description || 'Google authorization was denied.',
+      returnTo,
     })
     return
   }
 
   const code = String(request.query?.code || '').trim()
-  const state = String(request.query?.state || '').trim()
   if (!code || !state) {
     redirectDriveResult(response, {
       status: 'error',
       message: 'Missing OAuth code or state from Google.',
+      returnTo,
     })
     return
   }
@@ -3794,12 +3812,14 @@ app.get(
     redirectDriveResult(response, {
       status: 'error',
       message: 'Google Drive is not configured on the server.',
+      returnTo,
     })
     return
   }
 
   try {
     const claims = parseOAuthState(state, sessionSecret)
+    returnTo = claims.returnTo
     const session = await readSession(request)
     if (
       session &&
@@ -3809,6 +3829,7 @@ app.get(
       redirectDriveResult(response, {
         status: 'error',
         message: 'OAuth session does not match the signed state.',
+        returnTo,
       })
       return
     }
@@ -3818,6 +3839,7 @@ app.get(
       redirectDriveResult(response, {
         status: 'error',
         message: 'The connecting user no longer has access to this workspace.',
+        returnTo,
       })
       return
     }
@@ -3873,7 +3895,7 @@ app.get(
       scope: tokens.scope || googleDrive.scope,
     })
 
-    redirectDriveResult(response, { status: 'connected' })
+    redirectDriveResult(response, { status: 'connected', returnTo })
   } catch (error) {
     console.error('Google Drive OAuth error:', error)
     redirectDriveResult(response, {
@@ -3882,6 +3904,7 @@ app.get(
         error instanceof GoogleDriveError || error instanceof Error
           ? error.message
           : 'Unable to complete Google Drive connection.',
+      returnTo,
     })
   }
   },

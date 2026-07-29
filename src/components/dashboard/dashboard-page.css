@@ -131,6 +131,42 @@
   color: var(--muted);
 }
 
+.dashboard-drive-browser {
+  margin-bottom: 24px;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+
+.dashboard-drive-browser__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.dashboard-drive-browser__header h3,
+.dashboard-drive-browser__header p {
+  margin: 0;
+}
+
+.dashboard-drive-browser__header p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dashboard-drive-browser__empty {
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+}
+
+.dashboard-drive-browser .dashboard-card-grid {
+  margin-bottom: 0;
+}
+
 .dashboard-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));

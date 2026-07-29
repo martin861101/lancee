@@ -1279,8 +1279,11 @@ export const api = {
     },
   },
   googleDrive: {
-    async getAuthUrl() {
-      const response = await fetch('/api/google-drive/oauth/url', { credentials: 'same-origin' })
+    async getAuthUrl(returnTo: 'integrations' | 'files' = 'integrations') {
+      const response = await fetch(
+        `/api/google-drive/oauth/url?returnTo=${encodeURIComponent(returnTo)}`,
+        { credentials: 'same-origin' },
+      )
       const payload = await response.json()
       if (!response.ok || !payload.url) throw new Error(payload.error || 'Unable to get auth URL')
       return payload.url

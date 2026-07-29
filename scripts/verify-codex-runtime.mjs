@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -77,7 +77,7 @@ function createFakeAppServer() {
           id: 'thr_fake',
           cwd: params.cwd,
           approvalPolicy: params.approvalPolicy,
-          sandbox: params.sandbox,
+          sandbox: params.sandbox ?? null,
         }
         send({ id, result: { thread } })
         send({ method: 'thread/started', params: { thread } })
@@ -87,6 +87,7 @@ function createFakeAppServer() {
           status: 'inProgress',
           items: [],
           error: null,
+          sandboxPolicy: params.sandboxPolicy ?? null,
         }
         send({ id, result: { turn } })
         send({
@@ -145,13 +146,25 @@ try {
   assert.equal(threadId, 'thr_fake')
   assert.equal(threadResult.thread.cwd, projectDirectory)
   assert.equal(threadResult.thread.approvalPolicy, 'never')
-  assert.equal(threadResult.thread.sandbox, 'workspace-write')
+  assert.equal(threadResult.thread.sandbox, null)
+
+  const codexHomeRoot = join(temporaryDirectory, 'codex-home')
+  const [identityDirectory] = readdirSync(codexHomeRoot)
+  const managedConfig = readFileSync(
+    join(codexHomeRoot, identityDirectory, 'config.toml'),
+    'utf8',
+  )
+  assert.match(managedConfig, /default_permissions = "lancee-workspace"/)
+  assert.match(managedConfig, /":root" = "deny"/)
+  assert.match(managedConfig, /":workspace_roots"/)
+  assert.match(managedConfig, /enabled = false/)
 
   const turnResult = await client.startTurn({
     threadId,
     prompt: 'Inspect the workspace.',
   })
   assert.equal(turnResult.turn.id, 'turn_fake')
+  assert.equal(turnResult.turn.sandboxPolicy, null)
 
   const events = client.bufferedEvents({ threadId })
   assert.ok(
