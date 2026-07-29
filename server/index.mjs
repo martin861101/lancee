@@ -14,6 +14,8 @@ import { openDatabase } from './database.mjs'
 import { getSmtpStatus, sendNotification } from './notifications.mjs'
 import {
   createPaystackClient,
+  decryptPaystackSecret,
+  encryptPaystackSecret,
   PaystackError,
 } from './paystack.mjs'
 import {
@@ -32,6 +34,29 @@ import {
   getAiStatus,
   AiError,
 } from './ai.mjs'
+import {
+  createMcpGatewayClient,
+  McpGatewayError,
+} from './mcp.mjs'
+import {
+  createCodexAppServerManager,
+  CodexAppServerError,
+} from './codex-app-server.mjs'
+import {
+  accessTokenIsFresh,
+  buildGoogleAuthUrl,
+  createOAuthState,
+  decryptDriveSecret,
+  driveStatusResponse,
+  encryptDriveSecret,
+  exchangeAuthorizationCode,
+  getGoogleDriveConfig,
+  GoogleDriveError,
+  listGoogleDriveFiles,
+  parseOAuthState,
+  refreshGoogleAccessToken,
+  tokenHasDriveFileScope,
+} from './google-drive.mjs'
 
 function nowIso() {
   return new Date().toISOString()
@@ -45,6 +70,7 @@ const serverDirectory = dirname(fileURLToPath(import.meta.url))
 const projectDirectory = dirname(serverDirectory)
 const distDirectory = join(projectDirectory, 'dist')
 const runtimeDirectory = join(projectDirectory, '.runtime')
+const codexRuntimeDirectory = join(runtimeDirectory, 'codex')
 const sessionSecretPath = join(runtimeDirectory, 'session-secret')
 const configuredDatabasePath = process.env.DATABASE_PATH || ''
 const databasePath = configuredDatabasePath
@@ -55,6 +81,9 @@ const databasePath = configuredDatabasePath
 const port = Number.parseInt(process.env.PORT || '5177', 10)
 const production =
   process.env.APP_ENV === 'production' || process.env.NODE_ENV === 'production'
+const registrationEnabled =
+  process.env.ALLOW_REGISTRATION === 'true' ||
+  (!production && process.env.ALLOW_REGISTRATION !== 'false')
 const publicOrigin = process.env.PUBLIC_ORIGIN || 'https://agents.hygridtech.co.za'
 const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase()
 const adminName = (process.env.ADMIN_NAME || 'Workspace Admin').trim()
@@ -62,6 +91,13 @@ const workspaceId = (process.env.WORKSPACE_ID || 'wsp_primary').trim()
 const workspaceName = (process.env.WORKSPACE_NAME || 'Hookitup Solutions').trim()
 const mcpGatewayUrl =
   process.env.MCP_GATEWAY_URL || 'https://mcp.hygridtech.co.za'
+const configuredMcpTimeout = Number.parseInt(process.env.MCP_TIMEOUT_MS || '30000', 10)
+const allowedMcpCategories = new Set(
+  String(process.env.MCP_ALLOWED_CATEGORIES || 'Browser,Utilities')
+    .split(',')
+    .map((category) => category.trim())
+    .filter(Boolean),
+)
 const n8nBaseUrl =
   process.env.N8N_BASE_URL || 'https://n8n.hygridtech.co.za'
 const n8nDefaultSigningSecret = (process.env.N8N_SIGNING_SECRET || '').trim()
@@ -80,7 +116,19 @@ const paystackBaseUrl =
 const sessionTtlSeconds =
   Number.parseInt(process.env.SESSION_TTL_HOURS || '12', 10) * 60 * 60
 const loginAttempts = new Map()
-const apiKeyPermissions = new Set(['workspace:read', 'mcp:read'])
+const deviceAuthorizationAttempts = new Map()
+const apiKeyPermissions = new Set(['workspace:read', 'mcp:read', 'ai:invoke'])
+const codexClientId = 'lancee-codex-plugin'
+const codexAiScope = 'ai:invoke'
+const deviceCodeTtlSeconds = 10 * 60
+const codexTokenTtlSeconds = 30 * 24 * 60 * 60
+const codexBinary = (process.env.CODEX_BINARY || 'codex').trim()
+const configuredCodexWorkspaceRoot = (
+  process.env.CODEX_WORKSPACE_ROOT || projectDirectory
+).trim()
+const codexWorkspaceRoot = isAbsolute(configuredCodexWorkspaceRoot)
+  ? resolve(configuredCodexWorkspaceRoot)
+  : resolve(projectDirectory, configuredCodexWorkspaceRoot)
 
 for (const variable of ['ADMIN_EMAIL', 'ADMIN_PASSWORD_SALT', 'ADMIN_PASSWORD_HASH']) {
   if (!process.env[variable]) {
@@ -119,20 +167,42 @@ const paystack = createPaystackClient({
 const n8nDeliveryClient = createN8nDeliveryClient({
   timeoutMilliseconds: n8nTimeoutMilliseconds,
 })
+const mcpGateway = createMcpGatewayClient({
+  gatewayUrl: mcpGatewayUrl,
+  token: process.env.MCP_API_TOKEN,
+  allowInsecure: !production,
+  timeoutMilliseconds: Number.isFinite(configuredMcpTimeout)
+    ? configuredMcpTimeout
+    : 30_000,
+})
+const codexAppServer = createCodexAppServerManager({
+  binary: codexBinary,
+  dataDirectory: codexRuntimeDirectory,
+  workspaceRoot: codexWorkspaceRoot,
+})
 const paystackCallbackUrl =
   process.env.PAYSTACK_CALLBACK_URL || `${publicOrigin}/?payment=paystack`
 const parsedPaystackCallbackUrl = new URL(paystackCallbackUrl)
 if (production && parsedPaystackCallbackUrl.protocol !== 'https:') {
   throw new Error('PAYSTACK_CALLBACK_URL must use HTTPS in production.')
 }
-await database.upsertPaymentConnection({
-  selectedWorkspaceId: workspaceId,
-  provider: 'paystack',
-  configured: paystack.configured,
-  mode: paystack.mode,
-  credentialSource: paystack.configured ? 'environment' : 'none',
-  keyFingerprint: paystack.keyFingerprint,
-})
+const existingPaystackConnection = await database.getPaymentConnection(
+  workspaceId,
+  'paystack',
+)
+if (
+  !existingPaystackConnection.updatedAt ||
+  existingPaystackConnection.credentialSource === 'environment'
+) {
+  await database.upsertPaymentConnection({
+    selectedWorkspaceId: workspaceId,
+    provider: 'paystack',
+    configured: paystack.configured,
+    mode: paystack.mode,
+    credentialSource: paystack.configured ? 'environment' : 'none',
+    keyFingerprint: paystack.keyFingerprint,
+  })
+}
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -179,6 +249,11 @@ function userResponse(context) {
   }
 }
 
+function codexRuntimeClient(request) {
+  const { workspace, user } = request.auth.context
+  return codexAppServer.clientFor(`${workspace.id}:${user.id}`)
+}
+
 function createSessionToken(context) {
   const now = Math.floor(Date.now() / 1000)
   const payload = Buffer.from(
@@ -191,6 +266,19 @@ function createSessionToken(context) {
     }),
   ).toString('base64url')
   return `${payload}.${sign(payload)}`
+}
+
+function createSessionCookie(context) {
+  return [
+    `lancee_session=${encodeURIComponent(createSessionToken(context))}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${sessionTtlSeconds}`,
+    production ? 'Secure' : '',
+  ]
+    .filter(Boolean)
+    .join('; ')
 }
 
 function parseCookies(header = '') {
@@ -240,6 +328,19 @@ async function requireAuth(request, response, next) {
     return
   }
   request.auth = session
+  response.once('finish', () => {
+    void database
+      .recordApiRequest(session.context.workspace.id, response.statusCode >= 400)
+      .catch(() => undefined)
+  })
+  next()
+}
+
+function requireOwner(request, response, next) {
+  if (request.auth?.context?.membership?.role !== 'owner') {
+    response.status(403).json({ error: 'Workspace owner access is required.' })
+    return
+  }
   next()
 }
 
@@ -273,13 +374,93 @@ function rateLimitLogin(request, response, next) {
   next()
 }
 
+function rateLimitDeviceAuthorization(request, response, next) {
+  const now = Date.now()
+  const windowMilliseconds = 15 * 60 * 1000
+  const address = clientAddress(request)
+  const attempts = (deviceAuthorizationAttempts.get(address) || []).filter(
+    (timestamp) => now - timestamp < windowMilliseconds,
+  )
+  if (attempts.length >= 60) {
+    response
+      .status(429)
+      .set('Retry-After', '900')
+      .json({ error: 'Device authorization rate limit exceeded.' })
+    return
+  }
+  deviceAuthorizationAttempts.set(address, [...attempts, now])
+  next()
+}
+
 function secureMutations(request, response, next) {
   const origin = request.headers.origin
-  if (origin && origin !== publicOrigin) {
+  const requestOrigin = `${request.protocol}://${request.get('host')}`
+  const allowedOrigins = new Set([
+    new URL(publicOrigin).origin,
+    new URL(requestOrigin).origin,
+  ])
+  if (origin && !allowedOrigins.has(origin)) {
     response.status(403).json({ error: 'Origin not allowed.' })
     return
   }
   next()
+}
+
+function normalizeDeviceUserCode(value) {
+  const compact = String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+  return compact.length === 8
+    ? `${compact.slice(0, 4)}-${compact.slice(4)}`
+    : ''
+}
+
+function createDeviceUserCode() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const bytes = randomBytes(8)
+  const compact = [...bytes]
+    .map((byte) => alphabet[byte % alphabet.length])
+    .join('')
+  return `${compact.slice(0, 4)}-${compact.slice(4)}`
+}
+
+function oauthError(response, error, description, status = 400) {
+  response.status(status).set('Cache-Control', 'no-store').json({
+    error,
+    error_description: description,
+  })
+}
+
+function requireCodexScope(scope) {
+  return async (request, response, next) => {
+    response.set('Cache-Control', 'no-store')
+    const authorization = String(request.get('Authorization') || '')
+    const match = authorization.match(/^Bearer (lnc_codex_[A-Za-z0-9_-]+)$/)
+    if (!match) {
+      response.status(401).json({ error: 'A valid Codex connector token is required.' })
+      return
+    }
+    const tokenRecord = await database.getCodexAccessToken(hashSecret(match[1]))
+    if (!tokenRecord) {
+      response.status(401).json({ error: 'The Codex connector token is invalid or expired.' })
+      return
+    }
+    if (!tokenRecord.token.scopes.includes(scope)) {
+      response.status(403).json({ error: `Connector token lacks ${scope} scope.` })
+      return
+    }
+    const context = await database.getContextByIds(
+      tokenRecord.user.id,
+      tokenRecord.workspace.id,
+    )
+    if (!context) {
+      response.status(401).json({ error: 'The connector workspace is unavailable.' })
+      return
+    }
+    request.codexAuth = { token: tokenRecord.token, context }
+    next()
+  }
 }
 
 async function mcpAccessResponse(context) {
@@ -289,7 +470,7 @@ async function mcpAccessResponse(context) {
     status: access.status,
     gatewayUrl: mcpGatewayUrl,
     requestedAt: access.requestedAt,
-    approvalMode: process.env.MCP_API_TOKEN ? 'automatic' : 'manual',
+    approvalMode: mcpGateway.configured ? 'automatic' : 'manual',
     serviceActivationEnabled: access.status === 'approved',
   }
 }
@@ -317,6 +498,7 @@ async function executeIdempotentMutation({
   await database.deleteExpiredIdempotency()
 
   return await database.transaction(async () => {
+    await database.lockIdempotency(selectedWorkspaceId, route, key)
     const existing = await database.getIdempotency(selectedWorkspaceId, route, key)
     if (existing) {
       if (existing.requestHash !== requestHash) {
@@ -420,7 +602,39 @@ async function paystackConnectionResponse(context) {
     configuredAt: connection?.configuredAt || null,
     updatedAt: connection?.updatedAt || null,
     currency: 'ZAR',
+    webhookUrl: new URL(
+      `/api/webhooks/paystack/${encodeURIComponent(context.workspace.id)}`,
+      publicOrigin,
+    ).toString(),
   }
+}
+
+async function paystackClientForWorkspace(selectedWorkspaceId) {
+  const connection = await database.getPaymentConnection(
+    selectedWorkspaceId,
+    'paystack',
+  )
+  let secretKey = ''
+  if (
+    connection.configured &&
+    connection.credentialSource === 'workspace' &&
+    connection.secretCiphertext
+  ) {
+    secretKey = decryptPaystackSecret(
+      connection.secretCiphertext,
+      sessionSecret,
+    )
+  } else if (
+    connection.configured &&
+    connection.credentialSource === 'environment'
+  ) {
+    secretKey = paystackSecretKey
+  }
+  return createPaystackClient({
+    secretKey,
+    baseUrl: paystackBaseUrl,
+    allowInsecure: !production,
+  })
 }
 
 function validatePaystackInvoiceInput(body) {
@@ -620,6 +834,68 @@ async function performN8nOutboundDelivery(context, delivery) {
   }
 }
 
+async function executeAutomationRun(context, automation, run) {
+  const startedAt = performance.now()
+  const selectedWorkspaceId = context.workspace.id
+  try {
+    const connection = await database.getN8nConnection(selectedWorkspaceId)
+    n8nConnectionSecret(connection)
+    const event = {
+      type: 'lancee.automation.run',
+      workspaceId: selectedWorkspaceId,
+      runId: run.id,
+      automation: {
+        id: automation.id,
+        name: automation.name,
+        description: automation.description,
+      },
+      instruction: run.instruction,
+      requestedBy: context.user.id,
+      requestedAt: run.startedAt,
+    }
+    const serializedEvent = JSON.stringify(event)
+    const identity = createHash('sha256')
+      .update(`${selectedWorkspaceId}:${run.id}`)
+      .digest('hex')
+    const delivery = await database.createN8nDelivery({
+      id: `dlv_${identity.slice(0, 24)}`,
+      selectedWorkspaceId,
+      direction: 'outbound',
+      method: 'POST',
+      targetUrl: connection.outboundUrl,
+      correlationId: `cor_${identity.slice(24, 48)}`,
+      requestHash: hashSecret(serializedEvent),
+      eventType: event.type,
+      event,
+      idempotencyKey: `automation:${run.id}`,
+    })
+    await performN8nOutboundDelivery(context, delivery)
+    return await database.completeAutomationRun({
+      selectedWorkspaceId,
+      id: run.id,
+      status: 'completed',
+      durationSeconds: Math.max(
+        1,
+        Math.round((performance.now() - startedAt) / 1000),
+      ),
+      steps: 2,
+    })
+  } catch (error) {
+    await database.completeAutomationRun({
+      selectedWorkspaceId,
+      id: run.id,
+      status: 'failed',
+      durationSeconds: Math.max(
+        1,
+        Math.round((performance.now() - startedAt) / 1000),
+      ),
+      steps: 1,
+      errorCode: error?.code || 'AUTOMATION_EXECUTION_FAILED',
+    })
+    throw error
+  }
+}
+
 function requireApiPermission(permission) {
   return async (request, response, next) => {
     response.set('Cache-Control', 'no-store')
@@ -630,11 +906,12 @@ function requireApiPermission(permission) {
       return
     }
 
-    const apiKey = await database.getApiKeyByHash(hashSecret(match[1]))
-    if (!apiKey) {
+    const apiKeyRecord = await database.getApiKeyByHash(hashSecret(match[1]))
+    if (!apiKeyRecord) {
       response.status(401).json({ error: 'A valid lancee API key is required.' })
       return
     }
+    const apiKey = apiKeyRecord.key
     if (!apiKey.permissions.includes(permission)) {
       response.status(403).json({ error: `API key lacks ${permission} permission.` })
       return
@@ -793,120 +1070,157 @@ app.use((_request, response, next) => {
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
     'Content-Security-Policy':
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
   })
   next()
 })
 
+async function handlePaystackWebhook(
+  request,
+  response,
+  paystackClient,
+  expectedWorkspaceId = null,
+) {
+  response.set('Cache-Control', 'no-store')
+  if (!paystackClient.configured) {
+    response.status(503).json({ error: 'Paystack is not configured.' })
+    return
+  }
+  if (
+    !Buffer.isBuffer(request.body) ||
+    !paystackClient.verifyWebhook(
+      request.body,
+      request.get('x-paystack-signature'),
+    )
+  ) {
+    response.status(401).json({ error: 'Invalid Paystack webhook signature.' })
+    return
+  }
+
+  let event
+  try {
+    event = JSON.parse(request.body.toString('utf8'))
+  } catch {
+    response.status(400).json({ error: 'Invalid Paystack webhook payload.' })
+    return
+  }
+
+  const payloadHash = hashSecret(request.body)
+  const eventType = String(event?.event || 'unknown')
+  const providerReference =
+    typeof event?.data?.reference === 'string' ? event.data.reference : null
+  const transactionIdentity =
+    typeof event?.data?.id === 'string'
+      ? event.data.id
+      : Number.isSafeInteger(event?.data?.id)
+        ? String(event.data.id)
+        : payloadHash
+  const eventKey =
+    `${expectedWorkspaceId || 'legacy'}:${eventType}:` +
+    `${providerReference || 'none'}:${transactionIdentity}`
+  const eventId = `evt_${createHash('sha256')
+    .update(`paystack:${eventKey}:${payloadHash}`)
+    .digest('hex')
+    .slice(0, 24)}`
+  const record = (result, processedAt = null) =>
+    database.recordPaymentEvent({
+      id: eventId,
+      provider: 'paystack',
+      eventKey,
+      eventType,
+      providerReference,
+      payloadHash,
+      result,
+      processedAt,
+    })
+
+  if (eventType !== 'charge.success' || !providerReference) {
+    await record('ignored')
+    response.status(200).json({ received: true, processed: false })
+    return
+  }
+
+  const paymentLink = await database.getPaymentLinkByReference(providerReference)
+  if (
+    !paymentLink ||
+    (expectedWorkspaceId && paymentLink.workspaceId !== expectedWorkspaceId)
+  ) {
+    await record('unmatched')
+    response.status(200).json({ received: true, processed: false })
+    return
+  }
+
+  const eventAmount = Number(event.data.amount)
+  const eventCurrency = String(event.data.currency || '').toUpperCase()
+  if (
+    event.data.status !== 'success' ||
+    !Number.isSafeInteger(eventAmount) ||
+    eventAmount !== paymentLink.amountMinor ||
+    eventCurrency !== paymentLink.currency
+  ) {
+    await record('rejected')
+    response.status(200).json({ received: true, processed: false })
+    return
+  }
+
+  const paidAtValue = Date.parse(event.data.paid_at || event.data.paidAt || '')
+  const paidAt = Number.isFinite(paidAtValue)
+    ? new Date(paidAtValue).toISOString()
+    : new Date().toISOString()
+  const providerTransactionId =
+    typeof event.data.id === 'string'
+      ? event.data.id
+      : Number.isSafeInteger(event.data.id)
+        ? String(event.data.id)
+        : null
+
+  const processed = await database.transaction(async () => {
+    const inserted = await record('processed', paidAt)
+    if (!inserted) return false
+    await database.markPaymentPaid({
+      provider: 'paystack',
+      providerReference,
+      providerTransactionId,
+      timestamp: paidAt,
+    })
+    return true
+  })
+
+  response.status(200).json({
+    received: true,
+    processed,
+    duplicate: !processed,
+  })
+}
+
+const paystackWebhookBody = express.raw({
+  type: 'application/json',
+  limit: '256kb',
+})
+
+app.post(
+  '/api/webhooks/paystack/:workspaceId',
+  paystackWebhookBody,
+  async (request, response) => {
+    const selectedWorkspaceId = String(request.params.workspaceId || '')
+    if (!/^wsp_[A-Za-z0-9._-]{3,96}$/.test(selectedWorkspaceId)) {
+      response.status(404).json({ error: 'Paystack webhook not found.' })
+      return
+    }
+    await handlePaystackWebhook(
+      request,
+      response,
+      await paystackClientForWorkspace(selectedWorkspaceId),
+      selectedWorkspaceId,
+    )
+  },
+)
+
 app.post(
   '/api/webhooks/paystack',
-  express.raw({ type: 'application/json', limit: '256kb' }),
+  paystackWebhookBody,
   async (request, response) => {
-    response.set('Cache-Control', 'no-store')
-    if (!paystack.configured) {
-      response.status(503).json({ error: 'Paystack is not configured.' })
-      return
-    }
-    if (
-      !Buffer.isBuffer(request.body) ||
-      !paystack.verifyWebhook(request.body, request.get('x-paystack-signature'))
-    ) {
-      response.status(401).json({ error: 'Invalid Paystack webhook signature.' })
-      return
-    }
-
-    let event
-    try {
-      event = JSON.parse(request.body.toString('utf8'))
-    } catch {
-      response.status(400).json({ error: 'Invalid Paystack webhook payload.' })
-      return
-    }
-
-    const payloadHash = hashSecret(request.body)
-    const eventType = String(event?.event || 'unknown')
-    const providerReference =
-      typeof event?.data?.reference === 'string' ? event.data.reference : null
-    const transactionIdentity =
-      typeof event?.data?.id === 'string'
-        ? event.data.id
-        : Number.isSafeInteger(event?.data?.id)
-          ? String(event.data.id)
-          : payloadHash
-    const eventKey = `${eventType}:${providerReference || 'none'}:${transactionIdentity}`
-    const eventId = `evt_${createHash('sha256')
-      .update(`paystack:${eventKey}:${payloadHash}`)
-      .digest('hex')
-      .slice(0, 24)}`
-    const record = (result, processedAt = null) =>
-      database.recordPaymentEvent({
-        id: eventId,
-        provider: 'paystack',
-        eventKey,
-        eventType,
-        providerReference,
-        payloadHash,
-        result,
-        processedAt,
-      })
-
-    if (eventType !== 'charge.success' || !providerReference) {
-      await record('ignored')
-      response.status(200).json({ received: true, processed: false })
-      return
-    }
-
-    const paymentLink = await database.getPaymentLinkByReference(
-      'paystack',
-      providerReference,
-    )
-    if (!paymentLink) {
-      await record('unmatched')
-      response.status(200).json({ received: true, processed: false })
-      return
-    }
-
-    const eventAmount = Number(event.data.amount)
-    const eventCurrency = String(event.data.currency || '').toUpperCase()
-    if (
-      event.data.status !== 'success' ||
-      !Number.isSafeInteger(eventAmount) ||
-      eventAmount !== paymentLink.amountMinor ||
-      eventCurrency !== paymentLink.currency
-    ) {
-      await record('rejected')
-      response.status(200).json({ received: true, processed: false })
-      return
-    }
-
-    const paidAtValue = Date.parse(event.data.paid_at || event.data.paidAt || '')
-    const paidAt = Number.isFinite(paidAtValue)
-      ? new Date(paidAtValue).toISOString()
-      : new Date().toISOString()
-    const providerTransactionId =
-      typeof event.data.id === 'string'
-        ? event.data.id
-        : Number.isSafeInteger(event.data.id)
-          ? String(event.data.id)
-          : null
-
-    const processed = await database.transaction(async () => {
-      const inserted = await record('processed', paidAt)
-      if (!inserted) return false
-      await database.markPaymentPaid({
-        provider: 'paystack',
-        providerReference,
-        providerTransactionId,
-        timestamp: paidAt,
-      })
-      return true
-    })
-
-    response.status(200).json({
-      received: true,
-      processed,
-      duplicate: !processed,
-    })
+    await handlePaystackWebhook(request, response, paystack)
   },
 )
 
@@ -917,10 +1231,169 @@ app.post(
   handleInboundN8n,
 )
 
+app.use(express.urlencoded({ extended: false, limit: '8kb' }))
 app.use(express.json({ limit: '24kb' }))
 
 app.get('/api/health', (_request, response) => {
   response.json({ ok: true, service: 'lancee-agents-platform' })
+})
+
+app.get('/.well-known/oauth-authorization-server', (_request, response) => {
+  response.json({
+    issuer: publicOrigin,
+    device_authorization_endpoint: `${publicOrigin}/api/codex/device/code`,
+    token_endpoint: `${publicOrigin}/api/codex/device/token`,
+    grant_types_supported: [
+      'urn:ietf:params:oauth:grant-type:device_code',
+    ],
+    scopes_supported: [codexAiScope],
+    token_endpoint_auth_methods_supported: ['none'],
+  })
+})
+
+app.post(
+  '/api/codex/device/code',
+  rateLimitDeviceAuthorization,
+  async (request, response) => {
+    response.set('Cache-Control', 'no-store')
+    const clientId = String(request.body?.client_id || '').trim()
+    const scope = String(request.body?.scope || '').trim()
+    if (clientId !== codexClientId) {
+      oauthError(response, 'invalid_client', 'Unknown device client.', 401)
+      return
+    }
+    if (scope !== codexAiScope) {
+      oauthError(response, 'invalid_scope', `Supported scope: ${codexAiScope}.`)
+      return
+    }
+
+    const deviceCode = randomBytes(32).toString('base64url')
+    const userCode = createDeviceUserCode()
+    const expiresAt = new Date(
+      Date.now() + deviceCodeTtlSeconds * 1000,
+    ).toISOString()
+    await database.createCodexDeviceAuthorization({
+      deviceCodeHash: hashSecret(deviceCode),
+      userCodeHash: hashSecret(userCode),
+      clientId,
+      scope,
+      expiresAt,
+    })
+    const verificationUri = `${publicOrigin}/?device=${encodeURIComponent(userCode)}`
+    response.status(201).json({
+      device_code: deviceCode,
+      user_code: userCode,
+      verification_uri: verificationUri,
+      verification_uri_complete: verificationUri,
+      expires_in: deviceCodeTtlSeconds,
+      interval: 5,
+    })
+  },
+)
+
+app.post(
+  '/api/codex/device/token',
+  rateLimitDeviceAuthorization,
+  async (request, response) => {
+    response.set('Cache-Control', 'no-store')
+    const grantType = String(request.body?.grant_type || '').trim()
+    const clientId = String(request.body?.client_id || '').trim()
+    const deviceCode = String(request.body?.device_code || '').trim()
+    if (grantType !== 'urn:ietf:params:oauth:grant-type:device_code') {
+      oauthError(response, 'unsupported_grant_type', 'Use the OAuth device-code grant.')
+      return
+    }
+    if (clientId !== codexClientId) {
+      oauthError(response, 'invalid_client', 'Unknown device client.', 401)
+      return
+    }
+    if (!/^[A-Za-z0-9_-]{32,128}$/.test(deviceCode)) {
+      oauthError(response, 'invalid_grant', 'The device code is invalid.')
+      return
+    }
+
+    const deviceCodeHash = hashSecret(deviceCode)
+    const authorization =
+      await database.getCodexDeviceAuthorizationByDeviceCode(deviceCodeHash)
+    if (!authorization || authorization.client_id !== clientId) {
+      oauthError(response, 'invalid_grant', 'The device code is invalid.')
+      return
+    }
+    if (Date.parse(authorization.expires_at) <= Date.now()) {
+      oauthError(response, 'expired_token', 'The device code has expired.')
+      return
+    }
+    if (authorization.status === 'pending') {
+      oauthError(response, 'authorization_pending', 'Approval is still pending.')
+      return
+    }
+    if (authorization.status === 'denied') {
+      oauthError(response, 'access_denied', 'The device request was denied.')
+      return
+    }
+    if (authorization.status !== 'approved') {
+      oauthError(response, 'invalid_grant', 'The device code has already been used.')
+      return
+    }
+
+    const accessToken = `lnc_codex_${randomBytes(32).toString('base64url')}`
+    const tokenExpiresAt = new Date(
+      Date.now() + codexTokenTtlSeconds * 1000,
+    ).toISOString()
+    const issued = await database.transaction(async () => {
+      const consumed =
+        await database.consumeCodexDeviceAuthorization(deviceCodeHash)
+      if (!consumed) return null
+      await database.createCodexAccessToken({
+        workspaceId: consumed.workspace_id,
+        createdBy: consumed.user_id,
+        clientId: consumed.client_id,
+        tokenHash: hashSecret(accessToken),
+        scopes: consumed.scope.split(/\s+/).filter(Boolean),
+        expiresAt: tokenExpiresAt,
+      })
+      return consumed
+    })
+    if (!issued) {
+      oauthError(response, 'invalid_grant', 'The device code has already been used.')
+      return
+    }
+    response.json({
+      access_token: accessToken,
+      token_type: 'Bearer',
+      expires_in: codexTokenTtlSeconds,
+      scope: issued.scope,
+    })
+  },
+)
+
+app.get('/api/auth/config', (_request, response) => {
+  response.set('Cache-Control', 'no-store')
+  response.json({ registrationEnabled })
+})
+
+app.get('/api/auth/invitations/:token', rateLimitLogin, async (request, response) => {
+  response.set('Cache-Control', 'no-store')
+  const token = String(request.params.token || '').trim()
+  if (!/^[A-Za-z0-9_-]{32,128}$/.test(token)) {
+    throw new HttpError(400, 'A valid invitation token is required.')
+  }
+  const invitation = await database.getTeamInvitationByTokenHash(hashSecret(token))
+  if (
+    !invitation ||
+    invitation.status !== 'pending' ||
+    Date.parse(invitation.expiresAt) <= Date.now()
+  ) {
+    throw new HttpError(410, 'This invitation is invalid or has expired.')
+  }
+  response.json({
+    email: invitation.email,
+    name: invitation.name,
+    role: invitation.role,
+    workspace: invitation.workspaceName,
+    expiresAt: invitation.expiresAt,
+    existingAccount: Boolean(await database.getUserByEmail(invitation.email)),
+  })
 })
 
 app.get('/api/auth/session', async (request, response) => {
@@ -932,6 +1405,81 @@ app.get('/api/auth/session', async (request, response) => {
   }
   response.json({ user: userResponse(session.context) })
 })
+
+app.get(
+  '/api/codex/connection',
+  requireAuth,
+  async (request, response) => {
+    response.json(
+      await database.getCodexConnection(request.auth.context.workspace.id),
+    )
+  },
+)
+
+app.post(
+  '/api/codex/connection/revoke',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    response.json(
+      await database.revokeCodexAccessTokens(
+        request.auth.context.workspace.id,
+      ),
+    )
+  },
+)
+
+app.get(
+  '/api/codex/device/authorization',
+  requireAuth,
+  async (request, response) => {
+    const userCode = normalizeDeviceUserCode(request.query.user_code)
+    if (!userCode) {
+      throw new HttpError(400, 'A valid device code is required.')
+    }
+    const authorization =
+      await database.getCodexDeviceAuthorizationByUserCode(hashSecret(userCode))
+    if (!authorization) throw new HttpError(404, 'Device request not found.')
+    response.json({
+      userCode,
+      clientId: authorization.client_id,
+      scope: authorization.scope,
+      status:
+        Date.parse(authorization.expires_at) <= Date.now()
+          ? 'expired'
+          : authorization.status,
+      expiresAt: authorization.expires_at,
+      workspace: request.auth.context.workspace.name,
+    })
+  },
+)
+
+app.post(
+  '/api/codex/device/authorization',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const userCode = normalizeDeviceUserCode(request.body?.userCode)
+    const decision = String(request.body?.decision || '').trim()
+    if (!userCode || !['approve', 'deny'].includes(decision)) {
+      throw new HttpError(400, 'A valid device code and decision are required.')
+    }
+    const authorization = await database.decideCodexDeviceAuthorization({
+      userCodeHash: hashSecret(userCode),
+      selectedWorkspaceId: request.auth.context.workspace.id,
+      userId: request.auth.context.user.id,
+      approved: decision === 'approve',
+    })
+    if (!authorization) {
+      throw new HttpError(409, 'This device request is unavailable or has expired.')
+    }
+    response.json({
+      userCode,
+      status: authorization.status,
+      workspace: request.auth.context.workspace.name,
+    })
+  },
+)
 
 app.post('/api/auth/login', secureMutations, rateLimitLogin, async (request, response) => {
   response.set('Cache-Control', 'no-store')
@@ -947,25 +1495,35 @@ app.post('/api/auth/login', secureMutations, rateLimitLogin, async (request, res
   }
 
   loginAttempts.delete(address)
-  const cookie = [
-    `lancee_session=${encodeURIComponent(createSessionToken(context))}`,
-    'Path=/',
-    'HttpOnly',
-    'SameSite=Lax',
-    `Max-Age=${sessionTtlSeconds}`,
-    production ? 'Secure' : '',
-  ]
-    .filter(Boolean)
-    .join('; ')
-  response.setHeader('Set-Cookie', cookie)
+  response.setHeader('Set-Cookie', createSessionCookie(context))
   response.json({ user: userResponse(context) })
 })
 
 app.post('/api/auth/register', secureMutations, rateLimitLogin, async (request, response) => {
   response.set('Cache-Control', 'no-store')
-  const email = String(request.body?.email || '').trim().toLowerCase()
+  const invitationToken = String(request.body?.invitationToken || '').trim()
+  let invitation = null
+  if (invitationToken) {
+    if (!/^[A-Za-z0-9_-]{32,128}$/.test(invitationToken)) {
+      throw new HttpError(400, 'A valid invitation token is required.')
+    }
+    invitation = await database.getTeamInvitationByTokenHash(
+      hashSecret(invitationToken),
+    )
+    if (
+      !invitation ||
+      invitation.status !== 'pending' ||
+      Date.parse(invitation.expiresAt) <= Date.now()
+    ) {
+      throw new HttpError(410, 'This invitation is invalid or has expired.')
+    }
+  }
+  const email = invitation?.email ||
+    String(request.body?.email || '').trim().toLowerCase()
   const password = String(request.body?.password || '')
-  const name = String(request.body?.name || email.split('@')[0]).trim()
+  const name = String(
+    request.body?.name || invitation?.name || email.split('@')[0],
+  ).trim()
   const workspaceName = String(request.body?.workspace || `${name}'s Workspace`).trim()
 
   if (email.length < 5 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -981,8 +1539,71 @@ app.post('/api/auth/register', secureMutations, rateLimitLogin, async (request, 
     return
   }
 
-  const existing = await database.getContextByEmail(email)
-  if (existing) {
+  const existingUser = await database.getUserByEmail(email)
+  if (invitation) {
+    if (existingUser?.disabledAt) {
+      throw new HttpError(403, 'This account is disabled.')
+    }
+    if (
+      existingUser &&
+      !verifyPassword(password, {
+        user: {
+          passwordHash: existingUser.passwordHash,
+          passwordSalt: existingUser.passwordSalt,
+        },
+      })
+    ) {
+      const address = clientAddress(request)
+      loginAttempts.set(address, [...(loginAttempts.get(address) || []), Date.now()])
+      throw new HttpError(401, 'Enter the current password for this existing account.')
+    }
+
+    const acceptedUserId = existingUser?.id || stableId('usr', email)
+    const timestamp = nowIso()
+    await database.transaction(async () => {
+      if (!existingUser) {
+        const passwordSalt = randomBytes(16).toString('hex')
+        const passwordHash = scryptSync(password, passwordSalt, 64).toString('hex')
+        await database.query(
+          `INSERT INTO users (
+             id, email, name, password_salt, password_hash, created_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            acceptedUserId,
+            email,
+            name,
+            passwordSalt,
+            passwordHash,
+            timestamp,
+            timestamp,
+          ],
+        )
+      }
+      await database.acceptTeamInvitation({
+        invitationId: invitation.id,
+        workspaceId: invitation.workspaceId,
+        userId: acceptedUserId,
+        role: invitation.role,
+      })
+    })
+    loginAttempts.delete(clientAddress(request))
+    const context = await database.getContextByIds(
+      acceptedUserId,
+      invitation.workspaceId,
+    )
+    response.setHeader('Set-Cookie', createSessionCookie(context))
+    response.status(201).json({ user: userResponse(context) })
+    return
+  }
+
+  if (!registrationEnabled) {
+    throw new HttpError(
+      403,
+      'New workspace registration is disabled. Ask a workspace owner for an invitation.',
+    )
+  }
+
+  if (existingUser) {
     response.status(409).json({ error: 'An account with this email already exists.' })
     return
   }
@@ -1015,15 +1636,12 @@ app.post('/api/auth/register', secureMutations, rateLimitLogin, async (request, 
       [wspId, workspaceName, now],
     )
     const defaultIntegrations = [
-      { id: 'figma', connected: 1 },
-      { id: 'email', connected: 1 },
-      { id: 'drive', connected: 1 },
-      { id: 'stripe', connected: 0 },
-      { id: 'paypal', connected: 0 },
+      { id: 'drive', connected: 0 },
       { id: 'paystack', connected: 0 },
       { id: 'n8n', connected: 0 },
-      { id: 'mcp-grid', connected: 1 },
-      { id: 'dropbox', connected: 0 },
+      { id: 'mcp-grid', connected: 0 },
+      { id: 'codex-ai', connected: 0 },
+      { id: 'codex-runtime', connected: 0 },
     ]
     for (const integration of defaultIntegrations) {
       await database.query(
@@ -1034,15 +1652,7 @@ app.post('/api/auth/register', secureMutations, rateLimitLogin, async (request, 
   })
 
   const context = await database.getContextByIds(userId, wspId)
-  const cookie = [
-    `lancee_session=${encodeURIComponent(createSessionToken(context))}`,
-    'Path=/',
-    'HttpOnly',
-    'SameSite=Lax',
-    `Max-Age=${sessionTtlSeconds}`,
-    production ? 'Secure' : '',
-  ].filter(Boolean).join('; ')
-  response.setHeader('Set-Cookie', cookie)
+  response.setHeader('Set-Cookie', createSessionCookie(context))
   response.status(201).json({ user: userResponse(context) })
 })
 
@@ -1199,18 +1809,18 @@ app.get('/api/ideas/boards', requireAuth, async (request, response) => {
   })
 })
 
-app.post('/api/ideas/boards', requireAuth, async (request, response) => {
+app.post('/api/ideas/boards', secureMutations, requireAuth, async (request, response) => {
   const selectedWorkspaceId = request.auth.context.workspace.id
   const board = await database.createIdeaBoard({
     selectedWorkspaceId,
-    id: request.body?.id || `board_${randomUUID()}`,
+    id: validateBoardId(request.body?.id || `board_${randomUUID()}`),
     label: validateBoardLabel(request.body?.label),
     createdBy: request.auth.context.user.id,
   })
   response.status(201).json({ board })
 })
 
-app.delete('/api/ideas/boards/:boardId', requireAuth, async (request, response) => {
+app.delete('/api/ideas/boards/:boardId', secureMutations, requireAuth, async (request, response) => {
   const boardId = validateBoardId(request.params.boardId)
   await database.deleteIdeaBoard(request.auth.context.workspace.id, boardId)
   response.status(204).end()
@@ -1223,7 +1833,7 @@ app.get('/api/ideas/elements', requireAuth, async (request, response) => {
   })
 })
 
-app.post('/api/ideas/elements', requireAuth, async (request, response) => {
+app.post('/api/ideas/elements', secureMutations, requireAuth, async (request, response) => {
   const selectedWorkspaceId = request.auth.context.workspace.id
   const element = await database.saveCanvasElement({
     selectedWorkspaceId,
@@ -1237,7 +1847,7 @@ app.post('/api/ideas/elements', requireAuth, async (request, response) => {
   response.status(201).json({ element })
 })
 
-app.put('/api/ideas/elements/:elementId', requireAuth, async (request, response) => {
+app.put('/api/ideas/elements/:elementId', secureMutations, requireAuth, async (request, response) => {
   const selectedWorkspaceId = request.auth.context.workspace.id
   const element = await database.saveCanvasElement({
     selectedWorkspaceId,
@@ -1251,7 +1861,7 @@ app.put('/api/ideas/elements/:elementId', requireAuth, async (request, response)
   response.json({ element })
 })
 
-app.delete('/api/ideas/elements/:elementId', requireAuth, async (request, response) => {
+app.delete('/api/ideas/elements/:elementId', secureMutations, requireAuth, async (request, response) => {
   const elementId = validateCanvasElementId(request.params.elementId)
   await database.deleteCanvasElement(request.auth.context.workspace.id, elementId)
   response.status(204).end()
@@ -1295,7 +1905,7 @@ app.post(
     const existing = await database.getN8nConnection(selectedWorkspaceId)
     const providedSecret = String(request.body?.signingSecret || '').trim()
     let signingSecret = providedSecret
-    if (!signingSecret && existing?.encryptedSecret) {
+    if (!signingSecret && (existing?.encryptedSecret || existing?.secretCiphertext)) {
       signingSecret = n8nConnectionSecret(existing)
     }
     if (!signingSecret && n8nDefaultSigningSecret) {
@@ -1307,9 +1917,13 @@ app.post(
         'The n8n signing secret must be between 32 and 256 characters.',
       )
     }
-    const encryptedSecret = providedSecret || !existing?.encryptedSecret
+    const encryptedSecret = providedSecret || !(existing?.encryptedSecret || existing?.secretCiphertext)
       ? encryptN8nSecret(signingSecret, sessionSecret)
-      : existing.encryptedSecret
+      : existing.encryptedSecret || {
+          ciphertext: existing.secretCiphertext,
+          iv: existing.secretIv,
+          tag: existing.secretTag,
+        }
 
     const encData = typeof encryptedSecret === 'object' && encryptedSecret !== null
       ? encryptedSecret
@@ -1670,98 +2284,137 @@ app.post(
   },
 )
 
-const MCP_SERVICE_DEFINITIONS = [
-  { id: 'browser-worker', name: 'Browser & documents', description: 'Guarded browser automation, web audits, extraction, screenshots, and PDFs.', category: 'Browser', status: 'live', credentialMode: 'Workspace vault', tools: [
-    { id: 'playwright_screenshot', name: 'Playwright screenshot', description: 'Capture a public webpage at a configured viewport.' },
-    { id: 'playwright_responsive_capture', name: 'Responsive capture', description: 'Capture mobile, tablet, and desktop evidence.' },
-    { id: 'playwright_webpage_pdf', name: 'Webpage to PDF', description: 'Publish a public webpage as a PDF.' },
-    { id: 'puppeteer_html_pdf', name: 'HTML to PDF', description: 'Render sanitized supplied HTML to PDF.' },
-    { id: 'modern_document_pdf', name: 'Modern document PDF', description: 'Turn sanitized Markdown into a styled PDF.' },
-    { id: 'web_quality_audit', name: 'Web quality audit', description: 'Inspect metadata, headings, image alts, and browser errors.' },
-    { id: 'extract_web_content', name: 'Extract web content', description: 'Return structured metadata, links, headings, and readable text.' },
-    { id: 'website_smoke_test', name: 'Website smoke test', description: 'Run deterministic title, text, and selector assertions.' },
-    { id: 'extract_table_data', name: 'Extract table data', description: 'Read bounded table rows into structured JSON.' },
-    { id: 'seo_metadata_audit', name: 'SEO metadata audit', description: 'Inspect canonical, robots, social cards, and JSON-LD.' },
-  ] },
-  { id: 'text-worker', name: 'Text processing', description: 'Deterministic text transformation, statistics, and literal replacement.', category: 'Text', status: 'live', credentialMode: 'Credential-free', tools: [
-    { id: 'transform_text', name: 'Transform text', description: 'Apply case and formatting transformations.' },
-    { id: 'text_stats', name: 'Text statistics', description: 'Count characters, words, bytes, and lines.' },
-    { id: 'find_replace', name: 'Find and replace', description: 'Apply ordered literal replacements.' },
-  ] },
-  { id: 'data-worker', name: 'Structured data', description: 'Bounded CSV and JSON conversion with safe field projection.', category: 'Data', status: 'live', credentialMode: 'Credential-free', tools: [
-    { id: 'csv_to_json', name: 'CSV to JSON', description: 'Parse a bounded delimited document.' },
-    { id: 'json_to_csv', name: 'JSON to CSV', description: 'Serialize bounded records with ordered fields.' },
-    { id: 'select_fields', name: 'Select fields', description: 'Project records onto an approved field list.' },
-  ] },
-  { id: 'utility-worker', name: 'Encoding & identifiers', description: 'Hashing, Base64 transport encoding, and UUID generation.', category: 'Utilities', status: 'live', credentialMode: 'Credential-free', tools: [
-    { id: 'hash_text', name: 'Hash text', description: 'Create SHA-256, SHA-512, or BLAKE2b digests.' },
-    { id: 'base64_encode', name: 'Base64 encode', description: 'Encode UTF-8 content for transport.' },
-    { id: 'base64_decode', name: 'Base64 decode', description: 'Decode and validate Base64 as UTF-8.' },
-    { id: 'generate_uuids', name: 'Generate UUIDs', description: 'Generate up to 100 UUIDv4 identifiers.' },
-  ] },
-]
+function mcpCategory(serviceId, tools) {
+  const tags = new Set(tools.flatMap((tool) => tool.tags || []))
+  if (serviceId.includes('browser') || tags.has('browser')) return 'Browser'
+  if (tags.has('text') || serviceId.includes('text')) return 'Text'
+  if (tags.has('data') || serviceId.includes('data')) return 'Data'
+  return 'Utilities'
+}
+
+async function liveMcpServices(selectedWorkspaceId) {
+  if (!mcpGateway.configured) return []
+  const [capabilities, states] = await Promise.all([
+    mcpGateway.capabilities(),
+    database.listMcpServiceStates(selectedWorkspaceId),
+  ])
+  const stateMap = new Map(states.map((state) => [state.serviceId, state.active]))
+  return capabilities.services.map((service) => {
+    const serviceTools = capabilities.tools.filter(
+      (tool) => tool.service_id === service.service_id,
+    )
+    return {
+      id: service.service_id,
+      name: service.display_name || service.service_id,
+      description:
+        service.status === 'available'
+          ? `${serviceTools.length} runtime-verified tool${serviceTools.length === 1 ? '' : 's'} from revision ${service.revision || 'unknown'}.`
+          : 'The service is registered but its runtime tools are currently unreachable.',
+      category: mcpCategory(service.service_id, serviceTools),
+      status: service.status === 'available' ? 'live' : 'unreachable',
+      active:
+        service.status === 'available' && Boolean(stateMap.get(service.service_id)),
+      credentialMode: 'Workspace vault',
+      tools: serviceTools.map((tool) => ({
+        id: tool.catalog_id || tool.name,
+        runtimeName: tool.name,
+        name: tool.title || tool.catalog_id || tool.name,
+        description: tool.description || '',
+        inputSchema: tool.input_schema || {},
+        tags: tool.tags || [],
+      })),
+    }
+  }).filter((service) => allowedMcpCategories.has(service.category))
+}
 
 app.get('/api/mcp/access', requireAuth, async (request, response) => {
   response.json(await mcpAccessResponse(request.auth.context))
 })
 
 app.get('/api/mcp/services', requireAuth, async (request, response) => {
-  const states = await database.listMcpServiceStates(request.auth.context.workspace.id)
-  const stateMap = {}
-  for (const s of states) stateMap[s.serviceId] = s.active
-  const services = MCP_SERVICE_DEFINITIONS.map((def) => ({
-    ...def,
-    active: stateMap[def.id] || false,
-  }))
-  response.json({ services })
+  response.json({
+    configured: mcpGateway.configured,
+    services: await liveMcpServices(request.auth.context.workspace.id),
+  })
 })
 
-app.post('/api/mcp/sync', requireAuth, async (request, response) => {
+app.post('/api/mcp/sync', secureMutations, requireAuth, async (request, response) => {
   const access = await database.getMcpAccess(request.auth.context.workspace.id)
   if (access.status !== 'approved') {
     throw new HttpError(409, 'Bearer access must be approved before services can sync.')
   }
   const now = nowIso()
+  const services = await liveMcpServices(request.auth.context.workspace.id)
   await database.touchMcpAccess(request.auth.context.workspace.id, now)
-  const states = await database.listMcpServiceStates(request.auth.context.workspace.id)
-  const stateMap = {}
-  for (const s of states) stateMap[s.serviceId] = s.active
-  const services = MCP_SERVICE_DEFINITIONS.map((def) => ({
-    ...def,
-    active: stateMap[def.id] || false,
-  }))
   response.json({
-    connection: { ...access, lastSync: now },
+    connection: {
+      gatewayUrl: mcpGateway.gatewayUrl,
+      capabilityEndpoint: '/api/v1/capabilities',
+      authSource: 'Managed bearer grant · server-side only',
+      mode: 'DNS gateway',
+      accessStatus: access.status,
+      connected: true,
+      lastSync: now,
+      requestedAt: access.requestedAt,
+    },
     services,
   })
 })
 
 app.post('/api/mcp/invoke', secureMutations, requireAuth, async (request, response) => {
-  const { serviceId, toolId } = request.body || {}
+  const { serviceId, toolId, arguments: toolArguments = {} } = request.body || {}
   if (!/^[a-z0-9][a-z0-9._-]{0,79}$/.test(serviceId) || typeof toolId !== 'string') {
     throw new HttpError(400, 'A valid MCP service id and tool id are required.')
+  }
+  if (
+    !toolArguments ||
+    typeof toolArguments !== 'object' ||
+    Array.isArray(toolArguments)
+  ) {
+    throw new HttpError(400, 'MCP tool arguments must be a JSON object.')
   }
   const access = await database.getMcpAccess(request.auth.context.workspace.id)
   if (access.status !== 'approved') {
     throw new HttpError(409, 'Bearer access must be approved before invoking MCP tools.')
   }
-  const states = await database.listMcpServiceStates(request.auth.context.workspace.id)
-  const stateMap = {}
-  for (const s of states) stateMap[s.serviceId] = s.active
-  const service = MCP_SERVICE_DEFINITIONS.find((s) => s.id === serviceId)
-  if (!service || !stateMap[serviceId]) {
+  const services = await liveMcpServices(request.auth.context.workspace.id)
+  const service = services.find((item) => item.id === serviceId)
+  if (!service?.active || service.status !== 'live') {
     throw new HttpError(409, 'Activate a live MCP service before invoking its tools.')
   }
-  const tool = service.tools.find((t) => t.id === toolId)
+  const tool = service.tools.find((item) => item.id === toolId)
   if (!tool) throw new HttpError(404, 'MCP tool not found.')
   const result = await executeIdempotentMutation({
     request,
     route: `POST /api/mcp/invoke/${serviceId}/${toolId}`,
-    input: { serviceId, toolId },
-    operation: async () => ({
-      status: 200,
-      response: await database.createMcpInvocation(request.auth.context.workspace.id, serviceId, toolId),
-    }),
+    input: { serviceId, toolId, arguments: toolArguments },
+    operation: async () => {
+      const startedAt = performance.now()
+      const invocation = await mcpGateway.invoke(tool.id, toolArguments)
+      const duration = Math.max(0, Math.round(performance.now() - startedAt))
+      const message = invocation.isError
+        ? 'MCP tool returned an error result.'
+        : 'MCP tool completed successfully.'
+      await database.recordMcpInvocation({
+        selectedWorkspaceId: request.auth.context.workspace.id,
+        serviceId,
+        toolId,
+        duration,
+        message,
+      })
+      return {
+        status: invocation.isError ? 502 : 200,
+        response: {
+          ok: !invocation.isError,
+          serviceId: invocation.serviceId,
+          toolId: invocation.toolId,
+          requestId: invocation.requestId || randomUUID(),
+          duration,
+          message,
+          data: invocation.data,
+        },
+      }
+    },
   })
   sendMutationResponse(response, result)
 })
@@ -1782,7 +2435,7 @@ app.post(
           shouldNotify = true
           await database.setMcpAccess(
             request.auth.context.workspace.id,
-            process.env.MCP_API_TOKEN ? 'approved' : 'pending',
+            mcpGateway.configured ? 'approved' : 'pending',
           )
         }
         const payload = await mcpAccessResponse(request.auth.context)
@@ -1841,6 +2494,11 @@ app.post(
     if ((await database.getMcpAccess(request.auth.context.workspace.id)).status !== 'approved') {
       throw new HttpError(409, 'Bearer access must be approved before services can change.')
     }
+    const services = await liveMcpServices(request.auth.context.workspace.id)
+    const service = services.find((item) => item.id === serviceId)
+    if (!service || service.status !== 'live') {
+      throw new HttpError(404, 'A live MCP service is required.')
+    }
 
     const result = await executeIdempotentMutation({
       request,
@@ -1863,6 +2521,88 @@ app.get('/api/money/paystack/status', requireAuth, async (request, response) => 
   response.json(await paystackConnectionResponse(request.auth.context))
 })
 
+app.post(
+  '/api/money/paystack/connection',
+  secureMutations,
+  requireAuth,
+  requireOwner,
+  async (request, response) => {
+    const secretKey = String(request.body?.secretKey || '').trim()
+    let client
+    try {
+      client = createPaystackClient({
+        secretKey,
+        baseUrl: paystackBaseUrl,
+        allowInsecure: !production,
+      })
+    } catch (error) {
+      throw new HttpError(
+        400,
+        error instanceof Error
+          ? error.message
+          : 'Enter a valid Paystack secret key.',
+      )
+    }
+    if (!client.configured) {
+      throw new HttpError(400, 'Enter a valid Paystack secret key.')
+    }
+    const result = await executeIdempotentMutation({
+      request,
+      route: 'POST /api/money/paystack/connection',
+      input: {
+        mode: client.mode,
+        keyFingerprint: client.keyFingerprint,
+      },
+      operation: async () => {
+        await database.upsertPaymentConnection({
+          selectedWorkspaceId: request.auth.context.workspace.id,
+          provider: 'paystack',
+          configured: true,
+          mode: client.mode,
+          credentialSource: 'workspace',
+          keyFingerprint: client.keyFingerprint,
+          secretCiphertext: encryptPaystackSecret(secretKey, sessionSecret),
+        })
+        return {
+          status: 200,
+          response: await paystackConnectionResponse(request.auth.context),
+        }
+      },
+    })
+    sendMutationResponse(response, result)
+  },
+)
+
+app.post(
+  '/api/money/paystack/disconnect',
+  secureMutations,
+  requireAuth,
+  requireOwner,
+  async (request, response) => {
+    const result = await executeIdempotentMutation({
+      request,
+      route: 'POST /api/money/paystack/disconnect',
+      input: {},
+      operation: async () => {
+        await database.upsertPaymentConnection({
+          selectedWorkspaceId: request.auth.context.workspace.id,
+          provider: 'paystack',
+          configured: false,
+          mode: 'none',
+          credentialSource: 'disabled',
+          keyFingerprint: null,
+          secretCiphertext: null,
+        })
+        return {
+          status: 200,
+          response: await paystackConnectionResponse(request.auth.context),
+        }
+      },
+    })
+    sendMutationResponse(response, result)
+  },
+)
+
 app.get('/api/money/invoices', requireAuth, async (request, response) => {
   response.json({
     invoices: await database.listInvoices(request.auth.context.workspace.id),
@@ -1874,7 +2614,7 @@ app.post(
   secureMutations,
   requireAuth,
   async (request, response) => {
-    const connection = paystackConnectionResponse(request.auth.context)
+    const connection = await paystackConnectionResponse(request.auth.context)
     if (!connection.configured) {
       throw new HttpError(
         503,
@@ -1960,7 +2700,10 @@ app.post(
     }
 
     try {
-      const initialized = await paystack.initializeTransaction({
+      const paystackClient = await paystackClientForWorkspace(
+        selectedWorkspaceId,
+      )
+      const initialized = await paystackClient.initializeTransaction({
         email: paymentLink.clientEmail,
         amountMinor: paymentLink.amountMinor,
         currency: paymentLink.currency,
@@ -2010,13 +2753,13 @@ app.post(
   },
 )
 
-app.get('/api/api-keys', requireAuth, async (request, response) => {
+app.get('/api/api-keys', requireAuth, requireOwner, async (request, response) => {
   response.json({
     keys: await database.listApiKeys(request.auth.context.workspace.id),
   })
 })
 
-app.post('/api/api-keys', secureMutations, requireAuth, async (request, response) => {
+app.post('/api/api-keys', secureMutations, requireAuth, requireOwner, async (request, response) => {
   const name = String(request.body?.name || '').trim()
   if (name.length < 2 || name.length > 80) {
     throw new HttpError(400, 'API-key name must be between 2 and 80 characters.')
@@ -2069,6 +2812,7 @@ app.delete(
   '/api/api-keys/:keyId',
   secureMutations,
   requireAuth,
+  requireOwner,
   async (request, response) => {
     const keyId = String(request.params.keyId || '')
     if (!/^key_[a-f0-9]{20}$/.test(keyId)) {
@@ -2159,6 +2903,20 @@ app.post(
     }
     try {
       const result = await completeChat({ messages, systemPrompt })
+      await database.saveAiConversation({
+        workspaceId: request.auth.context.workspace.id,
+        userId: request.auth.context.user.id,
+        title: String(messages.at(-1)?.content || 'AI conversation').slice(0, 120),
+        model: result.model,
+        messages: [
+          ...(systemPrompt
+            ? [{ role: 'system', content: String(systemPrompt) }]
+            : []),
+          ...messages,
+          { role: 'assistant', content: result.content },
+        ],
+        tokensUsed: result.usage.totalTokens,
+      })
       response.json(result)
     } catch (error) {
       if (error instanceof AiError) {
@@ -2170,29 +2928,249 @@ app.post(
   },
 )
 
+app.get(
+  '/api/codex/ai/status',
+  requireCodexScope(codexAiScope),
+  (request, response) => {
+    response.json({
+      ...getAiStatus(),
+      workspace: request.codexAuth.context.workspace.name,
+      tokenExpiresAt: request.codexAuth.token.expiresAt,
+    })
+  },
+)
+
+app.post(
+  '/api/codex/ai/complete',
+  secureMutations,
+  requireCodexScope(codexAiScope),
+  async (request, response) => {
+    const messages = request.body?.messages
+    const systemPrompt = request.body?.systemPrompt
+    if (!Array.isArray(messages) || messages.length === 0) {
+      throw new HttpError(400, 'Messages array is required.')
+    }
+    const result = await completeChat({ messages, systemPrompt })
+    await database.saveAiConversation({
+      workspaceId: request.codexAuth.context.workspace.id,
+      userId: request.codexAuth.context.user.id,
+      title: String(messages.at(-1)?.content || 'Codex AI conversation').slice(0, 120),
+      model: result.model,
+      messages: [
+        ...(systemPrompt
+          ? [{ role: 'system', content: String(systemPrompt) }]
+          : []),
+        ...messages,
+        { role: 'assistant', content: result.content },
+      ],
+      tokensUsed: result.usage.totalTokens,
+    })
+    response.json(result)
+  },
+)
+
+app.get('/api/codex/runtime/status', requireAuth, async (request, response) => {
+  try {
+    const account = await codexRuntimeClient(request).account()
+    response.json({
+      available: true,
+      authenticated: Boolean(account.account),
+      account: account.account || null,
+      requiresOpenaiAuth: Boolean(account.requiresOpenaiAuth),
+      workspaceRoot: codexWorkspaceRoot,
+    })
+  } catch (error) {
+    if (!(error instanceof CodexAppServerError)) throw error
+    response.json({
+      available: false,
+      authenticated: false,
+      account: null,
+      requiresOpenaiAuth: true,
+      workspaceRoot: codexWorkspaceRoot,
+      error: error.message,
+    })
+  }
+})
+
+app.post(
+  '/api/codex/runtime/auth/device',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const result = await codexRuntimeClient(request).startDeviceLogin()
+    response.status(201).json(result)
+  },
+)
+
+app.post(
+  '/api/codex/runtime/auth/logout',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    await codexRuntimeClient(request).logout()
+    response.status(204).end()
+  },
+)
+
+app.post(
+  '/api/codex/runtime/threads',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const result = await codexRuntimeClient(request).startThread()
+    response.status(201).json(result)
+  },
+)
+
+app.post(
+  '/api/codex/runtime/threads/:threadId/turns',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const threadId = String(request.params.threadId || '').trim()
+    const prompt = String(request.body?.prompt || '').trim()
+    if (!threadId) throw new HttpError(400, 'Codex thread ID is required.')
+    if (!prompt || prompt.length > 20_000) {
+      throw new HttpError(
+        400,
+        'Prompt must contain between 1 and 20,000 characters.',
+      )
+    }
+    const result = await codexRuntimeClient(request).startTurn({
+      threadId,
+      prompt,
+    })
+    response.status(202).json(result)
+  },
+)
+
+app.post(
+  '/api/codex/runtime/threads/:threadId/turns/:turnId/interrupt',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const threadId = String(request.params.threadId || '').trim()
+    const turnId = String(request.params.turnId || '').trim()
+    if (!threadId || !turnId) {
+      throw new HttpError(400, 'Codex thread and turn IDs are required.')
+    }
+    await codexRuntimeClient(request).interruptTurn({ threadId, turnId })
+    response.status(204).end()
+  },
+)
+
+app.get(
+  '/api/codex/runtime/events',
+  requireAuth,
+  async (request, response) => {
+    const threadId = String(request.query.threadId || '').trim() || null
+    const after = Number.parseInt(String(request.query.after || '0'), 10) || 0
+    const client = codexRuntimeClient(request)
+    await client.start()
+
+    response.set({
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'Content-Type': 'text/event-stream',
+      'X-Accel-Buffering': 'no',
+    })
+    response.flushHeaders()
+
+    const writeEvent = (event) => {
+      if (
+        threadId &&
+        event.params?.threadId !== threadId &&
+        event.params?.thread?.id !== threadId
+      ) {
+        return
+      }
+      response.write(`id: ${event.sequence}\n`)
+      response.write(`event: codex\n`)
+      response.write(`data: ${JSON.stringify(event)}\n\n`)
+    }
+    client.bufferedEvents({ after, threadId }).forEach(writeEvent)
+    const unsubscribe = client.subscribe(writeEvent)
+    const heartbeat = setInterval(() => response.write(': keep-alive\n\n'), 15_000)
+    request.once('close', () => {
+      clearInterval(heartbeat)
+      unsubscribe()
+    })
+  },
+)
+
 app.get('/api/integrations', requireAuth, async (request, response) => {
+  const selectedWorkspaceId = request.auth.context.workspace.id
+  const [integrations, driveToken] = await Promise.all([
+    database.listIntegrations(selectedWorkspaceId),
+    database.getGoogleDriveToken(selectedWorkspaceId),
+  ])
   response.json({
-    integrations: await database.listIntegrations(request.auth.context.workspace.id),
+    integrations: integrations.map((integration) =>
+      integration.id === 'drive'
+        ? {
+            ...integration,
+            connected: tokenHasDriveFileScope(driveToken),
+          }
+        : integration,
+    ),
   })
 })
+
+const integrationRequestCategories = new Set([
+  'Automation',
+  'Communication',
+  'Design',
+  'Payments',
+  'Storage',
+  'Other',
+])
+
+app.post(
+  '/api/integration-requests',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const name = String(request.body?.name || '').trim()
+    const category = String(request.body?.category || '').trim()
+    const details = String(request.body?.details || '').trim()
+    if (name.length < 2 || name.length > 120) {
+      throw new HttpError(400, 'Connection name must be between 2 and 120 characters.')
+    }
+    if (!integrationRequestCategories.has(category)) {
+      throw new HttpError(400, 'Select a supported connection category.')
+    }
+    if (details.length > 500) {
+      throw new HttpError(400, 'Connection details must be 500 characters or fewer.')
+    }
+    const result = await executeIdempotentMutation({
+      request,
+      route: 'POST /api/integration-requests',
+      input: { name, category, details },
+      operation: async () => ({
+        status: 201,
+        response: await database.createIntegrationRequest({
+          workspaceId: request.auth.context.workspace.id,
+          requestedBy: request.auth.context.user.id,
+          name,
+          category,
+          details,
+        }),
+      }),
+    })
+    sendMutationResponse(response, result)
+  },
+)
 
 app.post(
   '/api/integrations/:id/toggle',
   secureMutations,
   requireAuth,
-  async (request, response) => {
+  async (request, _response) => {
     const id = String(request.params.id || '')
-    const result = await executeIdempotentMutation({
-      request,
-      route: `POST /api/integrations/${id}/toggle`,
-      input: {},
-      operation: async () => {
-        const updated = await database.toggleIntegration(request.auth.context.workspace.id, id)
-        if (!updated) throw new HttpError(404, 'Integration not found.')
-        return { status: 200, response: updated }
-      },
-    })
-    sendMutationResponse(response, result)
+    throw new HttpError(
+      409,
+      `${id || 'This integration'} is managed by its dedicated connection API and cannot be toggled directly.`,
+    )
   },
 )
 
@@ -2206,20 +3184,66 @@ app.patch(
   '/api/workspace/settings',
   secureMutations,
   requireAuth,
+  requireOwner,
   async (request, response) => {
-    const name = String(request.body?.name || '').trim()
-    const email = String(request.body?.email || '').trim()
-    const timezone = String(request.body?.timezone || 'Africa/Johannesburg').trim()
-    const travelMode = String(request.body?.travelMode || 'none').trim()
-    const travelLocation = String(request.body?.travelLocation || '').trim()
+    const current = await database.getWorkspaceSettings(
+      request.auth.context.workspace.id,
+    )
+    const name = String(request.body?.name ?? current.name).trim()
+    const logoUrl = String(request.body?.logoUrl ?? current.logoUrl).trim()
+    const email = String(request.body?.email ?? current.email).trim()
+    const timezone = String(
+      request.body?.timezone ?? current.timezone ?? 'Africa/Johannesburg',
+    ).trim()
+    const travelMode = String(
+      request.body?.travelMode ?? current.travelMode ?? 'none',
+    ).trim()
+    const travelLocation = String(
+      request.body?.travelLocation ?? current.travelLocation ?? '',
+    ).trim()
+    if (!name || name.length > 120) {
+      throw new HttpError(400, 'Workspace name must be between 1 and 120 characters.')
+    }
+    if (
+      email &&
+      (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    ) {
+      throw new HttpError(400, 'Workspace email must be valid.')
+    }
+    if (logoUrl) {
+      let parsedLogoUrl
+      try {
+        parsedLogoUrl = new URL(logoUrl)
+      } catch {
+        throw new HttpError(400, 'Workspace logo URL must be valid.')
+      }
+      if (
+        !['http:', 'https:'].includes(parsedLogoUrl.protocol) ||
+        logoUrl.length > 2048
+      ) {
+        throw new HttpError(400, 'Workspace logo URL must use http or https.')
+      }
+    }
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: timezone }).format()
+    } catch {
+      throw new HttpError(400, 'Enter a valid IANA timezone.')
+    }
+    if (!['none', 'traveling'].includes(travelMode)) {
+      throw new HttpError(400, 'Travel mode must be none or traveling.')
+    }
+    if (travelLocation.length > 160) {
+      throw new HttpError(400, 'Travel location must be 160 characters or fewer.')
+    }
     const result = await executeIdempotentMutation({
       request,
       route: 'PATCH /api/workspace/settings',
-      input: { name, email, timezone, travelMode, travelLocation },
+      input: { name, logoUrl, email, timezone, travelMode, travelLocation },
       operation: async () => ({
         status: 200,
         response: await database.updateWorkspaceSettings(request.auth.context.workspace.id, {
           name,
+          logoUrl,
           email,
           timezone,
           travelMode,
@@ -2241,28 +3265,139 @@ app.get('/api/workspace/team', requireAuth, async (request, response) => {
   })
 })
 
-app.post('/api/workspace/team/invite', secureMutations, requireAuth, async (request, response) => {
-  const email = String(request.body?.email || '').trim()
+const cloudStorageProviders = new Set(['drive', 'dropbox', 'onedrive', 'box', 'other'])
+
+function validateCloudFolderUrl(value) {
+  const trimmed = String(value || '').trim()
+  let parsed
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    throw new HttpError(400, 'Folder URL must be a valid http or https link.')
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new HttpError(400, 'Folder URL must use http or https.')
+  }
+  if (trimmed.length > 2048) {
+    throw new HttpError(400, 'Folder URL is too long.')
+  }
+  return trimmed
+}
+
+app.get('/api/workspace/cloud-links', requireAuth, async (request, response) => {
+  response.json({
+    links: await database.listWorkspaceCloudLinks(request.auth.context.workspace.id),
+  })
+})
+
+app.post('/api/workspace/cloud-links', secureMutations, requireAuth, async (request, response) => {
+  const provider = String(request.body?.provider || '').trim()
+  const label = String(request.body?.label || '').trim()
+  const folderUrl = validateCloudFolderUrl(request.body?.folderUrl)
+  const notes = String(request.body?.notes || '').trim().slice(0, 500)
+  if (!cloudStorageProviders.has(provider)) {
+    throw new HttpError(400, 'Select a supported cloud storage provider.')
+  }
+  if (!label || label.length > 120) {
+    throw new HttpError(400, 'Link label must be between 1 and 120 characters.')
+  }
+  const result = await executeIdempotentMutation({
+    request,
+    route: 'POST /api/workspace/cloud-links',
+    input: { provider, label, folderUrl, notes },
+    operation: async () => ({
+      status: 201,
+      response: await database.createWorkspaceCloudLink({
+        workspaceId: request.auth.context.workspace.id,
+        provider,
+        label,
+        folderUrl,
+        notes,
+      }),
+    }),
+  })
+  sendMutationResponse(response, result)
+})
+
+app.delete('/api/workspace/cloud-links/:linkId', secureMutations, requireAuth, async (request, response) => {
+  const linkId = String(request.params.linkId || '')
+  if (!/^cloud_[a-f0-9]{12}$/.test(linkId)) {
+    throw new HttpError(400, 'A valid cloud link id is required.')
+  }
+  await database.deleteWorkspaceCloudLink(request.auth.context.workspace.id, linkId)
+  response.status(204).end()
+})
+
+app.post('/api/workspace/team/invite', secureMutations, requireAuth, requireOwner, async (request, response) => {
+  const email = String(request.body?.email || '').trim().toLowerCase()
   const name = String(request.body?.name || '').trim()
   const role = String(request.body?.role || 'collaborator').trim()
-  if (!email) {
-    throw new HttpError(400, 'Email address is required.')
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    throw new HttpError(400, 'A valid email address is required.')
+  }
+  if (name.length > 120) {
+    throw new HttpError(400, 'Member name must be 120 characters or fewer.')
+  }
+  if (!['owner', 'collaborator'].includes(role)) {
+    throw new HttpError(400, 'Role must be owner or collaborator.')
+  }
+  const existingMembership = await database.getWorkspaceMembershipByEmail(
+    request.auth.context.workspace.id,
+    email,
+  )
+  if (existingMembership) {
+    if (existingMembership.password_hash !== 'temp_hash') {
+      throw new HttpError(409, 'This person is already a workspace member.')
+    }
+    await database.removeLegacyInvitationMember(
+      request.auth.context.workspace.id,
+      existingMembership.id,
+    )
   }
   const result = await executeIdempotentMutation({
     request,
     route: 'POST /api/workspace/team/invite',
     input: { email, name, role },
-    operation: async () => ({
-      status: 201,
-      response: await database.inviteTeamMember({
+    operation: async () => {
+      const token = randomBytes(32).toString('base64url')
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+      const acceptUrl = new URL('/', publicOrigin)
+      acceptUrl.searchParams.set('invite', token)
+      return {
+        status: 201,
+        response: {
+          ...await database.inviteTeamMember({
         workspaceId: request.auth.context.workspace.id,
+        invitedBy: request.auth.context.user.id,
         email,
         name,
         role,
-      }),
-    }),
+            tokenHash: hashSecret(token),
+            expiresAt,
+          }),
+          acceptUrl: acceptUrl.toString(),
+          delivery: 'share',
+        },
+      }
+    },
   })
-  sendMutationResponse(response, result)
+  const payload = { ...result.response }
+  if (!result.replayed && getSmtpStatus().configured) {
+    try {
+      await sendNotification({
+        to: email,
+        subject: `Invitation to ${request.auth.context.workspace.name}`,
+        text:
+          `${request.auth.context.user.name} invited you to ` +
+          `${request.auth.context.workspace.name} on lancee.\n\n` +
+          `Accept the invitation within 7 days:\n${payload.acceptUrl}`,
+      })
+      payload.delivery = 'sent'
+    } catch {
+      payload.delivery = 'failed'
+    }
+  }
+  sendMutationResponse(response, result, payload)
 })
 
 app.get('/api/projects', requireAuth, async (request, response) => {
@@ -2277,8 +3412,14 @@ app.post('/api/projects', secureMutations, requireAuth, async (request, response
   const scope = String(request.body?.scope || 'New project · add deliverables').trim()
   const due = String(request.body?.due || 'Set date').trim()
   const status = String(request.body?.status || 'In progress').trim()
-  if (!name || !client) {
-    throw new HttpError(400, 'Project name and client name are required.')
+  if (!name || name.length > 160 || !client || client.length > 160) {
+    throw new HttpError(400, 'Project and client names are required and must be 160 characters or fewer.')
+  }
+  if (scope.length > 500 || due.length > 40) {
+    throw new HttpError(400, 'Project scope or due date is too long.')
+  }
+  if (!['In progress', 'In review', 'Waiting on client', 'Ready'].includes(status)) {
+    throw new HttpError(400, 'Select a valid project status.')
   }
   const result = await executeIdempotentMutation({
     request,
@@ -2300,20 +3441,53 @@ app.post('/api/projects', secureMutations, requireAuth, async (request, response
 })
 
 app.patch('/api/projects/:id', secureMutations, requireAuth, async (request, response) => {
-  const id = request.params.id
-  const status = String(request.body?.status || '').trim()
-  const name = String(request.body?.name || '').trim()
-  const client = String(request.body?.client || '').trim()
-  const scope = String(request.body?.scope || '').trim()
-  const due = String(request.body?.due || '').trim()
-  const updated = await database.updateProject(request.auth.context.workspace.id, id, { status, name, client, scope, due })
-  if (!updated) {
-    throw new HttpError(404, 'Project not found.')
+  const id = String(request.params.id || '')
+  if (!/^prj_[a-z0-9_-]{6,80}$/i.test(id)) {
+    throw new HttpError(400, 'A valid project id is required.')
   }
-  response.json(updated)
+  const allowedStatuses = new Set(['In progress', 'In review', 'Waiting on client', 'Ready'])
+  const fields = {}
+  for (const key of ['status', 'name', 'client', 'scope', 'due']) {
+    if (Object.hasOwn(request.body || {}, key)) fields[key] = String(request.body[key] || '').trim()
+  }
+  if (Object.hasOwn(request.body || {}, 'boardId')) {
+    fields.boardId = request.body.boardId
+      ? validateBoardId(request.body.boardId)
+      : null
+  }
+  if (fields.status && !allowedStatuses.has(fields.status)) {
+    throw new HttpError(400, 'Select a valid project status.')
+  }
+  if (fields.name === '' || fields.client === '') {
+    throw new HttpError(400, 'Project and client names cannot be empty.')
+  }
+  if ((fields.name?.length || 0) > 160 || (fields.client?.length || 0) > 160) {
+    throw new HttpError(400, 'Project and client names must be 160 characters or fewer.')
+  }
+  if ((fields.scope?.length || 0) > 500 || (fields.due?.length || 0) > 40) {
+    throw new HttpError(400, 'Project scope or due date is too long.')
+  }
+  if (Object.keys(fields).length === 0) {
+    throw new HttpError(400, 'Provide at least one project field to update.')
+  }
+  const result = await executeIdempotentMutation({
+    request,
+    route: `PATCH /api/projects/${id}`,
+    input: fields,
+    operation: async () => {
+      const updated = await database.updateProject(
+        request.auth.context.workspace.id,
+        id,
+        fields,
+      )
+      if (!updated) throw new HttpError(404, 'Project not found.')
+      return { status: 200, response: updated }
+    },
+  })
+  sendMutationResponse(response, result)
 })
 
-app.delete('/api/projects/:id', requireAuth, async (request, response) => {
+app.delete('/api/projects/:id', secureMutations, requireAuth, async (request, response) => {
   await database.deleteProject(request.auth.context.workspace.id, request.params.id)
   response.status(204).end()
 })
@@ -2329,7 +3503,16 @@ app.post('/api/projects/:id/links', secureMutations, requireAuth, async (request
   const projectId = request.params.id
   const url = String(request.body?.url || '').trim()
   const label = String(request.body?.label || '').trim()
-  if (!url) throw new HttpError(400, 'URL is required.')
+  let parsedUrl
+  try {
+    parsedUrl = new URL(url)
+  } catch {
+    throw new HttpError(400, 'A valid URL is required.')
+  }
+  if (!['http:', 'https:'].includes(parsedUrl.protocol) || url.length > 2048) {
+    throw new HttpError(400, 'Project links must use http or https.')
+  }
+  if (label.length > 120) throw new HttpError(400, 'Link label is too long.')
   const link = await database.createProjectLink({
     workspaceId: request.auth.context.workspace.id,
     projectId,
@@ -2339,7 +3522,7 @@ app.post('/api/projects/:id/links', secureMutations, requireAuth, async (request
   response.status(201).json({ link })
 })
 
-app.delete('/api/projects/links/:linkId', requireAuth, async (request, response) => {
+app.delete('/api/projects/links/:linkId', secureMutations, requireAuth, async (request, response) => {
   await database.deleteProjectLink(request.auth.context.workspace.id, request.params.linkId)
   response.status(204).end()
 })
@@ -2351,25 +3534,408 @@ app.get('/api/projects/:id/files', requireAuth, async (request, response) => {
   })
 })
 
-app.post('/api/projects/:id/files', secureMutations, requireAuth, async (request, response) => {
-  const projectId = request.params.id
-  const { name, mimeType, size, storageKey } = request.body || {}
-  if (!name || !storageKey) throw new HttpError(400, 'File name and storage key are required.')
-  const file = await database.createProjectFile({
-    workspaceId: request.auth.context.workspace.id,
-    projectId,
-    name,
-    mimeType,
-    size,
-    storageKey,
+app.post(
+  '/api/projects/:id/files',
+  secureMutations,
+  requireAuth,
+  express.raw({ type: 'application/octet-stream', limit: '10mb' }),
+  async (request, response) => {
+    const projectId = String(request.params.id || '')
+    if (!/^prj_[a-z0-9_-]{6,80}$/i.test(projectId)) {
+      throw new HttpError(400, 'A valid project id is required.')
+    }
+    const project = (
+      await database.listProjects(request.auth.context.workspace.id)
+    ).find((item) => item.id === projectId)
+    if (!project) throw new HttpError(404, 'Project not found.')
+
+    let name
+    try {
+      name = decodeURIComponent(String(request.get('X-File-Name') || '')).trim()
+    } catch {
+      throw new HttpError(400, 'The file name is not valid UTF-8.')
+    }
+    const mimeType = String(
+      request.get('X-File-Type') || 'application/octet-stream',
+    ).trim()
+    if (
+      !name ||
+      name.length > 255 ||
+      [...name].some((character) => {
+        const code = character.codePointAt(0)
+        return code !== undefined && (code < 32 || code === 127)
+      }) ||
+      mimeType.length > 160 ||
+      /[\r\n]/.test(mimeType)
+    ) {
+      throw new HttpError(400, 'A bounded file name and MIME type are required.')
+    }
+    if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
+      throw new HttpError(400, 'Choose a non-empty file to attach.')
+    }
+    const contentSha256 = createHash('sha256')
+      .update(request.body)
+      .digest('hex')
+    const storageKey = `postgres:${contentSha256}`
+    const result = await executeIdempotentMutation({
+      request,
+      route: `POST /api/projects/${projectId}/files`,
+      input: {
+        projectId,
+        name,
+        mimeType,
+        size: request.body.length,
+        contentSha256,
+      },
+      operation: async () => ({
+        status: 201,
+        response: {
+          file: await database.createProjectFile({
+            workspaceId: request.auth.context.workspace.id,
+            projectId,
+            name,
+            mimeType,
+            size: request.body.length,
+            storageKey,
+            contentBase64: request.body.toString('base64'),
+            contentSha256,
+          }),
+        },
+      }),
+    })
+    sendMutationResponse(response, result)
+  },
+)
+
+app.get('/api/projects/files/:fileId/download', requireAuth, async (request, response) => {
+  const fileId = String(request.params.fileId || '')
+  if (!/^file_[a-f0-9]{12}$/.test(fileId)) {
+    throw new HttpError(400, 'A valid file id is required.')
+  }
+  const file = await database.getProjectFile(
+    request.auth.context.workspace.id,
+    fileId,
+  )
+  if (!file?.contentBase64) throw new HttpError(404, 'File not found.')
+  const content = Buffer.from(file.contentBase64, 'base64')
+  if (
+    content.length !== Number(file.size) ||
+    createHash('sha256').update(content).digest('hex') !== file.sha256
+  ) {
+    throw new HttpError(500, 'Stored file integrity check failed.')
+  }
+  const fallbackName = file.name
+    .replace(/[^\x20-\x7e]/g, '_')
+    .replaceAll('"', '_')
+    .replaceAll('\\', '_')
+  response.set({
+    'Content-Type': file.mimeType || 'application/octet-stream',
+    'Content-Length': String(content.length),
+    'Content-Disposition':
+      `attachment; filename="${fallbackName}"; ` +
+      `filename*=UTF-8''${encodeURIComponent(file.name)}`,
+    'Cache-Control': 'private, no-store',
   })
-  response.status(201).json({ file })
+  response.send(content)
 })
 
-app.delete('/api/projects/files/:fileId', requireAuth, async (request, response) => {
+app.delete('/api/projects/files/:fileId', secureMutations, requireAuth, async (request, response) => {
   await database.deleteProjectFile(request.auth.context.workspace.id, request.params.fileId)
   response.status(204).end()
 })
+
+const googleDrive = getGoogleDriveConfig({ publicOrigin })
+
+function redirectDriveResult(response, { status, message = '' }) {
+  const target = new URL(publicOrigin)
+  target.searchParams.set('page', 'integrations')
+  target.searchParams.set('drive', status)
+  if (message) target.searchParams.set('driveMessage', message.slice(0, 180))
+  response.redirect(target.toString())
+}
+
+async function resolveGoogleDriveAccessToken(workspaceId) {
+  if (!googleDrive.configured) {
+    throw new GoogleDriveError(
+      'DRIVE_NOT_CONFIGURED',
+      'Google Drive OAuth credentials are not configured on the server.',
+      503,
+    )
+  }
+
+  const stored = await database.getGoogleDriveToken(workspaceId)
+  if (!stored?.accessToken) {
+    throw new GoogleDriveError(
+      'DRIVE_NOT_CONNECTED',
+      'Google Drive is not connected for this workspace.',
+      409,
+    )
+  }
+  if (!tokenHasDriveFileScope(stored)) {
+    await database.deleteGoogleDriveToken(workspaceId)
+    throw new GoogleDriveError(
+      'DRIVE_REAUTH_REQUIRED',
+      'Reconnect Google Drive to approve safer per-file access.',
+      401,
+    )
+  }
+
+  const accessToken = decryptDriveSecret(stored.accessToken, sessionSecret)
+  const refreshToken = decryptDriveSecret(stored.refreshToken, sessionSecret)
+
+  if (accessTokenIsFresh(stored.expiresAt) && accessToken) {
+    return accessToken
+  }
+
+  if (!refreshToken) {
+    throw new GoogleDriveError(
+      'DRIVE_REAUTH_REQUIRED',
+      'Google Drive access expired. Reconnect Google Drive to continue.',
+      401,
+    )
+  }
+
+  try {
+    const refreshed = await refreshGoogleAccessToken({
+      refreshToken,
+      clientId: googleDrive.clientId,
+      clientSecret: googleDrive.clientSecret,
+    })
+    await database.saveGoogleDriveToken({
+      workspaceId,
+      accessToken: encryptDriveSecret(refreshed.accessToken, sessionSecret),
+      refreshToken: encryptDriveSecret(refreshed.refreshToken, sessionSecret),
+      expiresAt: refreshed.expiresAt,
+      tokenType: refreshed.tokenType,
+      scope: refreshed.scope || stored.scope,
+    })
+    return refreshed.accessToken
+  } catch (error) {
+    if (error instanceof GoogleDriveError && (error.status === 400 || error.status === 401)) {
+      await database.deleteGoogleDriveToken(workspaceId)
+      throw new GoogleDriveError(
+        'DRIVE_REAUTH_REQUIRED',
+        'Google Drive authorization was revoked or expired. Reconnect to continue.',
+        401,
+      )
+    }
+    throw error
+  }
+}
+
+app.get('/api/google-drive/status', requireAuth, async (request, response) => {
+  response.set('Cache-Control', 'no-store')
+  const token = await database.getGoogleDriveToken(request.auth.context.workspace.id)
+  response.json({
+    ...driveStatusResponse(token),
+    configured: googleDrive.configured,
+    scope: token?.scope || googleDrive.scope,
+  })
+})
+
+app.get('/api/google-drive/oauth/url', requireAuth, async (request, response) => {
+  response.set('Cache-Control', 'no-store')
+  if (!googleDrive.configured) {
+    throw new HttpError(
+      503,
+      'Google Drive OAuth credentials are not configured on the server.',
+    )
+  }
+
+  const selectedWorkspaceId = request.auth.context.workspace.id
+  const existingToken = await database.getGoogleDriveToken(selectedWorkspaceId)
+  if (existingToken && !tokenHasDriveFileScope(existingToken)) {
+    await database.deleteGoogleDriveToken(selectedWorkspaceId)
+  }
+
+  const state = createOAuthState({
+    workspaceId: selectedWorkspaceId,
+    userId: request.auth.context.user.id,
+    serverSecret: sessionSecret,
+  })
+  const url = buildGoogleAuthUrl({
+    clientId: googleDrive.clientId,
+    redirectUri: googleDrive.redirectUri,
+    state,
+    scope: googleDrive.scope,
+  })
+  response.json({
+    url,
+    redirectUri: googleDrive.redirectUri,
+    scope: googleDrive.scope,
+  })
+})
+
+app.get(
+  ['/oauth/callback', '/api/google-drive/oauth/callback'],
+  async (request, response) => {
+  response.set('Cache-Control', 'no-store')
+  const errorParam = String(request.query?.error || '').trim()
+  if (errorParam) {
+    const description = String(request.query?.error_description || errorParam).trim()
+    redirectDriveResult(response, {
+      status: 'error',
+      message: description || 'Google authorization was denied.',
+    })
+    return
+  }
+
+  const code = String(request.query?.code || '').trim()
+  const state = String(request.query?.state || '').trim()
+  if (!code || !state) {
+    redirectDriveResult(response, {
+      status: 'error',
+      message: 'Missing OAuth code or state from Google.',
+    })
+    return
+  }
+
+  if (!googleDrive.configured) {
+    redirectDriveResult(response, {
+      status: 'error',
+      message: 'Google Drive is not configured on the server.',
+    })
+    return
+  }
+
+  try {
+    const claims = parseOAuthState(state, sessionSecret)
+    const session = await readSession(request)
+    if (
+      session &&
+      (session.context.workspace.id !== claims.workspaceId ||
+        session.context.user.id !== claims.userId)
+    ) {
+      redirectDriveResult(response, {
+        status: 'error',
+        message: 'OAuth session does not match the signed state.',
+      })
+      return
+    }
+
+    const membership = await database.getContextByIds(claims.userId, claims.workspaceId)
+    if (!membership) {
+      redirectDriveResult(response, {
+        status: 'error',
+        message: 'The connecting user no longer has access to this workspace.',
+      })
+      return
+    }
+
+    const tokens = await exchangeAuthorizationCode({
+      code,
+      clientId: googleDrive.clientId,
+      clientSecret: googleDrive.clientSecret,
+      redirectUri: googleDrive.redirectUri,
+    })
+
+    if (!tokens.accessToken) {
+      throw new GoogleDriveError(
+        'DRIVE_TOKEN_ERROR',
+        'Google did not return an access token.',
+        502,
+      )
+    }
+    if (
+      !tokenHasDriveFileScope({
+        scope: tokens.scope || googleDrive.scope,
+      })
+    ) {
+      throw new GoogleDriveError(
+        'DRIVE_SCOPE_REJECTED',
+        'Google returned a broader Drive permission than lancee accepts. Remove the old grant from your Google Account and reconnect.',
+        400,
+      )
+    }
+
+    const existing = await database.getGoogleDriveToken(claims.workspaceId)
+    const refreshToken =
+      tokens.refreshToken ||
+      (tokenHasDriveFileScope(existing) && existing?.refreshToken
+        ? decryptDriveSecret(existing.refreshToken, sessionSecret)
+        : null)
+
+    if (!refreshToken) {
+      // Without a refresh token the connection cannot survive access-token expiry.
+      throw new GoogleDriveError(
+        'DRIVE_NO_REFRESH_TOKEN',
+        'Google did not return a refresh token. Revoke prior access in your Google account and try again.',
+        400,
+      )
+    }
+
+    await database.saveGoogleDriveToken({
+      workspaceId: claims.workspaceId,
+      accessToken: encryptDriveSecret(tokens.accessToken, sessionSecret),
+      refreshToken: encryptDriveSecret(refreshToken, sessionSecret),
+      expiresAt: tokens.expiresAt,
+      tokenType: tokens.tokenType,
+      scope: tokens.scope || googleDrive.scope,
+    })
+
+    redirectDriveResult(response, { status: 'connected' })
+  } catch (error) {
+    console.error('Google Drive OAuth error:', error)
+    redirectDriveResult(response, {
+      status: 'error',
+      message:
+        error instanceof GoogleDriveError || error instanceof Error
+          ? error.message
+          : 'Unable to complete Google Drive connection.',
+    })
+  }
+  },
+)
+
+app.get('/api/google-drive/files', requireAuth, async (request, response) => {
+  response.set('Cache-Control', 'no-store')
+  try {
+    const workspaceId = request.auth.context.workspace.id
+    const accessToken = await resolveGoogleDriveAccessToken(workspaceId)
+    const pageSize = Number.parseInt(String(request.query?.pageSize || '25'), 10)
+    const pageToken = String(request.query?.pageToken || '').trim() || null
+    const result = await listGoogleDriveFiles({
+      accessToken,
+      pageSize,
+      pageToken,
+    })
+    response.json(result)
+  } catch (error) {
+    if (error instanceof GoogleDriveError) {
+      response.status(error.status || 502).json({
+        error: error.message,
+        code: error.code,
+      })
+      return
+    }
+    console.error('Google Drive list error:', error)
+    response.status(500).json({ error: 'Unable to load Google Drive files.' })
+  }
+})
+
+app.post(
+  '/api/google-drive/disconnect',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const result = await executeIdempotentMutation({
+      request,
+      route: 'POST /api/google-drive/disconnect',
+      input: {},
+      operation: async () => {
+        await database.deleteGoogleDriveToken(request.auth.context.workspace.id)
+        return {
+          status: 200,
+          response: {
+            connected: false,
+            configured: googleDrive.configured,
+          },
+        }
+      },
+    })
+    sendMutationResponse(response, result)
+  },
+)
 
 app.get('/api/workspace/analytics', requireAuth, async (request, response) => {
   const workspaceId = request.auth.context.workspace.id
@@ -2383,18 +3949,27 @@ app.get('/api/workspace/analytics', requireAuth, async (request, response) => {
   const connectedIntegrations = integrations.filter((i) => i.connected).length
   const totalRuns = runs.length
   const successfulRuns = runs.filter((r) => r.status === 'completed').length
-  const successRate = totalRuns > 0 ? Math.round((successfulRuns / totalRuns) * 100) : 100
+  const successRate = totalRuns > 0 ? Math.round((successfulRuns / totalRuns) * 100) : 0
   const completedRuns = runs.filter((r) => r.status === 'completed')
-  const totalDuration = completedRuns.reduce((sum, r) => sum + (r.duration_seconds || 0), 0)
+  const totalDuration = completedRuns.reduce((sum, r) => sum + (r.durationSeconds || 0), 0)
   const averageRunDurationSec = completedRuns.length > 0 ? Math.round((totalDuration / completedRuns.length) * 10) / 10 : 0
-  const totalMinutes = Math.round(totalRuns * averageRunDurationSec / 60)
-  const savedHoursThisMonth = Math.round(totalMinutes / 60 * 10) / 10
+  const now = new Date()
+  const monthPrefix = now.toISOString().slice(0, 7)
+  const completedRunsThisMonth = completedRuns.filter((run) => String(run.startedAt).startsWith(monthPrefix))
+  const automationRuntimeHoursThisMonth = Math.round(
+    completedRunsThisMonth.reduce((sum, run) => sum + (run.durationSeconds || 0), 0) / 3600 * 10,
+  ) / 10
+  const sevenDaysAgo = new Date(now)
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6)
+  sevenDaysAgo.setHours(0, 0, 0, 0)
   const weeklyRuns = {
     Mon: { runs: 0, success: 0 }, Tue: { runs: 0, success: 0 }, Wed: { runs: 0, success: 0 },
     Thu: { runs: 0, success: 0 }, Fri: { runs: 0, success: 0 }, Sat: { runs: 0, success: 0 }, Sun: { runs: 0, success: 0 },
   }
   for (const run of runs) {
-    const day = new Date(run.startedAt).toLocaleDateString('en', { weekday: 'short' })
+    const startedAt = new Date(run.startedAt)
+    if (Number.isNaN(startedAt.getTime()) || startedAt < sevenDaysAgo || startedAt > now) continue
+    const day = startedAt.toLocaleDateString('en', { weekday: 'short' })
     if (weeklyRuns[day]) {
       weeklyRuns[day].runs++
       if (run.status === 'completed') weeklyRuns[day].success++
@@ -2402,17 +3977,18 @@ app.get('/api/workspace/analytics', requireAuth, async (request, response) => {
   }
   const weeklyActivity = Object.entries(weeklyRuns).map(([day, data]) => ({ day, ...data }))
 
-  const now = new Date()
   const weekEnd = new Date(now)
   weekEnd.setDate(weekEnd.getDate() + (7 - weekEnd.getDay()))
   const dueThisWeek = projects.filter((p) => {
-    if (!p.dueDate) return false
-    const due = new Date(p.dueDate)
+    if (!p.due || p.due === 'Set date') return false
+    const due = new Date(p.due)
+    if (Number.isNaN(due.getTime())) return false
     return due >= now && due <= weekEnd
   }).length
   const dueSoon = projects.filter((p) => {
-    if (!p.dueDate) return false
-    const due = new Date(p.dueDate)
+    if (!p.due || p.due === 'Set date') return false
+    const due = new Date(p.due)
+    if (Number.isNaN(due.getTime())) return false
     const diff = (due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
     return diff >= 0 && diff <= 14
   }).length
@@ -2423,6 +3999,11 @@ app.get('/api/workspace/analytics', requireAuth, async (request, response) => {
     .reduce((sum, inv) => sum + (inv.amountMinor || 0), 0)
   const pendingInvoices = invoices.filter((inv) => inv.status === 'pending' || inv.status === 'overdue').length
 
+  const [databaseInfo, apiMetrics] = await Promise.all([
+    database.getDatabaseInfo(),
+    database.getMonthlyApiMetrics(workspaceId, now.toISOString().slice(0, 7)),
+  ])
+
   response.json({
     metrics: {
       activeAutomations,
@@ -2430,9 +4011,9 @@ app.get('/api/workspace/analytics', requireAuth, async (request, response) => {
       totalRuns,
       successRate,
       averageRunDurationSec,
-      savedHoursThisMonth,
-      apiCallsThisMonth: totalRuns * 3,
-      databaseQueryTimeMs: 0.8,
+      automationRuntimeHoursThisMonth,
+      apiCallsThisMonth: apiMetrics.requestCount,
+      databaseQueryTimeMs: databaseInfo.averageQueryLatencyMs,
       openProjects: projects.length,
       dueSoonProjects: dueSoon,
       totalClients: clientIds.size,
@@ -2513,6 +4094,19 @@ app.get('/api/automations/runs', requireAuth, async (request, response) => {
   })
 })
 
+app.get('/api/automations/runs/:runId', requireAuth, async (request, response) => {
+  const runId = String(request.params.runId || '')
+  if (!/^run_[a-f0-9]{12}$/.test(runId)) {
+    throw new HttpError(400, 'A valid automation run id is required.')
+  }
+  const run = await database.getAutomationRun(
+    request.auth.context.workspace.id,
+    runId,
+  )
+  if (!run) throw new HttpError(404, 'Automation run not found.')
+  response.json(run)
+})
+
 app.post(
   '/api/automations/runs',
   secureMutations,
@@ -2523,6 +4117,27 @@ app.post(
     if (!automationId || !instruction) {
       throw new HttpError(400, 'Automation ID and instruction are required.')
     }
+    if (instruction.length > 5_000) {
+      throw new HttpError(400, 'Automation instruction must be 5,000 characters or fewer.')
+    }
+    const automation = await database.getAutomation(
+      request.auth.context.workspace.id,
+      automationId,
+    )
+    if (!automation) throw new HttpError(404, 'Automation not found.')
+    if (automation.status !== 'active') {
+      throw new HttpError(409, 'Activate this automation before running it.')
+    }
+    const n8nConnection = await database.getN8nConnection(
+      request.auth.context.workspace.id,
+    )
+    if (!n8nConnection.connected) {
+      throw new HttpError(
+        409,
+        'Connect n8n before running automations. Runs are delivered as signed n8n events.',
+      )
+    }
+    n8nConnectionSecret(n8nConnection)
     const result = await executeIdempotentMutation({
       request,
       route: 'POST /api/automations/runs',
@@ -2538,6 +4153,15 @@ app.post(
       },
     })
     sendMutationResponse(response, result)
+    if (!result.replayed) {
+      void executeAutomationRun(
+        request.auth.context,
+        automation,
+        result.response,
+      ).catch((error) => {
+        console.error('Automation run failed:', error)
+      })
+    }
   },
 )
 
@@ -2587,6 +4211,20 @@ app.use((error, _request, response, _next) => {
     })
     return
   }
+  if (error instanceof McpGatewayError) {
+    response.status(error.status).json({
+      error: error.message,
+      code: error.code,
+    })
+    return
+  }
+  if (error instanceof CodexAppServerError) {
+    response.status(error.status).json({
+      error: error.message,
+      code: error.code,
+    })
+    return
+  }
   if (error?.type === 'entity.parse.failed') {
     response.status(400).json({ error: 'Invalid JSON request body.' })
     return
@@ -2599,10 +4237,19 @@ const server = app.listen(port, '0.0.0.0', () => {
   console.log(`lancee server listening on port ${port}`)
 })
 
+let shuttingDown = false
 function shutdown() {
-  server.close(() => {
-    database.close()
-    process.exit(0)
+  if (shuttingDown) return
+  shuttingDown = true
+  codexAppServer.stopAll()
+  server.close(async () => {
+    try {
+      await database.close()
+      process.exit(0)
+    } catch (error) {
+      console.error('Database shutdown failed:', error)
+      process.exit(1)
+    }
   })
 }
 

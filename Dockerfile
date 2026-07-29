@@ -1,12 +1,15 @@
-FROM node:22-alpine AS build
+FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
+RUN pnpm prune --prod
 
-FROM node:22-alpine
+FROM node:22-bookworm-slim
 WORKDIR /app
+ARG CODEX_VERSION=0.145.0
+RUN npm install --global "@openai/codex@${CODEX_VERSION}"
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server ./server

@@ -179,6 +179,7 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
   const [source, setSource] = useState<'loading' | 'network' | 'cache'>('loading')
   const [online, setOnline] = useState(() => navigator.onLine)
   const [error, setError] = useState('')
+  const [aiSuggestion, setAiSuggestion] = useState('')
   const [showNewBoard, setShowNewBoard] = useState(false)
   const [newBoardLabel, setNewBoardLabel] = useState('')
   const [aiBusy, setAiBusy] = useState(false)
@@ -253,7 +254,14 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
         const payload = await response.json() as { elements?: any[] }
         if (!Array.isArray(payload.elements)) return
         const mapped: CanvasElement[] = payload.elements.map((el: any) => {
-          const data = typeof el.dataJson === 'string' ? JSON.parse(el.dataJson) : (el.data || {})
+          let data = el.data || {}
+          if (typeof el.dataJson === 'string') {
+            try {
+              data = JSON.parse(el.dataJson)
+            } catch {
+              data = {}
+            }
+          }
           return {
             id: el.id,
             kind: el.kind,
@@ -282,7 +290,10 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
       const url = method === 'PUT' ? `/api/ideas/elements/${encodeURIComponent(el.id)}` : '/api/ideas/elements'
       fetch(url, {
         method, credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': crypto.randomUUID(),
+        },
         body: JSON.stringify({ boardId: activeBoardId, id: el.id, kind: el.kind, x: el.x, y: el.y, data }),
       }).catch(() => undefined)
     }
@@ -330,13 +341,20 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
       if (activeBoardId) localStorage.setItem(ELEMENTS_KEY(workspaceId, activeBoardId), JSON.stringify(next))
       return next
     })
-    if (navigator.onLine) fetch(`/api/ideas/elements/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'same-origin' }).catch(() => undefined)
+    if (navigator.onLine) fetch(`/api/ideas/elements/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+    }).catch(() => undefined)
     setSelectedId(null)
     setEditingEl(null)
   }, [activeBoardId, workspaceId])
 
   useEffect(() => {
-    const refreshFromCache = () => { void loadCachedIdeaBoard(workspaceId, activeBoardId!).then(setNotes) }
+    const refreshFromCache = () => {
+      if (!activeBoardId) return
+      void loadCachedIdeaBoard(workspaceId, activeBoardId).then(setNotes)
+    }
     const handleOnline = () => { setOnline(true); void syncIdeaMutations(workspaceId) }
     const handleOffline = () => setOnline(false)
     const handleSync = (event: Event) => {
@@ -384,7 +402,10 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
     try {
       const response = await fetch('/api/ideas/boards', {
         method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': crypto.randomUUID(),
+        },
         body: JSON.stringify({ label }),
       })
       const payload = await response.json() as { board?: Board; error?: string }
@@ -399,7 +420,15 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
 
   const deleteBoard = async (boardId: string) => {
     try {
-      await fetch(`/api/ideas/boards/${encodeURIComponent(boardId)}`, { method: 'DELETE', credentials: 'same-origin' })
+      const response = await fetch(`/api/ideas/boards/${encodeURIComponent(boardId)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+      })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({})) as { error?: string }
+        throw new Error(payload.error || 'Board could not be deleted.')
+      }
       setBoards((current) => current.filter((b) => b.id !== boardId))
       if (activeBoardId === boardId) setActiveBoardId(boards.find((b) => b.id !== boardId)?.id || null)
       localStorage.removeItem(ELEMENTS_KEY(workspaceId, boardId))
@@ -409,18 +438,23 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
   const suggestWithAi = useCallback(async () => {
     if (notes.length < 2 || aiBusy) return
     setAiBusy(true)
+    setAiSuggestion('')
     try {
       const noteContents = notes.map((n) => n.content)
       const response = await fetch('/api/ai/complete', {
         method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': crypto.randomUUID(),
+        },
         body: JSON.stringify({
           messages: [{ role: 'user', content: `Group these creative ideas into meaningful clusters and suggest a creative direction:\n${noteContents.map((c, i) => `${i + 1}. ${c}`).join('\n')}` }],
           systemPrompt: 'You are a creative director helping organise design ideas. Return 2-3 groups as simple JSON with group names and member indices.',
         }),
       })
-      const payload = await response.json() as { content?: string }
-      if (payload.content) setError(`AI suggestion: ${payload.content.slice(0, 200)}…`)
+      const payload = await response.json() as { content?: string; error?: string }
+      if (!response.ok) throw new Error(payload.error || 'AI suggestion request failed.')
+      if (payload.content) setAiSuggestion(payload.content)
       else setError('AI suggestion could not be generated.')
     } catch { setError('AI suggestion request failed.') }
     finally { setAiBusy(false) }
@@ -434,7 +468,7 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
     updateElement(selectedId, { data: { ...el.data, shape: isCircle ? 'rect' : 'circle' } })
   }, [selectedId, elements, updateElement])
 
-  const getPointerPos = () => {
+  const getPointerPos = useCallback(() => {
     const stage = stageRef.current
     if (!stage) return null
     const pointer = stage.getPointerPosition()
@@ -443,7 +477,7 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
       x: (pointer.x - stage.x()) / stageScale,
       y: (pointer.y - stage.y()) / stageScale,
     }
-  }
+  }, [stageScale])
 
   const handleStageClick = useCallback((e: Konva.KonvaEventObject<any>) => {
     if (e.target === e.target.getStage()) { setSelectedId(null); return }
@@ -455,7 +489,12 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
     const group = e.target.findAncestor('Group')
     if (group) {
       const el = elements.find((el) => el.id === group.id())
-      if (el && (el.kind === 'text' || el.kind === 'sticky')) {
+      if (el?.data?.isLink && typeof el.data.url === 'string') {
+        const url = new URL(el.data.url, window.location.origin)
+        if (['http:', 'https:'].includes(url.protocol)) {
+          window.open(url, '_blank', 'noopener,noreferrer')
+        }
+      } else if (el && (el.kind === 'text' || el.kind === 'sticky')) {
         setEditingEl(el)
       }
       return
@@ -474,7 +513,7 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
       const label = prompt('Enter link label:')
       if (url) addElement('text', pos.x, pos.y, { text: label || url, data: { url, isLink: true }, fill: '#e8f0fe' })
     }
-  }, [tool, stageScale, addElement, elements])
+  }, [tool, addElement, elements, getPointerPos])
 
   const [quickNote, setQuickNote] = useState('')
   const activeBoard = boards.find((board) => board.id === activeBoardId)
@@ -511,7 +550,18 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
           <div className="ideas-presence" aria-label="Board collaborators">
             <span className="ideas-avatar">ME</span>
           </div>
-          <button className="ideas-share" type="button">Share canvas</button>
+          <button
+            className="ideas-share"
+            type="button"
+            onClick={() => {
+              void navigator.clipboard
+                .writeText(window.location.href)
+                .then(() => setAiSuggestion('Board link copied for existing workspace members.'))
+                .catch(() => setError('Unable to copy the board link.'))
+            }}
+          >
+            Share canvas
+          </button>
         </div>
       </header>
 
@@ -584,7 +634,13 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
                 const onChange = (attrs: Partial<CanvasElement>) => updateElement(el.id, attrs)
                 const onDelete = () => deleteElement(el.id)
                 const onDblClick = () => {
-                  if (el.kind === 'text' || el.kind === 'sticky') setEditingEl(el)
+                  if (el.data?.isLink && typeof el.data.url === 'string') {
+                    const url = new URL(el.data.url, window.location.origin)
+                    if (['http:', 'https:'].includes(url.protocol)) {
+                      window.open(url, '_blank', 'noopener,noreferrer')
+                    }
+                  }
+                  else if (el.kind === 'text' || el.kind === 'sticky') setEditingEl(el)
                   else if (el.kind === 'image') {
                     const url = prompt('Change image URL:', (el.data?.src as string) || '')
                     if (url) updateElement(el.id, { data: { ...el.data, src: url } })
@@ -653,6 +709,7 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
         </form>
 
         {error && <p className="ideas-error" role="alert">{error}</p>}
+        {aiSuggestion && <p className="ideas-ai-result" role="status">{aiSuggestion}</p>}
 
         <aside className="ai-helper">
           <span aria-hidden="true">✦</span>

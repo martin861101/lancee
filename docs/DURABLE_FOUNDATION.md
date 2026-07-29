@@ -1,12 +1,13 @@
 # Durable workspace foundation
 
-lancee persists identity, workspace membership, MCP grant state, MCP service
-activation, API keys, Idea notes, payment state, n8n delivery state, and
-mutation-idempotency records in SQLite.
+lancee persists identity, invitations, workspace membership, projects, ideas,
+automation runs, provider state, API keys, payment state, n8n delivery state,
+and mutation-idempotency records in PostgreSQL. SQLite remains the local
+single-process fallback.
 
 ## Storage
 
-The default database is:
+The local fallback database is:
 
 ```text
 .runtime/lancee.sqlite
@@ -21,8 +22,10 @@ application enforces mode `0600` on the database at startup and enables:
 - a five-second busy timeout;
 - strict SQLite tables.
 
-Set `DATABASE_PATH` to an absolute path or a path relative to the project root
-when the database belongs on a separately backed-up volume.
+Set `DATABASE_URL` or the `PG*` variables for production. PostgreSQL uses a
+bounded pool, real checked-out-client transactions, advisory locks for
+idempotency, and query indexes. See
+[`SCALABILITY_AND_POSTGRESQL.md`](SCALABILITY_AND_POSTGRESQL.md).
 
 ## Schema
 
@@ -35,7 +38,7 @@ when the database belongs on a separately backed-up volume.
 | `mcp_service_state` | Workspace-scoped service activation |
 | `api_keys` | Masked key metadata, SHA-256 secret hash, scopes, use and revocation timestamps |
 | `idempotency_requests` | Mutation request hash and replayable non-secret response |
-| `payment_connections` | Workspace provider status and non-secret credential fingerprint |
+| `payment_connections` | Workspace provider status, encrypted credential, and non-secret fingerprint |
 | `invoices` | Durable invoice snapshot with immutable provider reference |
 | `payment_links` | Idempotent provider initialization and hosted checkout state |
 | `payment_events` | Deduplicated normalized webhook outcomes |
@@ -43,6 +46,7 @@ when the database belongs on a separately backed-up volume.
 | `n8n_deliveries` | Durable outbound/inbound status, correlation, and retry lineage |
 | `n8n_nonces` | Workspace-scoped inbound replay protection |
 | `idea_notes` | Workspace/board-scoped content with optimistic versions |
+| `project_files` | Project attachment metadata, SHA-256 digest, and bounded PostgreSQL-backed content |
 
 The configured administrator is an initial bootstrap identity. On startup,
 lancee upserts that identity and ensures an owner membership in
@@ -89,6 +93,11 @@ POST   /api/n8n/disconnect
 POST   /api/n8n/deliveries
 POST   /api/n8n/deliveries/:deliveryId/retry
 POST   /api/n8n/inbound-self-test
+PATCH  /api/workspace/settings
+POST   /api/projects
+POST   /api/projects/:id/files
+POST   /api/money/paystack/connection
+POST   /api/money/paystack/disconnect
 ```
 
 Paystack payment-link initialization also requires a stable idempotency key
@@ -130,9 +139,9 @@ Bearer lifecycle state is stored in `mcp_access`. Service choices are stored in
 `mcp_service_state`. Revoking access resets the grant to `available` and
 deactivates every service for that workspace.
 
-The MCP gateway catalog and tool invocation transport are still placeholders.
-This milestone makes the local authorization and selection state durable; it
-does not claim that gateway discovery or tool execution is live.
+The MCP gateway catalog and tool invocation transport are live server-to-server
+calls. The durability verifier runs against an isolated gateway stub so it
+checks the actual request/response boundary without using production services.
 
 ## Verification
 
@@ -143,19 +152,26 @@ pnpm build
 pnpm lint
 pnpm verify:durability
 pnpm verify:offline
+pnpm verify:postgres
+pnpm verify:workspace-flows
 ```
 
 The durability verifier starts lancee twice against a temporary database and
 checks:
 
-- database-backed login and owner membership;
+- database-backed login, expiring invitation acceptance, and role enforcement;
 - required idempotency keys, successful replay, and payload-conflict handling;
-- MCP access and service state after restart;
+- MCP access, invocation, and service state after restart;
 - API-key hashing, masking, scoping, and `last_used_at`;
 - absence of the full secret from the database;
 - database mode `0600`;
 - API-key persistence and post-restart use;
 - revocation enforcement.
+
+The workspace-flow verifier checks same-origin mutations when `PUBLIC_ORIGIN`
+differs from the local listener, canonical workspace settings, encrypted
+workspace Paystack credentials, connection status, and real authenticated
+project attachment upload/download.
 
 The verifier binds a temporary loopback port and removes its temporary database
 after completion.

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash, scryptSync } from 'node:crypto'
 import { once } from 'node:events'
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -28,7 +29,72 @@ async function availablePort() {
   return port
 }
 
-async function startApplication() {
+async function startMcpGateway() {
+  const port = await availablePort()
+  const server = createHttpServer(async (request, response) => {
+    assert.equal(request.headers.authorization, 'Bearer test-mcp-token')
+    response.setHeader('Content-Type', 'application/json')
+    response.setHeader('X-Request-Id', 'req_mcp_verifier')
+    if (request.method === 'GET' && request.url === '/api/v1/capabilities') {
+      response.end(JSON.stringify({
+        services: [{
+          service_id: 'browser-worker',
+          display_name: 'Browser & documents',
+          status: 'available',
+          revision: 'test',
+        }, {
+          service_id: 'crm-data-worker',
+          display_name: 'CRM data',
+          status: 'available',
+          revision: 'test',
+        }],
+        tools: [{
+          service_id: 'browser-worker',
+          catalog_id: 'browser.open',
+          name: 'browser.open',
+          title: 'Open a page',
+          description: 'Opens an allowed test page.',
+          input_schema: {
+            type: 'object',
+            properties: { url: { type: 'string' } },
+            required: ['url'],
+          },
+          tags: ['browser'],
+        }, {
+          service_id: 'crm-data-worker',
+          catalog_id: 'crm.read',
+          name: 'crm.read',
+          title: 'Read CRM',
+          description: 'Reads business-system records.',
+          input_schema: { type: 'object', properties: {} },
+          tags: ['data'],
+        }],
+        skills: [],
+      }))
+      return
+    }
+    if (request.method === 'POST' && request.url === '/api/v1/tools/browser.open/call') {
+      const chunks = []
+      for await (const chunk of request) chunks.push(chunk)
+      const input = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+      response.end(JSON.stringify({
+        service_id: 'browser-worker',
+        tool: 'browser.open',
+        is_error: false,
+        data: { opened: input.url },
+        result: 'opened',
+      }))
+      return
+    }
+    response.statusCode = 404
+    response.end(JSON.stringify({ error: 'Not found' }))
+  })
+  server.listen(port, '127.0.0.1')
+  await once(server, 'listening')
+  return { server, url: `http://127.0.0.1:${port}` }
+}
+
+async function startApplication(mcpGatewayUrl) {
   const port = await availablePort()
   const origin = `http://127.0.0.1:${port}`
   const output = []
@@ -48,6 +114,8 @@ async function startApplication() {
       WORKSPACE_ID: 'wsp_durable_test',
       WORKSPACE_NAME: 'Durable Test Workspace',
       MCP_API_TOKEN: 'test-mcp-token',
+      MCP_GATEWAY_URL: mcpGatewayUrl,
+      MCP_ALLOW_INSECURE: 'true',
       SMTP_ENABLED: 'false',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -107,8 +175,10 @@ async function sessionRequest(origin, cookie, path, options = {}) {
 }
 
 let application
+let mcpGateway
 try {
-  application = await startApplication()
+  mcpGateway = await startMcpGateway()
+  application = await startApplication(mcpGateway.url)
   let cookie = await login(application.origin)
 
   const missingIdempotency = await sessionRequest(
@@ -131,6 +201,17 @@ try {
   assert.equal(accessRequest.status, 200)
   assert.equal((await accessRequest.json()).status, 'approved')
 
+  const serviceList = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/mcp/services',
+  )
+  assert.equal(serviceList.status, 200)
+  assert.deepEqual(
+    (await serviceList.json()).services.map((service) => service.id),
+    ['browser-worker'],
+  )
+
   const serviceMutation = await sessionRequest(
     application.origin,
     cookie,
@@ -146,6 +227,89 @@ try {
   )
   assert.equal(serviceMutation.status, 200)
   assert.equal((await serviceMutation.json()).active, true)
+
+  const invocation = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/mcp/invoke',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'mcp-invoke-browser-0001',
+      },
+      body: JSON.stringify({
+        serviceId: 'browser-worker',
+        toolId: 'browser.open',
+        arguments: { url: 'https://example.test' },
+      }),
+    },
+  )
+  assert.equal(invocation.status, 200)
+  assert.deepEqual((await invocation.json()).data, { opened: 'https://example.test' })
+
+  const teamInvite = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/workspace/team/invite',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'team-invite-member-0001',
+      },
+      body: JSON.stringify({
+        email: 'invited-member@example.com',
+        name: 'Invited Member',
+        role: 'collaborator',
+      }),
+    },
+  )
+  assert.equal(teamInvite.status, 201)
+  const invitation = await teamInvite.json()
+  assert.equal(invitation.delivery, 'share')
+  const invitationToken = new URL(invitation.acceptUrl).searchParams.get('invite')
+  assert(invitationToken)
+
+  const invitationDetails = await fetch(
+    `${application.origin}/api/auth/invitations/${invitationToken}`,
+  )
+  assert.equal(invitationDetails.status, 200)
+  assert.equal((await invitationDetails.json()).workspace, 'Durable Test Workspace')
+
+  const acceptInvitation = await fetch(`${application.origin}/api/auth/register`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: application.origin,
+    },
+    body: JSON.stringify({
+      invitationToken,
+      password: 'invited-member-password',
+      name: 'Invited Member',
+    }),
+  })
+  assert.equal(acceptInvitation.status, 201)
+  const invitedCookie = acceptInvitation.headers.get('set-cookie').split(';', 1)[0]
+  assert.equal((await acceptInvitation.json()).user.role, 'collaborator')
+
+  const forbiddenInvite = await sessionRequest(
+    application.origin,
+    invitedCookie,
+    '/api/workspace/team/invite',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'team-invite-forbidden-0001',
+      },
+      body: JSON.stringify({
+        email: 'unauthorized-invite@example.com',
+        role: 'collaborator',
+      }),
+    },
+  )
+  assert.equal(forbiddenInvite.status, 403)
 
   const createKeyOptions = {
     method: 'POST',
@@ -227,7 +391,7 @@ try {
   assert.deepEqual(JSON.parse(storedKey.permissions), ['workspace:read', 'mcp:read'])
   persisted.close()
 
-  application = await startApplication()
+  application = await startApplication(mcpGateway.url)
   cookie = await login(application.origin)
 
   const persistedAccess = await sessionRequest(
@@ -274,9 +438,13 @@ try {
   assert.equal(rejectedKey.status, 401)
 
   console.log(
-    'Durable foundation verified: workspace auth, MCP state, hashed API keys, idempotency, restart persistence, and revocation.',
+    'Durable foundation verified: workspace auth, expiring team invitations, MCP execution, hashed API keys, idempotency, restart persistence, and revocation.',
   )
 } finally {
   if (application) await stopApplication(application)
+  if (mcpGateway) {
+    mcpGateway.server.close()
+    await once(mcpGateway.server, 'close')
+  }
   await rm(temporaryDirectory, { recursive: true, force: true })
 }

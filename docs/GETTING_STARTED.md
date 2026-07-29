@@ -19,16 +19,12 @@ Production platform: [https://agents.hygridtech.co.za](https://agents.hygridtech
 
 ## What is live today
 
-The public landing page, database-backed users/workspaces/memberships,
-first-party authentication, signed server sessions, workspace-scoped MCP
-grants and service activation, scoped API keys, SMTP status, and SMTP test
-delivery use the Express backend. Idea quick notes, n8n configuration and
-delivery, and Paystack invoice/payment state are also durable server flows.
-
-Projects, broader visual-board records, automations, Stripe/PayPal setup,
-standard provider grants, MCP catalog discovery, and MCP tool execution
-currently use typed in-memory placeholders. The production shell and Idea
-quick-note cache/queue support bounded offline use.
+The public landing page and authenticated product use the Express backend.
+Users, invitations, projects, visual boards, automations, analytics,
+connections, API keys, Paystack, n8n, Google Drive, MCP, SMTP, and optional AI
+all use real server flows. Unsupported providers are saved as connection
+requests rather than being toggled into a simulated connected state. The
+production shell and Idea quick-note cache/queue support bounded offline use.
 
 ## Prerequisites
 
@@ -104,10 +100,11 @@ Copy the generated `ADMIN_PASSWORD_SALT` and `ADMIN_PASSWORD_HASH` values into
 `.env`. The plaintext password must never be added to `.env`, source code,
 documentation, shell history, or a support message.
 
-The server creates `.runtime/session-secret` and `.runtime/lancee.sqlite` with
-restrictive permissions. Preserve both across restarts: the secret validates
-sessions and reconstructs idempotent API-key creation responses, while SQLite
-contains workspace state. Both `.env` and `.runtime/` are ignored by Git.
+The server creates `.runtime/session-secret` with restrictive permissions.
+Preserve it across restarts because it validates sessions and reconstructs
+idempotent API-key creation responses. Local development also creates
+`.runtime/lancee.sqlite`; production should configure PostgreSQL. Both `.env`
+and `.runtime/` are ignored by Git.
 
 ## 3. Run the complete platform locally
 
@@ -182,17 +179,15 @@ After signing in:
 3. Open **Ideas** to capture references, colours, notes, and early directions
    on the project canvas.
 4. Open **Automations** and describe one repetitive task in plain language.
-5. Open **Connections** to preview Stripe/PayPal, inspect Paystack status,
+5. Open **Connections** to connect Google Drive, inspect Paystack status,
    configure n8n, and request managed service access.
 6. Open **Money** to review invoice status and create a draft invoice.
 7. Open **Settings** to review the workspace profile, authentication, and
    travel preferences.
 
-Project, broader idea-canvas, automation, Stripe/PayPal, and standard
-connection actions are currently in-memory placeholders and may reset.
-Authentication, memberships, MCP authorization/service activation, API keys,
-Idea quick notes, Paystack invoice/payment state, and n8n bridge state are real
-and durable.
+Project, canvas, automation, connection, membership, payment, and run data are
+durable. Demo projects and automations are seeded only when
+`SEED_DEMO_DATA=true`.
 
 ## Install and verify offline Ideas
 
@@ -344,9 +339,8 @@ The bearer token is read only by the backend and is never returned to the
 browser. Predefined downstream API keys belong in the MCP server's vault, not
 in lancee or the user interface.
 
-Bearer request, revoke, and service-activation actions use the real lancee
-backend and persist per workspace. Service catalog discovery and tool results
-remain placeholders until the MCP gateway transport is connected. See
+Bearer request, revoke, service activation, live catalog discovery, and tool
+calls use the real lancee backend and persist per workspace. See
 [`mcp-conf/MCP.md`](../mcp-conf/MCP.md) for the target MCP contract and
 [`DURABLE_FOUNDATION.md`](DURABLE_FOUNDATION.md) for local persistence.
 
@@ -479,7 +473,8 @@ Implemented backend routes:
 ## Security defaults
 
 - Authentication uses a first-party signed session, not Firebase.
-- User identity and owner/collaborator membership resolve from SQLite.
+- User identity and owner/collaborator membership resolve from PostgreSQL in
+  production or SQLite in local development.
 - Password verification uses Node.js `scrypt`; no plaintext password is stored.
 - Production cookies are `HttpOnly`, `Secure`, and `SameSite=Lax`.
 - Sessions expire after `SESSION_TTL_HOURS`.
@@ -519,7 +514,12 @@ automation secrets should remain server-side.
 | `SESSION_TTL_HOURS` | Recommended | Signed-session lifetime; default is `12` |
 | `WORKSPACE_ID` | Recommended | Stable id for the bootstrap workspace |
 | `WORKSPACE_NAME` | Recommended | Initial display name for the bootstrap workspace |
-| `DATABASE_PATH` | Recommended | SQLite path; defaults to `.runtime/lancee.sqlite` |
+| `DATABASE_URL` | Production | PostgreSQL connection string; takes precedence over SQLite |
+| `DATABASE_PATH` | Local only | SQLite fallback; defaults to `.runtime/lancee.sqlite` |
+| `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` | Production alternative | Individual PostgreSQL connection values |
+| `PGPOOL_MAX` | Recommended | Per-process PostgreSQL pool size; default `20` |
+| `ALLOW_REGISTRATION` | Recommended | Enable public workspace registration; invitations remain available when false |
+| `SEED_DEMO_DATA` | No | Seed sample projects/automations only when explicitly true |
 | `SMTP_ENABLED` | No | Set to `true` only after SMTP is configured |
 | `SMTP_HOST` | When SMTP is enabled | SMTP hostname |
 | `SMTP_PORT` | When SMTP is enabled | Usually `587` or `465` |
@@ -552,7 +552,7 @@ automation secrets should remain server-side.
 | SMTP test says it is not configured | SMTP status and `.env` | Enable SMTP and provide host, port, and from address; restart |
 | SMTP provider rejects the message | PM2 logs and provider policy | Verify credentials, TLS mode, allowed sender, and relay permissions |
 | MCP request stays pending | `MCP_API_TOKEN` | This is expected in manual mode; configure a valid server token for automatic approval |
-| Durable state is missing after restart | `DATABASE_PATH` and filesystem permissions | Confirm each process uses the same writable SQLite path |
+| Durable state is missing after restart | PostgreSQL connection values or local `DATABASE_PATH` | Confirm every process uses the same database and that the persistent volume/cluster is healthy |
 | Mutation returns `400` | `Idempotency-Key` header | Supply a stable 8–128 character key and reuse it only for the same logical request |
 | Mutation returns `409` | Reused idempotency key | Use the original payload or issue a new key for a new mutation |
 | Paystack card says not configured | `PAYSTACK_SECRET_KEY` | Add a valid server-side test key and restart |
@@ -574,13 +574,15 @@ automation secrets should remain server-side.
 | --- | --- |
 | [`src/App.tsx`](../src/App.tsx) | Landing page, authenticated workspace, and interaction flows |
 | [`src/index.css`](../src/index.css) | Complete responsive visual system |
-| [`src/lib/mockApi.ts`](../src/lib/mockApi.ts) | Typed placeholder actions and durable backend client boundary |
+| [`src/lib/api.ts`](../src/lib/api.ts) | Typed browser client for the Express API |
 | [`src/lib/offlineStore.ts`](../src/lib/offlineStore.ts) | IndexedDB identity, Idea snapshots, and queued mutations |
 | [`src/lib/ideasRepository.ts`](../src/lib/ideasRepository.ts) | Idea API, reconnect sync, idempotent replay, and conflict resolution |
 | [`public/sw.js`](../public/sw.js) | Static-only application-shell cache and sync handoff |
 | [`public/manifest.webmanifest`](../public/manifest.webmanifest) | Installable application identity |
 | [`server/index.mjs`](../server/index.mjs) | Express, authentication, sessions, MCP, API keys, and routing |
-| [`server/database.mjs`](../server/database.mjs) | SQLite schema and workspace-scoped repositories |
+| [`server/database.mjs`](../server/database.mjs) | PostgreSQL pool/transactions, SQLite fallback, and repositories |
+| [`server/ai.mjs`](../server/ai.mjs) | OpenAI, Anthropic, and Gemini transports |
+| [`server/mcp.mjs`](../server/mcp.mjs) | Live MCP capability and invocation transport |
 | [`server/paystack.mjs`](../server/paystack.mjs) | Paystack authentication, initialization, timeout, and signature verification |
 | [`server/n8n.mjs`](../server/n8n.mjs) | URL policy, encryption, canonical signatures, DNS checks, and outbound delivery |
 | [`server/notifications.mjs`](../server/notifications.mjs) | SMTP transport and notification delivery |

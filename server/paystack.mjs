@@ -1,4 +1,11 @@
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from 'node:crypto'
 
 export class PaystackError extends Error {
   constructor(code, message, status = 502) {
@@ -16,6 +23,54 @@ function safeEqualHex(left, right) {
     leftBuffer.length === rightBuffer.length &&
     timingSafeEqual(leftBuffer, rightBuffer)
   )
+}
+
+function credentialEncryptionKey(serverSecret) {
+  return createHmac('sha256', serverSecret)
+    .update('lancee:paystack:credential-encryption:v1')
+    .digest()
+}
+
+export function encryptPaystackSecret(secret, serverSecret) {
+  const iv = randomBytes(12)
+  const cipher = createCipheriv(
+    'aes-256-gcm',
+    credentialEncryptionKey(serverSecret),
+    iv,
+  )
+  const ciphertext = Buffer.concat([
+    cipher.update(String(secret), 'utf8'),
+    cipher.final(),
+  ])
+  return JSON.stringify({
+    v: 1,
+    ciphertext: ciphertext.toString('base64url'),
+    iv: iv.toString('base64url'),
+    tag: cipher.getAuthTag().toString('base64url'),
+  })
+}
+
+export function decryptPaystackSecret(encrypted, serverSecret) {
+  let payload
+  try {
+    payload = typeof encrypted === 'string' ? JSON.parse(encrypted) : encrypted
+    const decipher = createDecipheriv(
+      'aes-256-gcm',
+      credentialEncryptionKey(serverSecret),
+      Buffer.from(payload.iv, 'base64url'),
+    )
+    decipher.setAuthTag(Buffer.from(payload.tag, 'base64url'))
+    return Buffer.concat([
+      decipher.update(Buffer.from(payload.ciphertext, 'base64url')),
+      decipher.final(),
+    ]).toString('utf8')
+  } catch {
+    throw new PaystackError(
+      'PAYSTACK_SECRET_UNAVAILABLE',
+      'The encrypted Paystack credential could not be opened.',
+      500,
+    )
+  }
 }
 
 export function paystackConfiguration(secretKey) {

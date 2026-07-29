@@ -6,29 +6,31 @@ The platform is intentionally split into two layers:
 
 1. `src/App.tsx` owns presentation, navigation, local view state, feedback, and
    user interactions.
-2. `src/lib/mockApi.ts` owns remaining placeholder contracts and seeded domain
-   data while routing durable authentication, MCP state, and API-key actions to
-   Express.
+2. `src/lib/api.ts` is the typed browser boundary for the real Express APIs.
+   It contains no seeded domain catalog.
 3. `src/lib/offlineStore.ts` and `src/lib/ideasRepository.ts` own the
    workspace-partitioned IndexedDB snapshots, queued Idea mutations, reconnect
    sync, and conflict resolution.
-4. `server/database.mjs` owns the SQLite schema and workspace-scoped durable
+4. `server/database.mjs` owns the portable schema, PostgreSQL pool and
+   transactions, SQLite development fallback, and workspace-scoped
    repositories.
+5. Provider modules own Paystack, n8n, Google Drive, MCP, SMTP, and AI
+   transports so provider secrets remain server-side.
 
-The UI never depends on a specific database or authentication vendor. Production services can replace the mock methods incrementally as long as they retain the exported TypeScript shapes.
+The UI never depends on a specific database or authentication vendor.
 
 ## Backend replacement map
 
-| Placeholder method | Suggested production action |
+| Browser method | Server action |
 | --- | --- |
 | `auth.session` | Implemented: restore the signed `HttpOnly` session |
 | `auth.signIn` | Implemented: verify the scrypt password and issue a secure session |
 | `auth.signOut` | Implemented: expire the session cookie |
-| `automations.list` | `GET /v1/automations` |
-| `automations.create` | `POST /v1/automations` |
-| `automations.toggle` | `PATCH /v1/automations/:id/status` |
-| `runs.list` | `GET /v1/runs` |
-| `runs.dispatch` | `POST /v1/runs` |
+| `automations.list` | Implemented: `GET /api/automations` |
+| `automations.create` | Implemented: idempotent `POST /api/automations` |
+| `automations.toggle` | Implemented: `POST /api/automations/:id/toggle` |
+| `runs.list` | Implemented: `GET /api/automations/runs` |
+| `runs.dispatch` | Implemented: durable signed n8n execution |
 | Idea quick-note reads | Implemented: `GET /api/ideas/notes?boardId=...` |
 | Idea quick-note creates | Implemented: idempotent `POST /api/ideas/notes` |
 | Idea quick-note edits | Implemented: versioned `PATCH /api/ideas/notes/:id` |
@@ -36,16 +38,16 @@ The UI never depends on a specific database or authentication vendor. Production
 | `money.invoices` | Implemented: `GET /api/money/invoices` |
 | `money.createPaystackPaymentLink` | Implemented: `POST /api/money/paystack/payment-links` |
 | Paystack reconciliation | Implemented: `POST /api/webhooks/paystack` |
-| `integrations.list` | `GET /v1/integrations` |
-| `integrations.toggle` | Start OAuth connection or revoke an existing grant |
+| `integrations.list` | Implemented: live connection state only |
+| `integrationRequests.create` | Implemented: persist requests for unsupported systems |
 | `n8n.configure` | Implemented: persist URL/methods and AES-GCM encrypted secret |
 | `n8n.trigger` | Implemented: signed, timeout-bounded GET/POST with durable attempts |
 | `n8n.retry` | Implemented: linked manual retry with stable correlation ID |
 | n8n inbound callback | Implemented: timestamped HMAC and persisted nonce replay protection |
 | `mcp.requestAccess` | Implemented: idempotent workspace-scoped bearer request |
-| `mcp.sync` | Discover runtime capabilities from `https://mcp.hygridtech.co.za/api/v1/capabilities` |
+| `mcp.sync` | Implemented: runtime discovery from the configured gateway |
 | `mcp.toggleService` | Implemented: persist workspace service activation |
-| `mcp.invoke` | Call `POST /api/v1/tools/{tool_id}/call` from the backend |
+| `mcp.invoke` | Implemented: server-side `POST /api/v1/tools/{tool_id}/call` |
 | `mcp.revokeAccess` | Implemented: idempotently revoke the grant and deactivate services |
 | `apiKeys.list` | Implemented: `GET /api/api-keys` with masked values only |
 | `apiKeys.create` | Implemented: `POST /api/api-keys`; return the secret once |
@@ -59,9 +61,9 @@ administrator is verified on the Express backend with a scrypt password hash,
 then receives a signed, expiring, `HttpOnly`, `Secure`, `SameSite=Lax` cookie.
 Login rate limiting and origin checks are enabled.
 
-Firebase is deferred until self-service identity features are needed. At that
-point, Firebase should authenticate identity while lancee continues to own
-workspace membership, roles, grants, and the application session.
+Self-service registration is explicitly configurable. Workspace owners can
+issue hashed, expiring invitations; accepting one creates membership and a
+secure session. SMTP can deliver the link, or the owner can copy it.
 
 See [`AUTH_AND_NOTIFICATIONS.md`](AUTH_AND_NOTIFICATIONS.md).
 
@@ -84,15 +86,18 @@ that same response without storing the plaintext secret.
 
 ## Integration grants
 
-Standard integration cards still toggle an in-memory connection state. n8n and
-MCP have dedicated typed flows:
+The catalog contains only implemented connection transports:
 
-- n8n supports signed GET and POST tests in both directions. Its outbound DNS webhook is deliberately entered manually in the platform.
+- Google Drive uses OAuth and encrypted refresh-token storage.
+- Paystack creates hosted ZAR payment links and verifies raw-body webhooks.
+- n8n supports signed GET and POST tests in both directions and executes saved
+  automation runs.
 - MCP is included in every workspace. Bearer requests and selected-service
-  activation are durable; catalog discovery and tool invocation remain
-  placeholders pending the live DNS-gateway transport.
+  activation are durable; catalog discovery and tool invocation use the live
+  DNS-gateway transport.
 - MCP credentials and predefined provider keys stay on the server. The browser receives service metadata and normalized results only.
-- The MCP source and operational configuration remain in `/home/apps/mcp`; lancee does not edit that repository.
+- Unsupported systems are stored as connection requests, not toggled into a
+  fake connected state.
 
 See [`INTEGRATIONS.md`](INTEGRATIONS.md) for the route and security details.
 See [`DURABLE_FOUNDATION.md`](DURABLE_FOUNDATION.md) for the schema and

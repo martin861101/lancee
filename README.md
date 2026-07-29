@@ -24,16 +24,25 @@ SMTP, production deployment, and troubleshooting, follow
 - **Home** — projects, deadlines, outstanding invoices, useful automations,
   recent activity, and one quick-task entry point.
 - **Work** — travel-aware client and project tracking, deadlines, progress,
-  deliverables, and a lightweight new-project flow.
+  deliverables, and authenticated project attachments with upload, download,
+  integrity checking, and deletion.
 - **Ideas** — a visual canvas with durable, versioned quick notes that remain
   readable and editable offline, plus briefs, references, palettes, tasks, and
   optional AI-assisted grouping.
 - **Automations** — plain-language routines for repetitive work, schedules,
   connected tools, and activity history.
-- **Connections** — design, communication, storage, payment, n8n, and managed
-  MCP services.
-- **Money** — durable ZAR invoices, real Paystack hosted payment links and
-  verified webhook reconciliation; Stripe and PayPal remain previews.
+- **Connections** — independent backend-managed Google Drive OAuth with
+  non-sensitive per-file access, encrypted workspace Paystack credentials,
+  signed n8n webhooks, and a separate MCP gateway limited to browser automation
+  and utility tools. Requests for additional business systems are persisted
+  without pretending an unsupported provider is connected.
+- **Codex Workspace** — an embedded Codex App Server connection with native
+  OpenAI device login, isolated per-user auth state, sandboxed repository work,
+  and streamed task output.
+- **lancee AI for Codex** — a separate repo-local Codex plugin with a bundled
+  MCP bridge and scoped access to the workspace AI provider.
+- **Money** — durable ZAR invoices, real Paystack hosted payment links, and
+  verified, duplicate-safe webhook reconciliation.
 - **Settings** — workspace, authentication, and notification configuration
   surfaces.
 
@@ -51,6 +60,9 @@ Firebase:
 - Session bootstrap, login, and logout use `/api/auth/*`.
 - Login is rate-limited to five failed attempts per 15-minute window.
 - Mutating requests validate the request origin.
+- Production registration is controlled by `ALLOW_REGISTRATION`.
+- Owners can issue seven-day invitation links. Tokens are stored as hashes,
+  can be delivered through SMTP, and create membership only after acceptance.
 
 This is the best fit for the current platform because n8n, SMTP, MCP bearer
 grants, and provider secrets already require a trusted application backend.
@@ -67,9 +79,10 @@ configured `ADMIN_EMAIL` and its corresponding password.
 
 ## Built-in MCP capability
 
-MCP is a platform feature, not an integration users install. Every workspace can
-browse the service catalog immediately. A user requests bearer access once,
-then activates only the approved services an automation may use.
+MCP is a platform feature, not a business-system connection users install.
+Every workspace can browse the permitted agent-tool catalog immediately. The
+default `MCP_ALLOWED_CATEGORIES=Browser,Utilities` boundary keeps normal
+provider connections in the application backend.
 
 The browser never receives `MCP_API_TOKEN`. The backend boundary is configured
 to connect to:
@@ -87,10 +100,61 @@ available → pending or approved → activated services
 If `MCP_API_TOKEN` is configured server-side, a request is approved
 automatically. Without it, the request remains pending for a future admin grant
 workflow. Bearer status and per-service activation survive process restarts in
-the local SQLite database.
+PostgreSQL (or the local SQLite development fallback). Catalog discovery and
+tool invocation are live server-to-server calls; bearer tokens never enter the
+browser.
 
 See [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) and
 [`mcp-conf/MCP.md`](mcp-conf/MCP.md).
+
+## Embedded Codex Workspace
+
+Open **Connections → Codex Workspace** to run Codex inside lancee. The backend
+launches `codex app-server` over private JSONL stdio, starts the native OpenAI
+device-code flow, and streams thread events to the authenticated browser over
+SSE.
+
+Each lancee workspace/user pair receives an isolated server-side `CODEX_HOME`.
+Turns are limited to the fixed `CODEX_WORKSPACE_ROOT`, use workspace-write with
+restricted read roots, disable tool network access, and never auto-approve
+privilege escalation.
+
+Configure local installations with:
+
+```dotenv
+CODEX_BINARY=codex
+CODEX_WORKSPACE_ROOT=/absolute/path/to/project
+```
+
+The Docker image installs the pinned Codex CLI, and Compose mounts
+`CODEX_WORKSPACE_PATH` at `/workspace`. See
+[`docs/CODEX_APP_SERVER.md`](docs/CODEX_APP_SERVER.md) for connection steps,
+architecture, endpoints, security boundaries, Docker setup, and verification.
+
+## lancee AI for Codex
+
+The repo-local [`plugins/lancee-ai`](plugins/lancee-ai) plugin lets Codex use
+the AI provider configured for an approved lancee workspace. Its bundled MCP
+server exposes `connect`, `ai_status`, and `complete`.
+
+The **Connections** page includes a **lancee AI for Codex** card. Open it to
+enter the eight-character code shown by the plugin, review and approve the
+`ai:invoke` scope, check active device status, or disconnect every authorized
+Codex device.
+
+Authentication uses a ten-minute device code shown by Codex and an explicit
+lancee approval screen. Successful exchange issues a one-time, thirty-day
+`ai:invoke` token. Device codes and tokens are hashed in the database, the
+provider key remains server-only, and the plugin stores its token only in the
+Codex plugin data directory.
+
+This source plugin does not modify a developer's personal Codex marketplace or
+global configuration. Package the complete plugin directory into the intended
+local or team marketplace. Set `LANCEE_BASE_URL` in the plugin MCP environment
+only when connecting to an origin other than the production default.
+
+See [`docs/CODEX_AI_CONNECTOR.md`](docs/CODEX_AI_CONNECTOR.md) for endpoint,
+security, packaging, configuration, and verification details.
 
 ## n8n integration
 
@@ -107,19 +171,22 @@ https://n8n.hygridtech.co.za
 
 The shared secret is AES-256-GCM encrypted at rest. Attempts persist success,
 failure, response status, duration, correlation ID, and retry lineage.
-Verified inbound events are durably accepted; dispatch into a persisted
-automation engine remains later work. See [`docs/N8N.md`](docs/N8N.md).
+Dispatching a saved automation creates a durable run, sends a signed
+`lancee.automation.run` event to n8n, and records completion or failure. See
+[`docs/N8N.md`](docs/N8N.md).
 
 ## Paystack payments
 
-Paystack is the first depth-first payment provider. When
-`PAYSTACK_SECRET_KEY` is configured server-side, Money can create a durable ZAR
-invoice and hosted checkout link. The link is returned for explicit review and
-sharing; lancee sends nothing automatically. A raw-body HMAC-SHA512 webhook
-verifies reference, amount, and currency before marking the invoice paid.
+Paystack is the first depth-first payment provider. A workspace owner can click
+**Connect** and save its `sk_test_…` or `sk_live_…` key through the Connections
+page. The key is AES-256-GCM encrypted and never returned to the browser.
+`PAYSTACK_SECRET_KEY` remains an optional server-environment fallback. Each
+workspace receives a scoped webhook URL; raw-body HMAC-SHA512 verification
+checks reference, amount, currency, and workspace before marking an invoice
+paid.
 
-Stripe and PayPal remain labelled previews. Configuration, live boundaries,
-webhook setup, and deterministic verification are in
+Unsupported payment providers are no longer shown as connectable previews.
+Configuration, live boundaries, webhook setup, and deterministic verification are in
 [`docs/PAYSTACK.md`](docs/PAYSTACK.md).
 
 ## PWA and offline Ideas
@@ -141,48 +208,16 @@ security, and conflict boundaries.
 
 ## Backend status
 
-Implemented server actions:
+The browser client in [`src/lib/api.ts`](src/lib/api.ts) uses real Express APIs;
+the former `mockApi` module and hard-coded MCP/service data have been removed.
+Durable server flows cover authentication, registration and invitations,
+projects and project links, visual idea boards and offline notes, automations
+and run status, analytics, team membership, cloud links, Google Drive, API
+keys, Paystack, n8n, MCP, SMTP, and AI.
 
-- `GET /api/health`
-- `GET /api/auth/session`
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
-- `GET /api/ideas/notes`
-- `POST /api/ideas/notes`
-- `PATCH /api/ideas/notes/:noteId`
-- `GET /api/mcp/access`
-- `POST /api/mcp/access-request`
-- `POST /api/mcp/access/revoke`
-- `GET /api/mcp/services`
-- `POST /api/mcp/services/:serviceId`
-- `GET /api/api-keys`
-- `POST /api/api-keys`
-- `DELETE /api/api-keys/:keyId`
-- `GET /api/v1/workspace` with a scoped API key
-- `GET /api/v1/mcp/access` with a scoped API key
-- `GET /api/money/paystack/status`
-- `GET /api/money/invoices`
-- `POST /api/money/paystack/payment-links`
-- `POST /api/webhooks/paystack`
-- `GET /api/n8n/config`
-- `POST /api/n8n/config`
-- `POST /api/n8n/disconnect`
-- `GET /api/n8n/deliveries`
-- `POST /api/n8n/deliveries`
-- `POST /api/n8n/deliveries/:deliveryId/retry`
-- `GET|POST /api/hooks/n8n/:workspaceId`
-- `GET /api/notifications/status`
-- `POST /api/notifications/test`
-
-Projects, broader visual-board records, automation execution, Stripe/PayPal,
-standard connections, MCP catalog discovery, and MCP tool execution remain
-asynchronous placeholders. Idea quick notes, Paystack, and n8n use real server
-flows.
-Authentication identities, workspace memberships, MCP grants/service
-activation, API keys, Idea notes, Paystack invoices/payment links/events, n8n
-configuration/deliveries/nonces, and idempotency records are durable.
-Automation types, run references, mock methods, UI identifiers, and styles
-consistently use `Automation` naming.
+Unsupported providers are handled through persisted connection requests rather
+than fake connection toggles. Optional demo seeding is off unless
+`SEED_DEMO_DATA=true`.
 
 The improvement-plan review and sequencing rationale are documented in
 [`docs/IMPROVEMENT_PLAN_REVIEW.md`](docs/IMPROVEMENT_PLAN_REVIEW.md).
@@ -219,6 +254,34 @@ SMTP_TEST_TO=
 `.env`, `.env.*`, and `.runtime/` are ignored. `.env.example` is intentionally
 tracked.
 
+Production should use PostgreSQL. Docker Compose requires a non-empty
+`POSTGRES_PASSWORD` and keeps the database on the private Compose network:
+
+```bash
+POSTGRES_PASSWORD='replace-with-a-long-secret' docker compose up -d --build
+```
+
+To reset the Docker deployment to a completely fresh PostgreSQL database,
+optionally create a dump first, then remove the Compose volume and restart:
+
+```bash
+mkdir -p .runtime/backups
+docker compose exec -T db sh -lc \
+  'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' \
+  > .runtime/backups/pre-reset.dump
+docker compose down --volumes --remove-orphans
+docker compose up -d --build
+```
+
+`docker compose down --volumes` permanently removes this Compose project's
+PostgreSQL data. It does not remove source files or the optional local SQLite
+fallback under `.runtime/`. Restore a custom-format backup with `pg_restore`
+only after stopping the app so it cannot write during recovery.
+
+See [`docs/SCALABILITY_AND_POSTGRESQL.md`](docs/SCALABILITY_AND_POSTGRESQL.md)
+for connection-pool, transaction, migration, and rollout details. SQLite
+remains a durable single-process development fallback through `DATABASE_PATH`.
+
 ## Development and verification
 
 ```bash
@@ -238,6 +301,12 @@ pnpm verify:durability
 pnpm verify:paystack
 pnpm verify:n8n
 pnpm verify:offline
+pnpm verify:ai
+pnpm verify:codex-connector
+pnpm verify:google-drive
+pnpm verify:workspace-flows
+# With DATABASE_URL or PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE:
+pnpm verify:postgres
 node --check server/index.mjs
 node --check server/database.mjs
 node --check server/notifications.mjs
@@ -246,9 +315,7 @@ node --check server/n8n.mjs
 node --check public/sw.js
 ```
 
-The lint command currently reports warnings only inside the retained
-`react-templates/` reference projects; the lancee application builds without
-errors.
+The application lint and production build complete without errors or warnings.
 
 ## Production
 

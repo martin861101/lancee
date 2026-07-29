@@ -8,10 +8,15 @@ services:
       - APP_ENV=production
       - PGHOST=db
       - PGPORT=5432
+      - PGUSER=${POSTGRES_USER:-lancee}
+      - PGPASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      - PGDATABASE=${POSTGRES_DB:-lancee_app}
+      - DATABASE_PATH=
     env_file:
       - .env
     volumes:
       - .runtime:/app/.runtime
+      - ${CODEX_WORKSPACE_PATH:-.}:/workspace
     depends_on:
       db:
         condition: service_healthy
@@ -20,15 +25,13 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: lancee
-      POSTGRES_PASSWORD: Nui
-      POSTGRES_DB: lancee_app
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-lancee}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-lancee_app}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U lancee -d lancee_app"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lancee} -d ${POSTGRES_DB:-lancee_app}"]
       interval: 5s
       timeout: 5s
       retries: 5

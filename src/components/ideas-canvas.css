@@ -295,6 +295,24 @@
   border-radius: 9px;
   transform: translateX(-50%);
 }
+.ideas-ai-result {
+  position: absolute;
+  z-index: 13;
+  right: 22px;
+  bottom: 78px;
+  width: min(420px, calc(100% - 44px));
+  max-height: 180px;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  color: #3f356f;
+  font-size: .72rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  background: #f4f1ff;
+  border: 1px solid #d7cef8;
+  border-radius: 10px;
+}
 .ai-helper {
   position: absolute;
   right: 22px;

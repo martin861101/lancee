@@ -129,6 +129,16 @@ An idempotency replay never resends a completed attempt. A manual retry creates
 a new attempt, retains the original correlation ID, links `retry_of`, and is
 limited to five attempts.
 
+## Saved automation execution
+
+`POST /api/automations/runs` requires an active saved automation and a connected
+n8n configuration. The API creates a durable `running` record, then sends a
+signed `lancee.automation.run` POST event containing the run, automation,
+instruction, workspace, and requesting user identifiers. The run transitions
+to `completed` after a successful n8n response or `failed` with a normalized
+error code. `GET /api/automations/runs/:runId` exposes the current status for UI
+polling.
+
 ## Persistence
 
 | Table | Responsibility |
@@ -164,5 +174,5 @@ pnpm verify:n8n
 The verifier runs lancee beside a local signed-webhook stub. It checks HTTPS
 policy, exact-origin enforcement, encryption at rest, outbound GET/POST
 signatures, idempotent replay, real inbound GET/POST, stale timestamps, nonce
-replay, failure recording, retry lineage, disconnect behavior, and restart
-persistence. It makes no external request.
+replay, saved automation execution, failure recording, retry lineage,
+disconnect behavior, and restart persistence. It makes no external request.

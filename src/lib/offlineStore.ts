@@ -150,6 +150,7 @@ export async function listCachedIdeaNotes(
   workspaceId: string,
   boardId: string,
 ) {
+  if (!workspaceId || !boardId) return []
   const database = await openOfflineDatabase()
   const transaction = database.transaction('notes', 'readonly')
   const completed = transactionComplete(transaction)
@@ -222,6 +223,7 @@ export async function deleteCachedIdeaNote(
 }
 
 export async function listIdeaMutations(workspaceId: string) {
+  if (!workspaceId) return []
   const database = await openOfflineDatabase()
   const transaction = database.transaction('mutations', 'readonly')
   const completed = transactionComplete(transaction)

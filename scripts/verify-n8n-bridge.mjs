@@ -324,6 +324,65 @@ try {
   assert.equal(received[1].method, 'GET')
   assert.match(received[1].url, /lancee_event=lancee(?:\.|%2E)connection_test/)
 
+  const createAutomation = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/automations',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'automation-create-0001',
+      },
+      body: JSON.stringify({
+        name: 'Verifier workflow',
+        description: 'Confirms a saved automation executes through n8n.',
+      }),
+    },
+  )
+  assert.equal(createAutomation.status, 201)
+  const automation = await createAutomation.json()
+  const activateAutomation = await sessionRequest(
+    application.origin,
+    cookie,
+    `/api/automations/${automation.id}/toggle`,
+    {
+      method: 'POST',
+      headers: { 'Idempotency-Key': 'automation-activate-0001' },
+    },
+  )
+  assert.equal((await activateAutomation.json()).status, 'active')
+  const dispatchAutomation = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/automations/runs',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'automation-run-0001',
+      },
+      body: JSON.stringify({
+        automationId: automation.id,
+        instruction: 'Run the signed verifier workflow.',
+      }),
+    },
+  )
+  assert.equal(dispatchAutomation.status, 201)
+  let automationRun = await dispatchAutomation.json()
+  for (let attempt = 0; attempt < 40 && automationRun.status === 'running'; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    const runResponse = await sessionRequest(
+      application.origin,
+      cookie,
+      `/api/automations/runs/${automationRun.id}`,
+    )
+    automationRun = await runResponse.json()
+  }
+  assert.equal(automationRun.status, 'completed')
+  assert.equal(received[2].body.type, 'lancee.automation.run')
+  assert.equal(received[2].body.runId, automationRun.id)
+
   const inboundEvent = { type: 'n8n.external_test', value: 7 }
   const inboundNonce = 'nonce_external_post_0001'
   const inboundTimestamp = String(Date.now())
@@ -465,7 +524,7 @@ try {
   assert.equal(disconnectedCallback.status, 404)
 
   console.log(
-    'n8n bridge verified: encrypted configuration, URL policy, timestamped signatures, outbound GET/POST, inbound replay protection, durable attempts, retry, disconnect, and restart persistence.',
+    'n8n bridge verified: encrypted configuration, URL policy, signed automation execution, outbound GET/POST, inbound replay protection, durable attempts, retry, disconnect, and restart persistence.',
   )
 } finally {
   if (application) await stopApplication(application)

@@ -287,6 +287,15 @@
   white-space: nowrap;
 }
 .work-dialog__link-row a:hover { text-decoration: underline; }
+.work-dialog__file-row a {
+  flex: 1;
+  color: #6854e8;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-dialog__file-row a:hover { text-decoration: underline; }
 
 .work-dialog__link-remove {
   border: 0;
@@ -315,6 +324,46 @@
   font-size: .68rem;
   color: #a0a59b;
   flex-shrink: 0;
+}
+
+.work-dialog label.work-dialog__file-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.work-dialog label.work-dialog__file-picker > span:first-child:not(.button) {
+  flex-basis: 100%;
+}
+.work-dialog__file-picker > input[type='file'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.work-dialog__file-picker > .button {
+  cursor: pointer;
+}
+.work-dialog__file-picker > small {
+  color: #8a8f88;
+  font-size: .7rem;
+}
+.work-dialog__selected-files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: #f8f9f5;
+  border-radius: 8px;
+}
+.work-dialog__selected-files span {
+  color: #73786f;
+  font-size: .72rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .task-card__badges {

@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from 'react'
 import { DragDropProvider, DragOverlay } from '@dnd-kit/react'
 import type { DragEndEvent, DragOverEvent } from '@dnd-kit/react'
 import BoardColumn from './BoardColumn'
@@ -12,8 +19,10 @@ import './work-panel.css'
 
 export default function WorkPanel({
   onToast,
+  onOpenSettings,
 }: {
   onToast: (message: string) => void
+  onOpenSettings?: () => void
 }) {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
@@ -21,6 +30,8 @@ export default function WorkPanel({
   const [projectName, setProjectName] = useState('')
   const [clientName, setClientName] = useState('')
   const [projectDue, setProjectDue] = useState('')
+  const [newProjectFiles, setNewProjectFiles] = useState<File[]>([])
+  const [submittingProject, setSubmittingProject] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [editName, setEditName] = useState('')
   const [editClient, setEditClient] = useState('')
@@ -30,10 +41,16 @@ export default function WorkPanel({
   const [boards, setBoards] = useState<Array<{ id: string; label: string }>>([])
   const [links, setLinks] = useState<ProjectLink[]>([])
   const [files, setFiles] = useState<ProjectFile[]>([])
+  const [uploadingFiles, setUploadingFiles] = useState(false)
   const [newLinkUrl, setNewLinkUrl] = useState('')
   const [newLinkLabel, setNewLinkLabel] = useState('')
   const [error, setError] = useState('')
   const [columnOrder, setColumnOrder] = useState<ColumnId[]>([...COLUMN_IDS])
+  const [workspaceSettings, setWorkspaceSettings] = useState<{
+    timezone: string
+    travelMode: string
+    travelLocation: string
+  } | null>(null)
   const prevProjects = useRef<Project[]>([])
 
   const itemsByColumnRef = useRef<Record<string, Project[]>>({})
@@ -51,6 +68,25 @@ export default function WorkPanel({
       .catch(() => setError('Unable to load projects'))
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    void api.workspace
+      .getSettings()
+      .then((settings) => {
+        if (active) {
+          setWorkspaceSettings({
+            timezone: settings.timezone,
+            travelMode: settings.travelMode,
+            travelLocation: settings.travelLocation,
+          })
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
   }, [])
 
   const itemsByColumn = buildItemsByColumn(projects)
@@ -105,18 +141,19 @@ export default function WorkPanel({
       const colProjects = currentItems[colId]
       const idx = colProjects.findIndex((p) => p.id === sourceId)
       if (idx !== -1) {
-        const projectStatus = colProjects[idx].status
         const targetStatus = REVERSE_STATUS[colId]
-        if (projectStatus !== targetStatus) {
-          api.projects.updateStatus(sourceId, targetStatus)
-            .then((updated) => {
-              setProjects((current) => current.map((p) => (p.id === updated.id ? updated : p)))
+        api.projects.updateStatus(sourceId, targetStatus)
+          .then((updated) => {
+            setProjects((current) => {
+              const next = current.map((p) => (p.id === updated.id ? updated : p))
+              prevProjects.current = next
+              return next
             })
-            .catch(() => {
-              setProjects(prevProjects.current)
-              onToast('Failed to update project status.')
-            })
-        }
+          })
+          .catch(() => {
+            setProjects(prevProjects.current)
+            onToast('Failed to update project status.')
+          })
         return
       }
     }
@@ -125,27 +162,53 @@ export default function WorkPanel({
   const deleteProject = useCallback(async (id: string) => {
     try {
       await api.projects.remove(id)
-      setProjects((current) => current.filter((p) => p.id !== id))
+      setProjects((current) => {
+        const next = current.filter((p) => p.id !== id)
+        prevProjects.current = next
+        return next
+      })
       onToast('Project deleted')
     } catch { onToast('Unable to delete project.') }
   }, [onToast])
 
   const submitProject = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    setSubmittingProject(true)
     try {
       const project = await api.projects.create({
         name: projectName.trim(),
         client: clientName.trim(),
         due: projectDue.trim() || undefined,
       })
-      setProjects((current) => [project, ...current])
+      setProjects((current) => {
+        const next = [project, ...current]
+        prevProjects.current = next
+        return next
+      })
       setProjectName('')
       setClientName('')
       setProjectDue('')
+      let attachedCount = 0
+      const failedFiles: string[] = []
+      for (const selectedFile of newProjectFiles) {
+        try {
+          await api.projects.files.add(project.id, selectedFile)
+          attachedCount += 1
+        } catch {
+          failedFiles.push(selectedFile.name)
+        }
+      }
+      setNewProjectFiles([])
       setCreating(false)
-      onToast(`${project.name} was added to your work`)
+      onToast(
+        failedFiles.length > 0
+          ? `${project.name} was created; ${failedFiles.length} file upload${failedFiles.length === 1 ? '' : 's'} failed`
+          : `${project.name} was added${attachedCount ? ` with ${attachedCount} file${attachedCount === 1 ? '' : 's'}` : ''}`,
+      )
     } catch (caught) {
       onToast(caught instanceof Error ? caught.message : 'Failed to create project')
+    } finally {
+      setSubmittingProject(false)
     }
   }
 
@@ -186,7 +249,11 @@ export default function WorkPanel({
       if (editDue !== editingProject.due) fields.due = editDue
       if (editBoardId !== editingProject.boardId) fields.boardId = editBoardId
       const updated = await api.projects.update(editingProject.id, fields as Partial<Parameters<typeof api.projects.update>[1]>)
-      setProjects((current) => current.map((p) => (p.id === updated.id ? updated : p)))
+      setProjects((current) => {
+        const next = current.map((p) => (p.id === updated.id ? updated : p))
+        prevProjects.current = next
+        return next
+      })
       setEditingProject(null)
     } catch { onToast('Unable to update project.') }
   }
@@ -206,6 +273,59 @@ export default function WorkPanel({
       await api.projects.links.remove(linkId)
       setLinks((current) => current.filter((l) => l.id !== linkId))
     } catch { onToast('Unable to remove link.') }
+  }
+
+  const validateSelectedFiles = (selected: File[]) => {
+    const maximumBytes = 10 * 1024 * 1024
+    const accepted = selected.filter(
+      (file) => file.size > 0 && file.size <= maximumBytes,
+    )
+    if (accepted.length !== selected.length) {
+      onToast('Files must be non-empty and no larger than 10 MB each.')
+    }
+    return accepted.slice(0, 10)
+  }
+
+  const chooseNewProjectFiles = (event: ChangeEvent<HTMLInputElement>) => {
+    const selected = validateSelectedFiles(Array.from(event.target.files || []))
+    setNewProjectFiles(selected)
+    event.target.value = ''
+  }
+
+  const attachFiles = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (!editingProject) return
+    const selected = validateSelectedFiles(Array.from(event.target.files || []))
+    event.target.value = ''
+    if (selected.length === 0) return
+    setUploadingFiles(true)
+    let uploaded = 0
+    try {
+      for (const selectedFile of selected) {
+        const attached = await api.projects.files.add(
+          editingProject.id,
+          selectedFile,
+        )
+        setFiles((current) => [...current, attached])
+        uploaded += 1
+      }
+      onToast(`${uploaded} file${uploaded === 1 ? '' : 's'} attached`)
+    } catch (caught) {
+      onToast(
+        caught instanceof Error ? caught.message : 'Unable to attach the file.',
+      )
+    } finally {
+      setUploadingFiles(false)
+    }
+  }
+
+  const removeFile = async (fileId: string) => {
+    try {
+      await api.projects.files.remove(fileId)
+      setFiles((current) => current.filter((file) => file.id !== fileId))
+      onToast('File removed')
+    } catch {
+      onToast('Unable to remove file.')
+    }
   }
 
   const openCount = projects.length
@@ -228,10 +348,18 @@ export default function WorkPanel({
       <section className="travel-strip" aria-label="Travel-aware workspace">
         <span className="travel-strip__pin" aria-hidden="true">⌁</span>
         <div>
-          <strong>Working across timezones</strong>
-          <span>Client deadlines and reminders stay in their local time</span>
+          <strong>
+            {workspaceSettings?.travelMode === 'traveling'
+              ? `Working from ${workspaceSettings.travelLocation || 'a new location'}`
+              : `Home timezone · ${workspaceSettings?.timezone || 'not configured'}`}
+          </strong>
+          <span>
+            {workspaceSettings?.travelMode === 'traveling'
+              ? `Workspace timezone: ${workspaceSettings.timezone}`
+              : 'Turn on travel mode when your working location changes'}
+          </span>
         </div>
-        <button onClick={() => onToast('Travel preferences opened')}>Travel settings</button>
+        <button type="button" onClick={onOpenSettings}>Travel settings</button>
       </section>
 
       <section className="work-snapshot" aria-label="Work snapshot">
@@ -368,14 +496,36 @@ export default function WorkPanel({
 
               <fieldset className="work-dialog__fieldset">
                 <legend>Files ({files.length})</legend>
+                <label className="work-dialog__file-picker">
+                  <input
+                    type="file"
+                    multiple
+                    onChange={(event) => void attachFiles(event)}
+                    disabled={uploadingFiles}
+                  />
+                  <span className="button button--secondary button--small">
+                    {uploadingFiles ? 'Uploading…' : 'Attach files'}
+                  </span>
+                  <small>Up to 10 files, 10 MB each</small>
+                </label>
                 {files.length === 0 ? (
                   <p className="work-dialog__hint">No files attached.</p>
                 ) : (
                   <div className="work-dialog__files">
                     {files.map((file) => (
                       <div key={file.id} className="work-dialog__file-row">
-                        <span>{file.name}</span>
+                        <a href={api.projects.files.downloadUrl(file.id)}>
+                          {file.name}
+                        </a>
                         <span className="work-dialog__file-size">{(file.size / 1024).toFixed(1)} KB</span>
+                        <button
+                          type="button"
+                          className="work-dialog__link-remove"
+                          aria-label={`Remove ${file.name}`}
+                          onClick={() => void removeFile(file.id)}
+                        >
+                          ×
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -392,7 +542,15 @@ export default function WorkPanel({
       )}
 
       {creating && (
-        <div className="work-dialog-backdrop" onMouseDown={() => setCreating(false)}>
+        <div
+          className="work-dialog-backdrop"
+          onMouseDown={() => {
+            if (!submittingProject) {
+              setCreating(false)
+              setNewProjectFiles([])
+            }
+          }}
+        >
           <form
             className="work-dialog"
             onSubmit={submitProject}
@@ -400,7 +558,17 @@ export default function WorkPanel({
           >
             <div className="work-dialog__header">
               <span>New project</span>
-              <button type="button" onClick={() => setCreating(false)} aria-label="Close">×</button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCreating(false)
+                  setNewProjectFiles([])
+                }}
+                aria-label="Close"
+                disabled={submittingProject}
+              >
+                ×
+              </button>
             </div>
             <h2>What are you making?</h2>
             <p>Start small. You can add the brief, files, dates, and invoice next.</p>
@@ -416,9 +584,42 @@ export default function WorkPanel({
               <span>Due date</span>
               <input type="date" value={projectDue} onChange={(e) => setProjectDue(e.target.value)} />
             </label>
+            <label className="work-dialog__file-picker">
+              <span>Files <small>Optional</small></span>
+              <input type="file" multiple onChange={chooseNewProjectFiles} />
+              <span className="button button--secondary button--small">
+                Choose files
+              </span>
+              <small>Up to 10 files, 10 MB each</small>
+            </label>
+            {newProjectFiles.length > 0 && (
+              <div className="work-dialog__selected-files">
+                {newProjectFiles.map((file) => (
+                  <span key={`${file.name}:${file.lastModified}`}>
+                    {file.name} · {(file.size / 1024).toFixed(1)} KB
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="work-dialog__actions">
-              <button className="button button--secondary" type="button" onClick={() => setCreating(false)}>Cancel</button>
-              <button className="button button--primary" type="submit">Create project</button>
+              <button
+                className="button button--secondary"
+                type="button"
+                onClick={() => {
+                  setCreating(false)
+                  setNewProjectFiles([])
+                }}
+                disabled={submittingProject}
+              >
+                Cancel
+              </button>
+              <button
+                className="button button--primary"
+                type="submit"
+                disabled={submittingProject}
+              >
+                {submittingProject ? 'Creating & uploading…' : 'Create project'}
+              </button>
             </div>
           </form>
         </div>

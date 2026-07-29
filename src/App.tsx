@@ -1,5 +1,8 @@
 import {
+  Suspense,
+  lazy,
   useEffect,
+  useEffectEvent,
   useMemo,
   useState,
   type FormEvent,
@@ -10,7 +13,13 @@ import {
   type Automation,
   type ApiKey,
   type ApiKeyPermission,
+  type CodexConnection,
+  type CodexDeviceAuthorization,
+  type CodexDeviceLogin,
+  type CodexRuntimeEvent,
+  type CodexRuntimeStatus,
   type Integration,
+  type IntegrationRequest,
   type McpConnection,
   type McpInvocationResult,
   type McpService,
@@ -20,16 +29,19 @@ import {
   type N8nDirection,
   type N8nMethod,
   type N8nTestResult,
+  type PaystackConnection,
   type Run,
   type User,
 } from './lib/api'
-import IdeasCanvasPage from './components/IdeasCanvasPage'
-import MoneyPage from './components/MoneyPage'
-import WorkPage from './components/WorkPage'
-import AnalyticsPage from './components/dashboard/AnalyticsPage'
-import TeamPage from './components/dashboard/TeamPage'
 import { syncIdeaMutations } from './lib/ideasRepository'
 import { IDEA_SYNC_REQUEST_EVENT } from './pwa'
+
+const IdeasCanvasPage = lazy(() => import('./components/IdeasCanvasPage'))
+const MoneyPage = lazy(() => import('./components/MoneyPage'))
+const WorkPage = lazy(() => import('./components/WorkPage'))
+const AnalyticsPage = lazy(() => import('./components/dashboard/AnalyticsPage'))
+const TeamPage = lazy(() => import('./components/dashboard/TeamPage'))
+const FilesPage = lazy(() => import('./components/dashboard/FilesPage'))
 
 type Page =
   | 'overview'
@@ -40,10 +52,34 @@ type Page =
   | 'integrations'
   | 'money'
   | 'analytics'
+  | 'files'
   | 'team'
   | 'api'
   | 'settings'
-type ModalName = 'automation' | 'key' | 'n8n' | 'mcp' | null
+const pageIds = new Set<Page>([
+  'overview',
+  'work',
+  'ideas',
+  'automations',
+  'runs',
+  'integrations',
+  'money',
+  'analytics',
+  'files',
+  'team',
+  'api',
+  'settings',
+])
+type ModalName =
+  | 'automation'
+  | 'key'
+  | 'n8n'
+  | 'mcp'
+  | 'codex-ai'
+  | 'codex-runtime'
+  | 'paystack'
+  | 'integration-request'
+  | null
 type IconName =
   | 'activity'
   | 'alert'
@@ -88,6 +124,7 @@ const navItems: { id: Page; label: string; icon: IconName; section: string }[] =
   { id: 'overview', label: 'Home', icon: 'grid', section: 'Your work' },
   { id: 'work', label: 'Work', icon: 'briefcase', section: 'Your work' },
   { id: 'ideas', label: 'Ideas', icon: 'lightbulb', section: 'Your work' },
+  { id: 'files', label: 'Files', icon: 'file', section: 'Your work' },
   { id: 'automations', label: 'Automations', icon: 'activity', section: 'Business' },
   { id: 'runs', label: 'Activity Logs', icon: 'layers', section: 'Business' },
   { id: 'integrations', label: 'Connections', icon: 'plug', section: 'Business' },
@@ -373,7 +410,7 @@ function OverviewPage({
   onAutomationChange,
   onDispatch,
   onNavigate,
-  onCreateAutomation,
+  onCreateProject,
 }: {
   user: User
   automations: Automation[]
@@ -389,10 +426,25 @@ function OverviewPage({
   onAutomationChange: (value: string) => void
   onDispatch: (event: FormEvent<HTMLFormElement>) => void
   onNavigate: (page: Page) => void
-  onCreateAutomation: () => void
+  onCreateProject: () => void
 }) {
   const activeAutomations = automations.filter((automation) => automation.status === 'active').length
-  const chartValues = [42, 52, 47, 66, 58, 72, 68, 84, 79, 91, 88, 101, 96, 116]
+  const chartValues = useMemo(() => {
+    const start = new Date()
+    start.setHours(0, 0, 0, 0)
+    start.setDate(start.getDate() - 13)
+    const values = Array.from({ length: 14 }, () => 0)
+    for (const run of runs) {
+      if (run.status !== 'completed') continue
+      const started = new Date(run.startedAt)
+      const index = Math.floor((started.getTime() - start.getTime()) / 86_400_000)
+      if (index >= 0 && index < values.length) values[index] += 1
+    }
+    return values
+  }, [runs])
+  const completedInPeriod = chartValues.reduce((total, value) => total + value, 0)
+  const chartMaximum = Math.max(...chartValues, 1)
+  const failedRuns = runs.filter((run) => run.status === 'failed').length
   const today = new Intl.DateTimeFormat('en', {
     weekday: 'long',
     month: 'long',
@@ -406,7 +458,7 @@ function OverviewPage({
         title={`Good morning, ${user.name.split(' ')[0]}.`}
         description="A simple view of your projects, money, and the few things that need you."
         action={
-          <button className="button button--primary" onClick={onCreateAutomation}>
+          <button className="button button--primary" onClick={onCreateProject}>
             <Icon name="plus" size={16} />
             New project
           </button>
@@ -459,10 +511,10 @@ function OverviewPage({
         </form>
         <div className="prompt-suggestions">
           <span>Quick starts:</span>
-          <button onClick={() => onPromptChange('Turn the Ember Gin feedback into a revision checklist')}>
+          <button onClick={() => onPromptChange('Turn the latest client feedback into a revision checklist')}>
             Make a revision list
           </button>
-          <button onClick={() => onPromptChange('Prepare a friendly reminder for the overdue Casa Lumbre invoice')}>
+          <button onClick={() => onPromptChange('Prepare a friendly reminder for the oldest unpaid invoice')}>
             Follow up an invoice
           </button>
           <button onClick={() => onPromptChange('Prepare a short client update for every project due this week')}>
@@ -524,7 +576,7 @@ function OverviewPage({
           </strong>
           <div className="metric-card__bottom">
             <span className="online-dot" />
-            <span>Everything healthy</span>
+            <span>{failedRuns > 0 ? `${failedRuns} failed run${failedRuns === 1 ? '' : 's'}` : 'No failed runs'}</span>
           </div>
         </article>
       </section>
@@ -536,34 +588,33 @@ function OverviewPage({
               <h3>Studio rhythm</h3>
               <p>Work completed over the last 14 days</p>
             </div>
-            <button className="period-button">
+            <span className="period-button">
               14 days
-              <Icon name="chevron-down" size={14} />
-            </button>
+            </span>
           </div>
           <div className="chart-summary">
-            <strong>46 tasks</strong>
-            <span className="trend trend--up">8 ahead</span>
+            <strong>{completedInPeriod} completed</strong>
+            <span className="trend trend--up">last 14 days</span>
           </div>
           <div className="chart-wrap">
             <div className="chart-y-labels" aria-hidden="true">
-              <span>120</span>
-              <span>80</span>
-              <span>40</span>
+              <span>{chartMaximum}</span>
+              <span>{Math.ceil(chartMaximum * 0.67)}</span>
+              <span>{Math.ceil(chartMaximum * 0.33)}</span>
               <span>0</span>
             </div>
             <div className="bar-chart">
               {chartValues.map((value, index) => (
                 <div className="bar-column" key={`${value}-${index}`}>
-                  <span style={{ height: `${(value / 120) * 100}%` }} />
+                  <span style={{ height: `${(value / chartMaximum) * 100}%` }} />
                 </div>
               ))}
             </div>
           </div>
           <div className="chart-dates" aria-hidden="true">
-            <span>Jul 13</span>
-            <span>Jul 17</span>
-            <span>Jul 21</span>
+            <span>13 days ago</span>
+            <span>9 days ago</span>
+            <span>5 days ago</span>
             <span>Today</span>
           </div>
         </article>
@@ -595,6 +646,9 @@ function OverviewPage({
                 <StatusPill status={automation.status} />
               </button>
             ))}
+            {automations.length === 0 && (
+              <p className="empty-copy">No automations saved yet.</p>
+            )}
           </div>
         </article>
       </section>
@@ -626,7 +680,6 @@ function RunsTable({ runs }: { runs: Run[] }) {
             <th>Status</th>
             <th>Started</th>
             <th>Duration</th>
-            <th aria-label="Actions" />
           </tr>
         </thead>
         <tbody>
@@ -649,13 +702,13 @@ function RunsTable({ runs }: { runs: Run[] }) {
               </td>
               <td>{run.startedAt}</td>
               <td>{run.duration}</td>
-              <td>
-                <button className="icon-button icon-button--quiet" aria-label={`Open ${run.id}`}>
-                  <Icon name="arrow-up-right" size={15} />
-                </button>
-              </td>
             </tr>
           ))}
+          {runs.length === 0 && (
+            <tr>
+              <td colSpan={5}>No automation activity yet.</td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
@@ -715,7 +768,11 @@ function AutomationsPage({
         <div className="automation-summary__health">
           <Icon name="shield" size={16} />
           <span>Automation health</span>
-          <strong>Everything running</strong>
+          <strong>
+            {automations.some((automation) => automation.status === 'paused')
+              ? `${automations.filter((automation) => automation.status === 'paused').length} paused`
+              : `${automations.filter((automation) => automation.status === 'active').length} active`}
+          </strong>
         </div>
       </section>
 
@@ -750,9 +807,6 @@ function AutomationsPage({
               </span>
               <div className="automation-card__actions">
                 <StatusPill status={automation.status} />
-                <button className="icon-button icon-button--quiet" aria-label="More automation actions">
-                  <Icon name="more" size={17} />
-                </button>
               </div>
             </div>
             <div className="automation-card__body">
@@ -821,6 +875,13 @@ function AutomationsPage({
 function RunsPage({ runs }: { runs: Run[] }) {
   const [filter, setFilter] = useState<'all' | Run['status']>('all')
   const filtered = filter === 'all' ? runs : runs.filter((run) => run.status === filter)
+  const currentMonth = new Date().toISOString().slice(0, 7)
+  const runsThisMonth = runs.filter((run) => run.startedAt.startsWith(currentMonth))
+  const runtimeSeconds = runsThisMonth.reduce(
+    (total, run) => total + (run.durationSeconds || 0),
+    0,
+  )
+  const uniqueAutomations = new Set(runsThisMonth.map((run) => run.automationId)).size
 
   return (
     <div className="page">
@@ -828,34 +889,29 @@ function RunsPage({ runs }: { runs: Run[] }) {
         eyebrow="History"
         title="Automation activity"
         description="See what ran, what changed, and anything that still needs your attention."
-        action={
-          <button className="button button--secondary">
-            <Icon name="calendar" size={16} /> Last 30 days
-            <Icon name="chevron-down" size={14} />
-          </button>
-        }
+        action={<span className="button button--secondary"><Icon name="calendar" size={16} /> Current month</span>}
       />
 
       <section className="run-stat-grid">
         <article>
           <span>Tasks this month</span>
-          <strong>36</strong>
-          <small className="trend trend--up">8 more than June</small>
+          <strong>{runsThisMonth.length}</strong>
+          <small>{runsThisMonth.filter((run) => run.status === 'completed').length} completed</small>
         </article>
         <article>
-          <span>Time returned</span>
-          <strong>6h 24m</strong>
-          <small>Mostly admin and follow-ups</small>
+          <span>Execution time</span>
+          <strong>{Math.floor(runtimeSeconds / 3600)}h {Math.floor((runtimeSeconds % 3600) / 60)}m</strong>
+          <small>Recorded automation runtime</small>
         </article>
         <article>
           <span>Needs attention</span>
-          <strong>1</strong>
-          <small>Client file permission expired</small>
+          <strong>{runsThisMonth.filter((run) => run.status === 'failed').length}</strong>
+          <small>Failed runs this month</small>
         </article>
         <article>
-          <span>Connected routines</span>
-          <strong>3</strong>
-          <small>n8n, email, and storage</small>
+          <span>Routines used</span>
+          <strong>{uniqueAutomations}</strong>
+          <small>Unique automations dispatched</small>
         </article>
       </section>
 
@@ -872,9 +928,6 @@ function RunsPage({ runs }: { runs: Run[] }) {
               </button>
             ))}
           </div>
-          <button className="button button--secondary button--small">
-            <Icon name="filter" size={14} /> Filters
-          </button>
         </div>
         <RunsTable runs={filtered} />
       </section>
@@ -918,6 +971,13 @@ function IntegrationLogo({ integration }: { integration: Integration }) {
         <i />
       </span>
     ),
+    codex: (
+      <span className="logo-codex">
+        <i />
+        <i />
+        <i />
+      </span>
+    ),
   }
   return (
     <span className="integration-logo" style={{ '--integration-accent': integration.accent } as React.CSSProperties}>
@@ -932,7 +992,11 @@ function IntegrationsPage({
   onToggle,
   onConfigureN8n,
   onConfigureMcp,
-  onOpenMoney,
+  onConfigureCodex,
+  onConfigureCodexRuntime,
+  onConfigurePaystack,
+  onToggleGoogleDrive,
+  onRequestConnection,
   onToast,
 }: {
   integrations: Integration[]
@@ -940,7 +1004,11 @@ function IntegrationsPage({
   onToggle: (integration: Integration) => void
   onConfigureN8n: () => void
   onConfigureMcp: () => void
-  onOpenMoney: () => void
+  onConfigureCodex: () => void
+  onConfigureCodexRuntime: () => void
+  onConfigurePaystack: () => void
+  onToggleGoogleDrive: (integration: Integration) => void
+  onRequestConnection: () => void
   onToast: (message: string) => void
 }) {
   const [query, setQuery] = useState('')
@@ -961,7 +1029,7 @@ function IntegrationsPage({
         action={
           <button
             className="button button--secondary"
-            onClick={() => onToast('Integration request form opened in demo mode')}
+            onClick={onRequestConnection}
           >
             <Icon name="plus" size={16} /> Request a connection
           </button>
@@ -982,9 +1050,13 @@ function IntegrationsPage({
         </div>
         <div className="integration-banner__status">
           <span className="online-dot" />
-          All connections healthy
+          Backend status is live
         </div>
       </section>
+
+      <p className="integration-boundary-note">
+        Business connections run through the lancee application backend. MCP stays available for narrow, approved utility tools and skills inside automations.
+      </p>
 
       <div className="toolbar integrations-toolbar">
         <label className="search-field">
@@ -1037,6 +1109,20 @@ function IntegrationsPage({
                 <small>Managed service access</small>
               </div>
             )}
+            {integration.id === 'codex-ai' && (
+              <div className="protocol-badges" aria-label="Codex AI authorization">
+                <span>MCP</span>
+                <span>Outbound</span>
+                <small>Codex calls lancee AI</small>
+              </div>
+            )}
+            {integration.id === 'codex-runtime' && (
+              <div className="protocol-badges" aria-label="Embedded Codex runtime">
+                <span>App Server</span>
+                <span>Device auth</span>
+                <small>Codex runs inside lancee</small>
+              </div>
+            )}
             <button
               className={`button ${
                 integration.id === 'mcp-grid'
@@ -1048,7 +1134,10 @@ function IntegrationsPage({
               onClick={() => {
                 if (integration.id === 'n8n') onConfigureN8n()
                 else if (integration.id === 'mcp-grid') onConfigureMcp()
-                else if (integration.id === 'paystack') onOpenMoney()
+                else if (integration.id === 'codex-ai') onConfigureCodex()
+                else if (integration.id === 'codex-runtime') onConfigureCodexRuntime()
+                else if (integration.id === 'paystack') onConfigurePaystack()
+                else if (integration.id === 'drive') onToggleGoogleDrive(integration)
                 else if (integration.category === 'Payments') {
                   onToast(`Configure ${integration.name} from the connections page`)
                 }
@@ -1063,6 +1152,9 @@ function IntegrationsPage({
                   name={
                     integration.id === 'mcp-grid'
                       ? 'shield'
+                      : integration.id === 'codex-ai' ||
+                          integration.id === 'codex-runtime'
+                        ? 'command'
                       : integration.connected
                       ? integration.id === 'n8n' || integration.id === 'mcp-grid'
                         ? 'settings'
@@ -1074,12 +1166,26 @@ function IntegrationsPage({
               )}
               {integration.id === 'mcp-grid'
                 ? 'Manage platform access'
+                : integration.id === 'codex-ai'
+                  ? integration.connected
+                    ? 'Manage connection'
+                    : 'Connect Codex'
+                : integration.id === 'codex-runtime'
+                  ? integration.connected
+                    ? 'Open Codex'
+                    : 'Set up Codex'
                 : integration.id === 'n8n' && integration.connected
                   ? 'Configure'
                   : integration.id === 'paystack'
-                    ? 'Manage in Money'
+                    ? integration.connected
+                      ? 'Configure'
+                      : 'Connect'
                   : integration.category === 'Payments'
                     ? 'Preview setup'
+                  : integration.category === 'Storage'
+                    ? integration.connected
+                      ? 'Disconnect'
+                      : 'Connect'
                   : integration.connected
                     ? 'Disconnect'
                     : 'Connect'}
@@ -1428,6 +1534,140 @@ function N8nIntegrationForm({
   )
 }
 
+function PaystackConnectionForm({
+  connection,
+  canManage,
+  onSave,
+  onDisconnect,
+  onCancel,
+  onToast,
+}: {
+  connection: PaystackConnection
+  canManage: boolean
+  onSave: (secretKey: string) => Promise<void>
+  onDisconnect: () => Promise<void>
+  onCancel: () => void
+  onToast: (message: string) => void
+}) {
+  const [secretKey, setSecretKey] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [disconnecting, setDisconnecting] = useState(false)
+  const [error, setError] = useState('')
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      await onSave(secretKey)
+      setSecretKey('')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to connect Paystack.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const disconnect = async () => {
+    setDisconnecting(true)
+    setError('')
+    try {
+      await onDisconnect()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to disconnect Paystack.')
+    } finally {
+      setDisconnecting(false)
+    }
+  }
+
+  return (
+    <form className="modal-form" onSubmit={submit}>
+      <div className="setting-row">
+        <span className="setting-row__icon">
+          <Icon name="plug" size={18} />
+        </span>
+        <div>
+          <strong>
+            {connection.configured
+              ? `Paystack ${connection.mode} mode`
+              : 'Paystack is not connected'}
+          </strong>
+          <p>
+            {connection.configured
+              ? `Credential stored ${connection.credentialSource === 'workspace' ? 'for this workspace' : 'in the server environment'}`
+              : 'Add this workspace’s Paystack secret key to enable hosted checkout.'}
+          </p>
+        </div>
+        <span className={connection.configured ? 'configured-label' : 'connection-state'}>
+          {connection.configured ? 'Connected' : 'Not connected'}
+        </span>
+      </div>
+
+      <label className="form-field">
+        <span>{connection.configured ? 'Replace secret key' : 'Secret key'}</span>
+        <input
+          type="password"
+          value={secretKey}
+          onChange={(event) => setSecretKey(event.target.value)}
+          placeholder="sk_test_… or sk_live_…"
+          autoComplete="new-password"
+          required
+          disabled={!canManage}
+        />
+        <small>The key is encrypted by the backend and is never returned to the browser.</small>
+      </label>
+
+      <label className="form-field">
+        <span>Workspace webhook URL</span>
+        <div className="copy-field">
+          <input value={connection.webhookUrl} readOnly />
+          <button
+            className="button button--secondary button--small"
+            type="button"
+            onClick={() => {
+              void navigator.clipboard?.writeText(connection.webhookUrl)
+              onToast('Paystack webhook URL copied')
+            }}
+          >
+            Copy
+          </button>
+        </div>
+        <small>Add this URL in the matching Paystack dashboard for payment reconciliation.</small>
+      </label>
+
+      {error && <p className="form-error">{error}</p>}
+      {!canManage && (
+        <p className="form-error">Only a workspace owner can change payment credentials.</p>
+      )}
+
+      <div className="modal-form__footer">
+        <div>
+          {connection.configured && canManage && (
+            <button
+              className="button button--danger button--small"
+              type="button"
+              onClick={() => void disconnect()}
+              disabled={disconnecting}
+            >
+              {disconnecting ? 'Disconnecting…' : 'Disconnect'}
+            </button>
+          )}
+        </div>
+        <div>
+          <button className="button button--secondary" type="button" onClick={onCancel}>
+            Close
+          </button>
+          {canManage && (
+            <button className="button button--primary" type="submit" disabled={busy}>
+              {busy ? 'Saving…' : connection.configured ? 'Replace key' : 'Connect Paystack'}
+            </button>
+          )}
+        </div>
+      </div>
+    </form>
+  )
+}
+
 function McpIntegrationPanel({
   connection,
   services,
@@ -1443,7 +1683,11 @@ function McpIntegrationPanel({
   onRequestAccess: () => Promise<void>
   onSync: () => Promise<void>
   onToggle: (service: McpService) => Promise<void>
-  onInvoke: (service: McpService, toolId: string) => Promise<McpInvocationResult>
+  onInvoke: (
+    service: McpService,
+    toolId: string,
+    toolArguments: Record<string, unknown>,
+  ) => Promise<McpInvocationResult>
   onRevokeAccess: () => Promise<void>
   onClose: () => void
 }) {
@@ -1493,14 +1737,42 @@ function McpIntegrationPanel({
 
   const invoke = async (service: McpService) => {
     const preferredTool =
-      service.id === 'browser-worker'
-        ? 'website_smoke_test'
-        : service.tools[0]?.id
+      service.tools.find((tool) => tool.id === 'website_smoke_test') ||
+      service.tools[0]
     if (!preferredTool) return
+    const schema = preferredTool.inputSchema || {}
+    const properties =
+      schema.properties && typeof schema.properties === 'object'
+        ? (schema.properties as Record<string, { type?: string; enum?: unknown[] }>)
+        : {}
+    const required = Array.isArray(schema.required)
+      ? schema.required.map(String)
+      : []
+    const toolArguments: Record<string, unknown> = {}
+    for (const name of required) {
+      const property = properties[name] || {}
+      if (Array.isArray(property.enum) && property.enum.length > 0) {
+        toolArguments[name] = property.enum[0]
+      } else if (name.toLowerCase().includes('url')) {
+        toolArguments[name] = 'https://example.com'
+      } else if (name.toLowerCase().includes('selector')) {
+        toolArguments[name] = 'h1'
+      } else if (property.type === 'number' || property.type === 'integer') {
+        toolArguments[name] = 1
+      } else if (property.type === 'boolean') {
+        toolArguments[name] = false
+      } else if (property.type === 'array') {
+        toolArguments[name] = []
+      } else if (property.type === 'object') {
+        toolArguments[name] = {}
+      } else {
+        toolArguments[name] = 'lancee MCP health check'
+      }
+    }
     setError('')
     setBusy(`test-${service.id}`)
     try {
-      const result = await onInvoke(service, preferredTool)
+      const result = await onInvoke(service, preferredTool.id, toolArguments)
       setResults((current) => ({ ...current, [service.id]: result }))
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The MCP tool call failed.')
@@ -1762,11 +2034,13 @@ function ApiPage({
   onCreate,
   onRevoke,
   onToast,
+  canManage,
 }: {
   keys: ApiKey[]
   onCreate: () => void
   onRevoke: (key: ApiKey) => void
   onToast: (message: string) => void
+  canManage: boolean
 }) {
   const sampleCode = `curl https://agents.hygridtech.co.za/api/v1/workspace \\
   -H "Authorization: Bearer $LANCEE_API_KEY"`
@@ -1784,11 +2058,11 @@ function ApiPage({
         eyebrow="Advanced connections"
         title="API keys"
         description="Authenticate server-side requests to the lancee API."
-        action={
+        action={canManage ? (
           <button className="button button--primary" onClick={onCreate}>
             <Icon name="plus" size={16} /> Create API key
           </button>
-        }
+        ) : null}
       />
 
       <section className="security-note">
@@ -1830,20 +2104,26 @@ function ApiPage({
                 <span>Last used</span>
                 <strong>{formatTimestamp(key.lastUsedAt)}</strong>
               </div>
-              <button
-                className="icon-button icon-button--danger"
-                aria-label={`Revoke ${key.name} key`}
-                onClick={() => onRevoke(key)}
-              >
-                <Icon name="trash" size={16} />
-              </button>
+              {canManage && (
+                <button
+                  className="icon-button icon-button--danger"
+                  aria-label={`Revoke ${key.name} key`}
+                  onClick={() => onRevoke(key)}
+                >
+                  <Icon name="trash" size={16} />
+                </button>
+              )}
             </div>
           ))}
           {keys.length === 0 && (
             <div className="empty-state">
               <Icon name="key" size={24} />
               <strong>No active API keys</strong>
-              <p>Create a key when you’re ready to make your first API call.</p>
+              <p>
+                {canManage
+                  ? 'Create a key when you’re ready to make your first API call.'
+                  : 'Workspace owners manage API keys.'}
+              </p>
             </div>
           )}
         </div>
@@ -1894,13 +2174,23 @@ function ApiPage({
 function SettingsPage({
   user,
   onToast,
+  onNavigate,
+  onSaved,
 }: {
   user: User
   onToast: (message: string) => void
+  onNavigate: (page: Page) => void
+  onSaved: (settings: { name: string }) => void
 }) {
+  const canEdit = user.role === 'owner'
   const [workspace, setWorkspace] = useState(user.workspace)
   const [email, setEmail] = useState(user.email)
+  const [timezone, setTimezone] = useState('Africa/Johannesburg')
+  const [travelMode, setTravelMode] = useState('none')
+  const [travelLocation, setTravelLocation] = useState('')
   const [saving, setSaving] = useState(false)
+  const [settingsLoading, setSettingsLoading] = useState(true)
+  const [settingsError, setSettingsError] = useState('')
   const [dbInfo, setDbInfo] = useState<{
     provider: string
     mode: string
@@ -1910,23 +2200,64 @@ function SettingsPage({
   } | null>(null)
 
   useEffect(() => {
-    api.workspace.getSettings().then((settings) => {
-      if (settings.name) setWorkspace(settings.name)
-      if (settings.email) setEmail(settings.email)
-    })
+    api.workspace
+      .getSettings()
+      .then((settings) => {
+        if (settings.name) setWorkspace(settings.name)
+        if (settings.email) setEmail(settings.email)
+        setTimezone(settings.timezone)
+        setTravelMode(settings.travelMode)
+        setTravelLocation(settings.travelLocation)
+      })
+      .catch((caught) => {
+        setSettingsError(
+          caught instanceof Error
+            ? caught.message
+            : 'Unable to load workspace settings.',
+        )
+      })
+      .finally(() => setSettingsLoading(false))
     api.database.getInfo().then(setDbInfo).catch(() => undefined)
   }, [])
 
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setSaving(true)
+    setSettingsError('')
     try {
-      await api.workspace.updateSettings({ name: workspace, email })
+      const updated = await api.workspace.updateSettings({
+        name: workspace,
+        email,
+        timezone,
+        travelMode,
+        travelLocation,
+      })
+      setWorkspace(updated.name)
+      setEmail(updated.email)
+      setTimezone(updated.timezone)
+      setTravelMode(updated.travelMode)
+      setTravelLocation(updated.travelLocation)
+      onSaved(updated)
       onToast('Workspace settings saved')
-    } catch {
-      onToast('Failed to save workspace settings')
+    } catch (caught) {
+      const message =
+        caught instanceof Error
+          ? caught.message
+          : 'Failed to save workspace settings'
+      setSettingsError(message)
+      onToast(message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const checkDatabase = async () => {
+    try {
+      const info = await api.database.getInfo()
+      setDbInfo(info)
+      onToast(`${info.provider} is connected · ${info.version}`)
+    } catch {
+      onToast('Database health check failed')
     }
   }
 
@@ -1935,20 +2266,20 @@ function SettingsPage({
       <PageHeader
         eyebrow="Your account"
         title="Settings & Database"
-        description="Manage your workspace details, security, and PostgreSQL database configuration."
+        description="Manage workspace details, travel preferences, security, and database health."
       />
       <div className="settings-layout">
         <aside className="settings-nav">
-          <button className="is-active">
+          <span className="is-active">
             <Icon name="grid" size={16} /> General
-          </button>
-          <button>
+          </span>
+          <button type="button" onClick={() => onNavigate('team')}>
             <Icon name="user" size={16} /> Collaborators
           </button>
-          <button>
+          <button type="button" onClick={() => onNavigate('api')}>
             <Icon name="shield" size={16} /> Security
           </button>
-          <button>
+          <button type="button" onClick={() => onNavigate('analytics')}>
             <Icon name="activity" size={16} /> Plan & usage
           </button>
         </aside>
@@ -1958,18 +2289,17 @@ function SettingsPage({
               <h3>Workspace profile</h3>
               <p>Used on shared work, invoices, and client-facing pages.</p>
             </div>
+            {settingsError && <p className="form-error">{settingsError}</p>}
             <div className="workspace-logo-field">
-              <span>AO</span>
+              <span>{user.initials}</span>
               <div>
-                <button type="button" className="button button--secondary button--small">
-                  Change logo
-                </button>
-                <small>PNG or JPG. Maximum 2 MB.</small>
+                <strong>{user.name}</strong>
+                <small>{canEdit ? 'Workspace owner' : 'Workspace collaborator'}</small>
               </div>
             </div>
             <label className="form-field">
               <span>Workspace name</span>
-              <input value={workspace} onChange={(event) => setWorkspace(event.target.value)} />
+              <input value={workspace} onChange={(event) => setWorkspace(event.target.value)} disabled={!canEdit} />
             </label>
             <label className="form-field">
               <span>Owner email</span>
@@ -1977,18 +2307,58 @@ function SettingsPage({
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
+                disabled={!canEdit}
               />
             </label>
+            <label className="form-field">
+              <span>Timezone</span>
+              <input
+                value={timezone}
+                onChange={(event) => setTimezone(event.target.value)}
+                placeholder="Africa/Johannesburg"
+                disabled={!canEdit}
+              />
+            </label>
+            <label className="form-field">
+              <span>Travel mode</span>
+              <select
+                value={travelMode}
+                onChange={(event) => setTravelMode(event.target.value)}
+                disabled={!canEdit}
+              >
+                <option value="none">Off</option>
+                <option value="traveling">Traveling</option>
+              </select>
+            </label>
+            {travelMode === 'traveling' && (
+              <label className="form-field">
+                <span>Current location</span>
+                <input
+                  value={travelLocation}
+                  onChange={(event) => setTravelLocation(event.target.value)}
+                  placeholder="Cape Town, South Africa"
+                  disabled={!canEdit}
+                />
+              </label>
+            )}
             <div className="form-footer">
-              <button className="button button--dark" type="submit" disabled={saving}>
-                {saving ? 'Saving…' : 'Save changes'}
-              </button>
+              {canEdit ? (
+                <button
+                  className="button button--dark"
+                  type="submit"
+                  disabled={saving || settingsLoading}
+                >
+                  {saving ? 'Saving…' : settingsLoading ? 'Loading…' : 'Save changes'}
+                </button>
+              ) : (
+                <small>Only workspace owners can change these settings.</small>
+              )}
             </div>
           </form>
 
           <section className="settings-card">
             <div className="settings-card__heading">
-              <h3>PostgreSQL Database Backend</h3>
+              <h3>Database Backend</h3>
               <p>Database storage engine and real-time schema status.</p>
             </div>
             <div className="setting-row">
@@ -1996,11 +2366,11 @@ function SettingsPage({
                 <Icon name="layers" size={18} />
               </span>
               <div>
-                <strong>{dbInfo?.provider || 'PostgreSQL'} Engine</strong>
-                <p>{dbInfo?.mode || 'PostgreSQL Engine'} · {dbInfo?.tablesCount || 22} Tables Initialized</p>
+                <strong>{dbInfo ? `${dbInfo.provider} Engine` : 'Loading database status…'}</strong>
+                <p>{dbInfo ? `${dbInfo.mode} · ${dbInfo.tablesCount} tables initialized` : 'Waiting for the server health response'}</p>
               </div>
               <span className="configured-label" style={{ background: 'rgba(67, 189, 244, 0.15)', color: '#0070ba' }}>
-                {dbInfo?.status || 'Connected'}
+                {dbInfo?.status || 'Checking'}
               </span>
             </div>
             <div className="setting-row">
@@ -2009,9 +2379,9 @@ function SettingsPage({
               </span>
               <div>
                 <strong>ANSI SQL & Parameterized Drivers</strong>
-                <p>Version: {dbInfo?.version || '16.2 Compliant'} · Sub-millisecond latency</p>
+                <p>{dbInfo ? `Version: ${dbInfo.version}` : 'Version unavailable until the health check completes'}</p>
               </div>
-              <button className="button button--secondary button--small" onClick={() => onToast('PostgreSQL connection healthy')}>
+              <button className="button button--secondary button--small" onClick={() => void checkDatabase()}>
                 Check Health
               </button>
             </div>
@@ -2031,16 +2401,6 @@ function SettingsPage({
                 <p>Protected by the live lancee server session</p>
               </div>
               <span className="configured-label">Configured</span>
-            </div>
-            <div className="setting-row">
-              <span className="setting-row__icon">
-                <Icon name="key" size={18} />
-              </span>
-              <div>
-                <strong>Travel & timezone</strong>
-                <p>Keep client deadlines and reminders in their local time</p>
-              </div>
-              <button className="button button--secondary button--small">Review</button>
             </div>
           </section>
         </div>
@@ -2124,7 +2484,7 @@ function LandingPage({ onSignIn }: { onSignIn: () => void }) {
               <Icon name="sparkles" size={17} />
               <span>Turn the Ember Gin feedback into a clean revision checklist.</span>
             </div>
-            <button aria-label="Dispatch example task">
+            <button aria-label="Open sign in" onClick={onSignIn}>
               <Icon name="arrow-up-right" size={16} />
             </button>
           </div>
@@ -2435,16 +2795,65 @@ function AuthScreen({
   onBack,
 }: {
   onSignIn: (email: string, password: string) => Promise<void>
-  onRegister: (email: string, password: string, name?: string, workspace?: string) => Promise<void>
+  onRegister: (
+    email: string,
+    password: string,
+    name?: string,
+    workspace?: string,
+    invitationToken?: string,
+  ) => Promise<void>
   onBack: () => void
 }) {
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [invitationToken] = useState(
+    () => new URLSearchParams(window.location.search).get('invite') || '',
+  )
+  const [mode, setMode] = useState<'login' | 'register'>(
+    invitationToken ? 'register' : 'login',
+  )
+  const [registrationEnabled, setRegistrationEnabled] = useState(false)
+  const [existingInvitedAccount, setExistingInvitedAccount] = useState(false)
+  const [invitationLoading, setInvitationLoading] = useState(Boolean(invitationToken))
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
   const [workspace, setWorkspace] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    if (invitationToken) {
+      void api.auth
+        .getInvitation(invitationToken)
+        .then((invitation) => {
+          if (!active) return
+          setEmail(invitation.email)
+          setName(invitation.name)
+          setWorkspace(invitation.workspace)
+          setExistingInvitedAccount(invitation.existingAccount)
+        })
+        .catch((caught) => {
+          if (active) {
+            setError(
+              caught instanceof Error ? caught.message : 'Unable to load this invitation.',
+            )
+          }
+        })
+        .finally(() => {
+          if (active) setInvitationLoading(false)
+        })
+    } else {
+      void api.auth
+        .getConfig()
+        .then((config) => {
+          if (active) setRegistrationEnabled(config.registrationEnabled)
+        })
+        .catch(() => undefined)
+    }
+    return () => {
+      active = false
+    }
+  }, [invitationToken])
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -2454,7 +2863,13 @@ function AuthScreen({
       if (mode === 'login') {
         await onSignIn(email, password)
       } else {
-        await onRegister(email, password, name || undefined, workspace || undefined)
+        await onRegister(
+          email,
+          password,
+          name || undefined,
+          workspace || undefined,
+          invitationToken || undefined,
+        )
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : `Unable to ${mode}.`)
@@ -2488,12 +2903,12 @@ function AuthScreen({
           </p>
           <div className="auth-proof">
             <div>
-              <strong>8</strong>
-              <span>Projects in one clear view</span>
+              <strong>One</strong>
+              <span>Clear view of current projects</span>
             </div>
             <div>
-              <strong>R46.2k</strong>
-              <span>Outstanding invoices tracked</span>
+              <strong>Live</strong>
+              <span>Invoices and payment status</span>
             </div>
           </div>
         </div>
@@ -2527,9 +2942,25 @@ function AuthScreen({
               src="/img/logo_with_name.png"
               alt="lancee"
             />
-            <span className="auth-form__eyebrow">{mode === 'login' ? 'Welcome back' : 'Get started'}</span>
-            <h2>{mode === 'login' ? 'Sign in to lancee' : 'Create your workspace'}</h2>
-            <p>{mode === 'login' ? 'Use the email and password for your business workspace.' : 'Enter your details to start using lancee.'}</p>
+            <span className="auth-form__eyebrow">
+              {invitationToken ? 'Workspace invitation' : mode === 'login' ? 'Welcome back' : 'Get started'}
+            </span>
+            <h2>
+              {invitationToken
+                ? `Join ${workspace || 'the workspace'}`
+                : mode === 'login'
+                  ? 'Sign in to lancee'
+                  : 'Create your workspace'}
+            </h2>
+            <p>
+              {invitationToken
+                ? existingInvitedAccount
+                  ? 'Enter your current account password to accept this invitation.'
+                  : 'Choose a password to accept this invitation.'
+                : mode === 'login'
+                  ? 'Use the email and password for your business workspace.'
+                  : 'Enter your details to start using lancee.'}
+            </p>
           </div>
           <div className="auth-security-note">
             <Icon name="shield" size={17} />
@@ -2547,7 +2978,7 @@ function AuthScreen({
                   autoFocus
                 />
               </label>
-              <label className="form-field">
+              {!invitationToken && <label className="form-field">
                 <span>Workspace / Studio name</span>
                 <input
                   type="text"
@@ -2555,7 +2986,7 @@ function AuthScreen({
                   onChange={(event) => setWorkspace(event.target.value)}
                   placeholder="e.g. Rivera Design Studio"
                 />
-              </label>
+              </label>}
             </>
           )}
           <label className="form-field">
@@ -2565,46 +2996,47 @@ function AuthScreen({
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="email"
+              readOnly={Boolean(invitationToken)}
               required
             />
           </label>
           <label className="form-field">
             <span>
-              Password
-              {mode === 'login' && (
-                <button
-                  type="button"
-                  onClick={() => setError('Contact the workspace owner to reset access.')}
-                >
-                  Forgot password?
-                </button>
-              )}
+              {invitationToken
+                ? existingInvitedAccount
+                  ? 'Current password'
+                  : 'Choose password'
+                : 'Password'}
             </span>
             <input
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              autoComplete={
+                mode === 'login' || existingInvitedAccount
+                  ? 'current-password'
+                  : 'new-password'
+              }
               required
               minLength={8}
             />
           </label>
           {error && <p className="form-error">{error}</p>}
-          <button className="button button--primary auth-submit" type="submit" disabled={busy}>
-            {busy ? <span className="spinner spinner--dark" /> : mode === 'login' ? 'Sign in' : 'Create workspace'}
-            {!busy && <Icon name="arrow-right" size={16} />}
+          <button className="button button--primary auth-submit" type="submit" disabled={busy || invitationLoading}>
+            {busy || invitationLoading ? <span className="spinner spinner--dark" /> : invitationToken ? 'Accept invitation' : mode === 'login' ? 'Sign in' : 'Create workspace'}
+            {!busy && !invitationLoading && <Icon name="arrow-right" size={16} />}
           </button>
-          <p className="auth-signup">
-            {mode === 'login' ? (
+          {!invitationToken && <p className="auth-signup">
+            {mode === 'login' && registrationEnabled ? (
               <button type="button" onClick={() => { setMode('register'); setError('') }}>
                 <Icon name="arrow-right" size={12} /> Don&rsquo;t have an account? Create one
               </button>
-            ) : (
+            ) : mode === 'register' ? (
               <button type="button" onClick={() => { setMode('login'); setError('') }}>
                 <Icon name="arrow-right" size={12} /> Already have an account? Sign in
               </button>
-            )}
-          </p>
+            ) : null}
+          </p>}
           <small className="auth-terms">
             By continuing, you agree to the Terms of Service and Privacy Policy.
           </small>
@@ -2707,6 +3139,81 @@ function CreateAutomationForm({
         <button className="button button--primary" type="submit" disabled={busy}>
           {busy ? <span className="spinner spinner--dark" /> : <Icon name="sparkles" size={15} />}
           Create automation
+        </button>
+      </div>
+    </form>
+  )
+}
+
+function RequestIntegrationForm({
+  onSubmit,
+  onCancel,
+}: {
+  onSubmit: (input: Pick<IntegrationRequest, 'name' | 'category' | 'details'>) => Promise<void>
+  onCancel: () => void
+}) {
+  const [name, setName] = useState('')
+  const [category, setCategory] = useState<IntegrationRequest['category']>('Automation')
+  const [details, setDetails] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      await onSubmit({ name, category, details })
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to save the connection request.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="modal-form" onSubmit={submit}>
+      <label className="form-field">
+        <span>Connection name</span>
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="e.g. Xero, Calendly, Slack"
+          autoFocus
+          required
+          minLength={2}
+          maxLength={120}
+        />
+      </label>
+      <label className="form-field">
+        <span>Category</span>
+        <select value={category} onChange={(event) => setCategory(event.target.value as IntegrationRequest['category'])}>
+          <option value="Automation">Automation</option>
+          <option value="Communication">Communication</option>
+          <option value="Design">Design</option>
+          <option value="Payments">Payments</option>
+          <option value="Storage">Storage</option>
+          <option value="Other">Other</option>
+        </select>
+      </label>
+      <label className="form-field">
+        <span>What should it support? <small>Optional</small></span>
+        <textarea
+          value={details}
+          onChange={(event) => setDetails(event.target.value)}
+          placeholder="Describe the workflow, data, or action that should be handled through the app."
+          rows={4}
+          maxLength={500}
+        />
+      </label>
+      {error && <p className="form-error">{error}</p>}
+      <div className="modal-form__footer">
+        <button className="button button--secondary" type="button" onClick={onCancel}>
+          Cancel
+        </button>
+        <button className="button button--primary" type="submit" disabled={busy}>
+          {busy ? <span className="spinner spinner--dark" /> : <Icon name="plus" size={15} />}
+          Save request
         </button>
       </div>
     </form>
@@ -2917,6 +3424,10 @@ function Sidebar({
   onNavigate,
   onClose,
   onSignOut,
+  projectCount,
+  automationCount,
+  connectionCount,
+  pendingInvoiceCount,
 }: {
   activePage: Page
   user: User
@@ -2924,7 +3435,17 @@ function Sidebar({
   onNavigate: (page: Page) => void
   onClose: () => void
   onSignOut: () => void
+  projectCount: number
+  automationCount: number
+  connectionCount: number
+  pendingInvoiceCount: number
 }) {
+  const workspaceInitials = user.workspace
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase()
   return (
     <>
       {mobileOpen && <div className="sidebar-scrim" onClick={onClose} />}
@@ -2937,14 +3458,13 @@ function Sidebar({
           </button>
         </div>
 
-        <button className="workspace-switcher">
-          <span className="workspace-avatar">AO</span>
+        <div className="workspace-switcher">
+          <span className="workspace-avatar">{workspaceInitials}</span>
           <span>
             <strong>{user.workspace}</strong>
-            <small>Business plan</small>
+            <small>{user.role === 'owner' ? 'Workspace owner' : 'Collaborator'}</small>
           </span>
-          <Icon name="chevron-down" size={14} />
-        </button>
+        </div>
 
         <nav className="sidebar-nav" aria-label="Main navigation">
           {['Your work', 'Business', 'Platform'].map((section) => (
@@ -2963,7 +3483,9 @@ function Sidebar({
                   >
                     <Icon name={item.icon} size={17} />
                     {item.label}
-                    {item.id === 'money' && <span className="nav-count">2</span>}
+                    {item.id === 'money' && pendingInvoiceCount > 0 && (
+                      <span className="nav-count">{pendingInvoiceCount}</span>
+                    )}
                   </button>
                 ))}
             </div>
@@ -2973,14 +3495,14 @@ function Sidebar({
         <div className="sidebar__bottom">
           <div className="usage-card">
             <div>
-              <span>This month</span>
-              <strong>8 projects</strong>
+              <span>Workspace at a glance</span>
+              <strong>{projectCount} project{projectCount === 1 ? '' : 's'}</strong>
             </div>
             <div className="usage-bar">
               <span />
             </div>
-            <p>3 automations · 6 connected tools</p>
-            <button>View your plan</button>
+            <p>{automationCount} automations · {connectionCount} connections</p>
+            <button onClick={() => onNavigate('analytics')}>View analytics</button>
           </div>
           <a className="sidebar-help" href="/lancee.html" target="_blank" rel="noopener">
             <Icon name="help" size={17} />
@@ -3001,17 +3523,787 @@ function Sidebar({
   )
 }
 
+function CodexAiConnectionPanel({
+  connection,
+  onConnectionChange,
+  onClose,
+}: {
+  connection: CodexConnection
+  onConnectionChange: (connection: CodexConnection) => void
+  onClose: () => void
+}) {
+  const [userCode, setUserCode] = useState('')
+  const [authorization, setAuthorization] =
+    useState<CodexDeviceAuthorization | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const checkCode = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    setAuthorization(null)
+    try {
+      setAuthorization(await api.codexDevice.getAuthorization(userCode))
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : 'Unable to check this code.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const decide = async (decision: 'approve' | 'deny') => {
+    if (!authorization) return
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api.codexDevice.decide(
+        authorization.userCode,
+        decision,
+      )
+      setAuthorization((current) =>
+        current ? { ...current, status: result.status } : current,
+      )
+      onConnectionChange(await api.codexDevice.getConnection())
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Unable to update this request.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const refresh = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      onConnectionChange(await api.codexDevice.getConnection())
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Unable to refresh the connection.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const revoke = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      onConnectionChange(await api.codexDevice.revoke())
+      setAuthorization(null)
+      setUserCode('')
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Unable to disconnect Codex.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="codex-connection-panel">
+      <section className={`codex-connection-state${connection.connected ? ' is-connected' : ''}`}>
+        <span className="codex-connection-state__mark">
+          <Icon name={connection.connected ? 'check' : 'command'} size={22} />
+        </span>
+        <div>
+          <span className="micro-label">
+            {connection.connected ? 'Connected' : 'Ready to connect'}
+          </span>
+          <h3>
+            {connection.connected
+              ? `${connection.activeConnections} active Codex ${
+                  connection.activeConnections === 1 ? 'device' : 'devices'
+                }`
+              : 'No authorized Codex devices'}
+          </h3>
+          <p>
+            {connection.connected && connection.expiresAt
+              ? `Latest access expires ${new Date(connection.expiresAt).toLocaleString()}.`
+              : 'Provider credentials remain in lancee. Codex receives only AI completion access.'}
+          </p>
+        </div>
+        <button
+          className="button button--secondary"
+          type="button"
+          disabled={busy}
+          onClick={() => void refresh()}
+        >
+          <Icon name="activity" size={14} /> Refresh
+        </button>
+      </section>
+
+      <section className="codex-connect-steps">
+        <span className="micro-label">Connect a device</span>
+        <ol>
+          <li>Install or enable the bundled <b>lancee AI</b> Codex plugin.</li>
+          <li>Ask Codex to call <b>connect</b> and note the eight-character code.</li>
+          <li>Enter that code below, review the scope, and approve it.</li>
+          <li>Return to Codex and call <b>connect</b> again.</li>
+        </ol>
+      </section>
+
+      <form className="codex-code-form" onSubmit={checkCode}>
+        <label className="form-field">
+          <span>Device code from Codex</span>
+          <input
+            value={userCode}
+            onChange={(event) =>
+              setUserCode(event.target.value.toUpperCase().slice(0, 9))
+            }
+            placeholder="ABCD-EFGH"
+            autoComplete="one-time-code"
+            required
+          />
+        </label>
+        <button
+          className="button button--dark"
+          type="submit"
+          disabled={busy || userCode.replace(/[^A-Z0-9]/g, '').length !== 8}
+        >
+          {busy ? <span className="spinner" /> : <Icon name="search" size={14} />}
+          Check code
+        </button>
+      </form>
+
+      {authorization && (
+        <section className={`codex-approval codex-approval--${authorization.status}`}>
+          <div>
+            <span className="micro-label">Authorization request</span>
+            <strong>{authorization.userCode}</strong>
+            <p>
+              Scope: <b>{authorization.scope}</b> · Workspace:{' '}
+              <b>{authorization.workspace}</b>
+            </p>
+          </div>
+          {authorization.status === 'pending' ? (
+            <div className="codex-approval__actions">
+              <button
+                className="button button--secondary"
+                type="button"
+                disabled={busy}
+                onClick={() => void decide('deny')}
+              >
+                Deny
+              </button>
+              <button
+                className="button button--primary"
+                type="button"
+                disabled={busy}
+                onClick={() => void decide('approve')}
+              >
+                <Icon name="check" size={14} /> Approve
+              </button>
+            </div>
+          ) : (
+            <span className="connected-label">
+              <Icon name="check" size={12} /> {authorization.status}
+            </span>
+          )}
+        </section>
+      )}
+
+      {connection.pendingRequests > 0 && (
+        <p className="codex-pending-note">
+          <Icon name="activity" size={14} />
+          Approval complete. Return to Codex and call <b>connect</b> again to
+          finish the token exchange.
+        </p>
+      )}
+      {error && <p className="form-error">{error}</p>}
+
+      <div className="modal-form__footer">
+        {connection.connected ? (
+          <button
+            className="button button--danger"
+            type="button"
+            disabled={busy}
+            onClick={() => void revoke()}
+          >
+            Disconnect all devices
+          </button>
+        ) : <span />}
+        <button className="button button--secondary" type="button" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function CodexDeviceAuthorizationPage({
+  user,
+  userCode,
+}: {
+  user: User
+  userCode: string
+}) {
+  const [authorization, setAuthorization] =
+    useState<CodexDeviceAuthorization | null>(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    void api.codexDevice
+      .getAuthorization(userCode)
+      .then((result) => {
+        if (active) setAuthorization(result)
+      })
+      .catch((caught) => {
+        if (active) {
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : 'Unable to load this device request.',
+          )
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [userCode])
+
+  const decide = async (decision: 'approve' | 'deny') => {
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api.codexDevice.decide(userCode, decision)
+      setAuthorization((current) =>
+        current
+          ? { ...current, status: result.status, workspace: result.workspace }
+          : current,
+      )
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Unable to update this device request.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const decided =
+    authorization?.status === 'approved' ||
+    authorization?.status === 'denied' ||
+    authorization?.status === 'consumed'
+
+  return (
+    <main className="device-auth">
+      <div className="device-auth__glow" aria-hidden="true" />
+      <section className="device-auth__card">
+        <header className="device-auth__brand">
+          <BrandMark />
+          <span>Codex connector</span>
+        </header>
+        <div className="device-auth__icon">
+          <Icon
+            name={
+              authorization?.status === 'approved' ||
+              authorization?.status === 'consumed'
+                ? 'check'
+                : 'command'
+            }
+            size={28}
+          />
+        </div>
+        <span className="device-auth__eyebrow">
+          {decided ? 'Device request updated' : 'Authorize this device'}
+        </span>
+        <h1>
+          {authorization?.status === 'approved' ||
+          authorization?.status === 'consumed'
+            ? 'Codex is connected'
+            : authorization?.status === 'denied'
+              ? 'Connection declined'
+              : 'Let Codex use lancee AI?'}
+        </h1>
+        <p className="device-auth__intro">
+          {decided
+            ? 'Return to Codex to finish the connection.'
+            : `Signed in as ${user.email}. Confirm that the code shown in Codex matches this request.`}
+        </p>
+
+        <div className="device-auth__code" aria-label={`Device code ${userCode}`}>
+          {userCode}
+        </div>
+
+        {authorization && !decided && (
+          <div className="device-auth__grant">
+            <span>
+              <Icon name="sparkles" size={16} />
+            </span>
+            <div>
+              <strong>AI completion access</strong>
+              <p>
+                Codex can send prompts to the AI provider configured for{' '}
+                <b>{authorization.workspace}</b>. It cannot access your provider key.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {!authorization && !error && (
+          <div className="device-auth__loading">
+            <span className="spinner spinner--dark" />
+            Checking the device request…
+          </div>
+        )}
+        {authorization?.status === 'expired' && (
+          <p className="form-error">
+            This code has expired. Start a new connection from Codex.
+          </p>
+        )}
+        {error && <p className="form-error">{error}</p>}
+
+        {authorization?.status === 'pending' && (
+          <div className="device-auth__actions">
+            <button
+              className="button button--secondary"
+              type="button"
+              disabled={busy}
+              onClick={() => void decide('deny')}
+            >
+              Deny
+            </button>
+            <button
+              className="button button--primary"
+              type="button"
+              disabled={busy}
+              onClick={() => void decide('approve')}
+            >
+              {busy ? <span className="spinner" /> : <Icon name="check" size={15} />}
+              Approve connection
+            </button>
+          </div>
+        )}
+
+        <footer>
+          <Icon name="shield" size={14} />
+          One-time code · 10-minute approval window · 30-day scoped token
+        </footer>
+      </section>
+    </main>
+  )
+}
+
+type CodexTranscriptEntry = {
+  id: string
+  role: 'user' | 'assistant' | 'activity'
+  text: string
+}
+
+function CodexRuntimePanel({
+  status,
+  onStatusChange,
+  onClose,
+}: {
+  status: CodexRuntimeStatus
+  onStatusChange: (status: CodexRuntimeStatus) => void
+  onClose: () => void
+}) {
+  const [deviceLogin, setDeviceLogin] = useState<CodexDeviceLogin | null>(null)
+  const [threadId, setThreadId] = useState('')
+  const [turnId, setTurnId] = useState('')
+  const [prompt, setPrompt] = useState('')
+  const [transcript, setTranscript] = useState<CodexTranscriptEntry[]>([])
+  const [busy, setBusy] = useState(false)
+  const [running, setRunning] = useState(false)
+  const [error, setError] = useState(status.error || '')
+
+  const refreshStatus = async () => {
+    const nextStatus = await api.codexRuntime.getStatus()
+    onStatusChange(nextStatus)
+    if (nextStatus.authenticated) setDeviceLogin(null)
+    return nextStatus
+  }
+
+  const pollLoginStatus = useEffectEvent(() => {
+    void refreshStatus().catch(() => undefined)
+  })
+
+  useEffect(() => {
+    if (!deviceLogin || status.authenticated) return
+    const timer = window.setInterval(pollLoginStatus, 2_000)
+    return () => window.clearInterval(timer)
+  }, [deviceLogin, status.authenticated])
+
+  useEffect(() => {
+    if (!threadId) return
+    const source = api.codexRuntime.streamEvents(
+      threadId,
+      (event: CodexRuntimeEvent) => {
+        if (event.method === 'item/agentMessage/delta') {
+          const delta =
+            typeof event.params.delta === 'string' ? event.params.delta : ''
+          if (!delta) return
+          setTranscript((current) => {
+            const last = current.at(-1)
+            if (last?.role === 'assistant') {
+              return [
+                ...current.slice(0, -1),
+                { ...last, text: `${last.text}${delta}` },
+              ]
+            }
+            return [
+              ...current,
+              {
+                id: `assistant-${event.sequence}`,
+                role: 'assistant',
+                text: delta,
+              },
+            ]
+          })
+          return
+        }
+
+        if (event.method === 'item/started') {
+          const item = event.params.item as
+            | { type?: string; command?: string }
+            | undefined
+          if (item?.type === 'commandExecution' && item.command) {
+            setTranscript((current) => [
+              ...current,
+              {
+                id: `activity-${event.sequence}`,
+                role: 'activity',
+                text: `Running: ${item.command}`,
+              },
+            ])
+          }
+          return
+        }
+
+        if (event.method === 'turn/completed') {
+          const turn = event.params.turn as
+            | { status?: string; error?: { message?: string } | null }
+            | undefined
+          setRunning(false)
+          setTurnId('')
+          if (turn?.error?.message) setError(turn.error.message)
+        }
+      },
+    )
+    return () => source.close()
+  }, [threadId])
+
+  const startLogin = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const login = await api.codexRuntime.startDeviceLogin()
+      setDeviceLogin(login)
+      window.open(login.verificationUrl, '_blank', 'noopener,noreferrer')
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : 'Unable to start Codex login.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const logout = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      await api.codexRuntime.logout()
+      setThreadId('')
+      setTranscript([])
+      onStatusChange(await api.codexRuntime.getStatus())
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : 'Unable to sign out of Codex.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const startSession = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      setThreadId(await api.codexRuntime.startThread())
+      setTranscript([])
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : 'Unable to start a Codex session.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const runTurn = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const text = prompt.trim()
+    if (!text || !threadId || running) return
+    setPrompt('')
+    setError('')
+    setRunning(true)
+    setTranscript((current) => [
+      ...current,
+      { id: crypto.randomUUID(), role: 'user', text },
+    ])
+    try {
+      const turn = await api.codexRuntime.startTurn(threadId, text)
+      setTurnId(turn.id || '')
+    } catch (caught) {
+      setRunning(false)
+      setError(
+        caught instanceof Error ? caught.message : 'Unable to start the Codex task.',
+      )
+    }
+  }
+
+  const interrupt = async () => {
+    if (!threadId || !turnId) return
+    setBusy(true)
+    try {
+      await api.codexRuntime.interrupt(threadId, turnId)
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : 'Unable to stop this task.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!status.available) {
+    return (
+      <div className="codex-runtime-panel">
+        <section className="codex-runtime-unavailable">
+          <Icon name="alert" size={24} />
+          <div>
+            <span className="micro-label">Server setup required</span>
+            <h3>Codex CLI is not available to lancee</h3>
+            <p>{status.error || 'Install the Codex CLI on the application server.'}</p>
+            <code>CODEX_BINARY=codex</code>
+          </div>
+        </section>
+        <div className="modal-actions">
+          <button className="button button--secondary" onClick={onClose}>
+            Close
+          </button>
+          <button
+            className="button button--dark"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true)
+              void refreshStatus()
+                .catch((caught) =>
+                  setError(caught instanceof Error ? caught.message : 'Refresh failed.'),
+                )
+                .finally(() => setBusy(false))
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="codex-runtime-panel">
+      <section className={`codex-runtime-account${status.authenticated ? ' is-connected' : ''}`}>
+        <span className="codex-connection-state__mark">
+          <Icon name={status.authenticated ? 'check' : 'command'} size={22} />
+        </span>
+        <div>
+          <span className="micro-label">
+            {status.authenticated ? 'OpenAI account connected' : 'OpenAI sign-in'}
+          </span>
+          <h3>
+            {status.account?.email ||
+              (status.authenticated ? 'Codex is ready' : 'Connect with device code')}
+          </h3>
+          <p>
+            {status.authenticated
+              ? `${status.account?.planType || 'OpenAI'} account · ${status.workspaceRoot}`
+              : 'Authentication is handled by OpenAI. lancee never receives your password.'}
+          </p>
+        </div>
+        {status.authenticated ? (
+          <button
+            className="button button--secondary"
+            disabled={busy || running}
+            onClick={() => void logout()}
+          >
+            Sign out
+          </button>
+        ) : (
+          <button
+            className="button button--dark"
+            disabled={busy}
+            onClick={() => void startLogin()}
+          >
+            {busy ? <span className="spinner" /> : <Icon name="arrow-up-right" size={14} />}
+            Sign in
+          </button>
+        )}
+      </section>
+
+      {deviceLogin && !status.authenticated && (
+        <section className="codex-runtime-device">
+          <div>
+            <span className="micro-label">OpenAI device code</span>
+            <strong>{deviceLogin.userCode}</strong>
+            <p>Enter this code on the OpenAI page, then return here.</p>
+          </div>
+          <a
+            className="button button--dark"
+            href={deviceLogin.verificationUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open OpenAI <Icon name="arrow-up-right" size={14} />
+          </a>
+        </section>
+      )}
+
+      {status.authenticated && !threadId && (
+        <section className="codex-runtime-start">
+          <div>
+            <span className="micro-label">Safe workspace session</span>
+            <h3>Work inside the configured project root</h3>
+            <p>
+              Commands and edits are restricted to the workspace. Network access and
+              privilege escalation are disabled.
+            </p>
+          </div>
+          <button
+            className="button button--dark"
+            disabled={busy}
+            onClick={() => void startSession()}
+          >
+            {busy ? <span className="spinner" /> : <Icon name="plus" size={14} />}
+            Start session
+          </button>
+        </section>
+      )}
+
+      {threadId && (
+        <section className="codex-runtime-session">
+          <header>
+            <div>
+              <span className="online-dot" />
+              <strong>Codex session</strong>
+              <small>{threadId}</small>
+            </div>
+            <button
+              className="button button--secondary"
+              disabled={running}
+              onClick={() => void startSession()}
+            >
+              New session
+            </button>
+          </header>
+          <div className="codex-runtime-transcript" aria-live="polite">
+            {transcript.length === 0 ? (
+              <div className="codex-runtime-empty">
+                <Icon name="sparkles" size={20} />
+                <strong>Ask Codex to inspect, explain, or change this workspace.</strong>
+                <span>Its progress and answer will stream here.</span>
+              </div>
+            ) : (
+              transcript.map((entry) => (
+                <article
+                  key={entry.id}
+                  className={`codex-runtime-message is-${entry.role}`}
+                >
+                  <span>{entry.role === 'user' ? 'You' : entry.role === 'assistant' ? 'Codex' : 'Activity'}</span>
+                  <p>{entry.text}</p>
+                </article>
+              ))
+            )}
+            {running && (
+              <div className="codex-runtime-working">
+                <span className="spinner spinner--dark" /> Codex is working
+              </div>
+            )}
+          </div>
+          <form className="codex-runtime-composer" onSubmit={runTurn}>
+            <textarea
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              placeholder="Describe the code task..."
+              maxLength={20_000}
+              rows={3}
+              disabled={running}
+            />
+            {running ? (
+              <button
+                className="button button--secondary"
+                type="button"
+                disabled={busy || !turnId}
+                onClick={() => void interrupt()}
+              >
+                Stop
+              </button>
+            ) : (
+              <button
+                className="button button--dark"
+                type="submit"
+                disabled={!prompt.trim()}
+              >
+                Run task <Icon name="arrow-right" size={14} />
+              </button>
+            )}
+          </form>
+        </section>
+      )}
+
+      {error && <p className="form-error">{error}</p>}
+    </div>
+  )
+}
+
 function App() {
+  const deviceUserCode =
+    new URLSearchParams(window.location.search).get('device') || ''
   const [user, setUser] = useState<User | null>(null)
   const [sessionLoading, setSessionLoading] = useState(true)
-  const [authView, setAuthView] = useState<'landing' | 'login'>('landing')
-  const [activePage, setActivePage] = useState<Page>('overview')
+  const [authView, setAuthView] = useState<'landing' | 'login'>(() =>
+    new URLSearchParams(window.location.search).has('invite') ||
+    new URLSearchParams(window.location.search).has('device')
+      ? 'login'
+      : 'landing',
+  )
+  const [activePage, setActivePage] = useState<Page>(() => {
+    const requestedPage = new URLSearchParams(window.location.search).get('page')
+    return requestedPage && pageIds.has(requestedPage as Page)
+      ? (requestedPage as Page)
+      : 'overview'
+  })
   const [automations, setAutomations] = useState<Automation[]>([])
   const [runs, setRuns] = useState<Run[]>([])
   const [integrations, setIntegrations] = useState<Integration[]>([])
   const [n8nConfig, setN8nConfig] = useState<N8nConfig | null>(null)
+  const [paystackConnection, setPaystackConnection] =
+    useState<PaystackConnection | null>(null)
   const [mcpConnection, setMcpConnection] = useState<McpConnection | null>(null)
   const [mcpServices, setMcpServices] = useState<McpService[]>([])
+  const [codexConnection, setCodexConnection] =
+    useState<CodexConnection | null>(null)
+  const [codexRuntimeStatus, setCodexRuntimeStatus] =
+    useState<CodexRuntimeStatus | null>(null)
   const [keys, setKeys] = useState<ApiKey[]>([])
   const [analytics, setAnalytics] = useState<{
     openProjects: number; dueSoonProjects: number; totalClients: number
@@ -3055,9 +4347,12 @@ function App() {
       api.runs.list(),
       api.integrations.list(),
       api.n8n.getConfig(),
+      api.money.getPaystackStatus(),
       api.mcp.getConnection(),
       api.mcp.listServices(),
-      api.apiKeys.list(),
+      api.codexDevice.getConnection(),
+      api.codexRuntime.getStatus(),
+      user.role === 'owner' ? api.apiKeys.list() : Promise.resolve([]),
       api.analytics.get(),
     ])
       .then(
@@ -3066,8 +4361,11 @@ function App() {
           runData,
           integrationData,
           n8nData,
+          paystackData,
           mcpConnectionData,
           mcpServiceData,
+          codexConnectionData,
+          codexRuntimeData,
           keyData,
           analyticsData,
         ]) => {
@@ -3081,8 +4379,18 @@ function App() {
             ),
           )
           setN8nConfig(n8nData)
+          setPaystackConnection(paystackData)
           setMcpConnection(mcpConnectionData)
           setMcpServices(mcpServiceData)
+          setCodexConnection(codexConnectionData)
+          setCodexRuntimeStatus(codexRuntimeData)
+          setIntegrations((current) =>
+            current.map((integration) =>
+              integration.id === 'codex-runtime'
+                ? { ...integration, connected: codexRuntimeData.authenticated }
+                : integration,
+            ),
+          )
           setKeys(keyData)
           setAnalytics({
             openProjects: analyticsData.metrics.openProjects,
@@ -3106,7 +4414,8 @@ function App() {
   useEffect(() => {
     if (!user) return
     const syncQueuedIdeas = () => {
-      if (navigator.onLine) void syncIdeaMutations(user.workspaceId)
+      if (!user.workspaceId || !navigator.onLine) return
+      void syncIdeaMutations(user.workspaceId)
     }
     window.addEventListener('online', syncQueuedIdeas)
     window.addEventListener(IDEA_SYNC_REQUEST_EVENT, syncQueuedIdeas)
@@ -3140,6 +4449,26 @@ function App() {
     return () => window.clearTimeout(timeout)
   }, [toast])
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const driveResult = params.get('drive')
+    if (!driveResult) return
+    const message = params.get('driveMessage')
+    setToast(
+      driveResult === 'connected'
+        ? 'Google Drive connected'
+        : message || 'Google Drive could not be connected',
+    )
+    params.delete('drive')
+    params.delete('driveMessage')
+    const nextQuery = params.toString()
+    window.history.replaceState(
+      {},
+      '',
+      `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`,
+    )
+  }, [])
+
   const pageLabel = useMemo(
     () =>
       navItems.find((item) => item.id === activePage)?.label ??
@@ -3156,12 +4485,29 @@ function App() {
     setToast('Welcome back to lancee')
   }
 
-  const register = async (email: string, password: string, name?: string, workspace?: string) => {
-    const session = await api.auth.register(email, password, name, workspace)
+  const register = async (
+    email: string,
+    password: string,
+    name?: string,
+    workspace?: string,
+    invitationToken?: string,
+  ) => {
+    const session = await api.auth.register(
+      email,
+      password,
+      name,
+      workspace,
+      invitationToken,
+    )
     setUser(session)
     setAuthView('landing')
     setActivePage('overview')
-    setToast('Your workspace is ready')
+    if (invitationToken) {
+      window.history.replaceState({}, '', window.location.pathname)
+      setToast(`You joined ${session.workspace}`)
+    } else {
+      setToast('Your workspace is ready')
+    }
   }
 
   const signOut = async () => {
@@ -3191,7 +4537,32 @@ function App() {
         ),
       )
       setPrompt('')
-    setToast(`${run.automationName} started`)
+      setToast(`${run.automationName} started`)
+      const pollRun = (attempt: number) => {
+        if (attempt >= 8) return
+        window.setTimeout(() => {
+          void api.runs
+            .get(run.id)
+            .then((updated) => {
+              setRuns((current) =>
+                current.map((item) => (item.id === updated.id ? updated : item)),
+              )
+              if (updated.status === 'running') {
+                pollRun(attempt + 1)
+              } else {
+                setToast(
+                  `${updated.automationName} ${updated.status}${
+                    updated.errorCode ? ` · ${updated.errorCode}` : ''
+                  }`,
+                )
+              }
+            })
+            .catch(() => undefined)
+        }, 750)
+      }
+      pollRun(0)
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Unable to start automation.')
     } finally {
       setDispatching(false)
     }
@@ -3233,9 +4604,73 @@ function App() {
       setToast(
         `${updated.name} ${updated.connected ? 'connected' : 'disconnected'}`,
       )
+    } catch (error) {
+      setToast(
+        error instanceof Error ? error.message : 'Unable to update this connection.',
+      )
     } finally {
       setBusyId(null)
     }
+  }
+
+  const updateCodexConnection = (connection: CodexConnection) => {
+    setCodexConnection(connection)
+    setIntegrations((current) =>
+      current.map((integration) =>
+        integration.id === 'codex-ai'
+          ? { ...integration, connected: connection.connected }
+          : integration,
+      ),
+    )
+  }
+
+  const updateCodexRuntimeStatus = (status: CodexRuntimeStatus) => {
+    setCodexRuntimeStatus(status)
+    setIntegrations((current) =>
+      current.map((integration) =>
+        integration.id === 'codex-runtime'
+          ? { ...integration, connected: status.authenticated }
+          : integration,
+      ),
+    )
+  }
+
+  const toggleGoogleDrive = async (integration: Integration) => {
+    setBusyId(integration.id)
+    try {
+      if (integration.connected) {
+        await api.googleDrive.disconnect()
+        setIntegrations((current) =>
+          current.map((item) =>
+            item.id === integration.id ? { ...item, connected: false } : item,
+          ),
+        )
+        setToast('Google Drive disconnected')
+        setBusyId(null)
+        return
+      }
+      const authorizationUrl = await api.googleDrive.getAuthUrl()
+      window.location.assign(authorizationUrl)
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : 'Unable to update Google Drive.',
+      )
+      setBusyId(null)
+    }
+  }
+
+  const requestIntegration = async (
+    input: Pick<IntegrationRequest, 'name' | 'category' | 'details'>,
+  ) => {
+    const request = await api.integrationRequests.create({
+      name: input.name.trim(),
+      category: input.category,
+      details: input.details.trim(),
+    })
+    setModal(null)
+    setToast(`${request.name} connection request saved`)
   }
 
   const saveN8nConfig = async (input: N8nConfigInput) => {
@@ -3247,6 +4682,32 @@ function App() {
       ),
     )
     setToast('n8n configuration encrypted and saved')
+  }
+
+  const savePaystackConnection = async (secretKey: string) => {
+    const updated = await api.money.configurePaystack(secretKey)
+    setPaystackConnection(updated)
+    setIntegrations((current) =>
+      current.map((integration) =>
+        integration.id === 'paystack'
+          ? { ...integration, connected: true }
+          : integration,
+      ),
+    )
+    setToast(`Paystack connected in ${updated.mode} mode`)
+  }
+
+  const disconnectPaystack = async () => {
+    const updated = await api.money.disconnectPaystack()
+    setPaystackConnection(updated)
+    setIntegrations((current) =>
+      current.map((integration) =>
+        integration.id === 'paystack'
+          ? { ...integration, connected: false }
+          : integration,
+      ),
+    )
+    setToast('Paystack disconnected')
   }
 
   const testN8n = async (
@@ -3299,8 +4760,12 @@ function App() {
     setToast(`${updated.name} ${updated.active ? 'activated' : 'deactivated'}`)
   }
 
-  const invokeMcpTool = async (service: McpService, toolId: string) => {
-    const result = await api.mcp.invoke(service.id, toolId)
+  const invokeMcpTool = async (
+    service: McpService,
+    toolId: string,
+    toolArguments: Record<string, unknown>,
+  ) => {
+    const result = await api.mcp.invoke(service.id, toolId, toolArguments)
     setToast(`${result.message} · ${result.duration}ms`)
     return result
   }
@@ -3355,6 +4820,12 @@ function App() {
     )
   }
 
+  if (deviceUserCode) {
+    return (
+      <CodexDeviceAuthorizationPage user={user} userCode={deviceUserCode} />
+    )
+  }
+
   let page: ReactNode
   if (loading) {
     page = <EmptySkeleton />
@@ -3374,19 +4845,26 @@ function App() {
             onAutomationChange={setSelectedAutomation}
             onDispatch={dispatch}
             onNavigate={setActivePage}
-            onCreateAutomation={() => setActivePage('work')}
+            onCreateProject={() => setActivePage('work')}
           />
         )
         break
       case 'work':
         page = (
-          <WorkPage
-            onToast={setToast}
-          />
+          <Suspense fallback={<EmptySkeleton />}>
+            <WorkPage
+              onToast={setToast}
+              onOpenSettings={() => setActivePage('settings')}
+            />
+          </Suspense>
         )
         break
       case 'ideas':
-        page = <IdeasCanvasPage workspaceId={user.workspaceId} />
+        page = (
+          <Suspense fallback={<EmptySkeleton />}>
+            <IdeasCanvasPage workspaceId={user.workspaceId} />
+          </Suspense>
+        )
         break
       case 'automations':
         page = (
@@ -3410,19 +4888,45 @@ function App() {
             onToggle={toggleIntegration}
             onConfigureN8n={() => setModal('n8n')}
             onConfigureMcp={() => setModal('mcp')}
-            onOpenMoney={() => setActivePage('money')}
+            onConfigureCodex={() => setModal('codex-ai')}
+            onConfigureCodexRuntime={() => setModal('codex-runtime')}
+            onConfigurePaystack={() => setModal('paystack')}
+            onToggleGoogleDrive={(integration) => void toggleGoogleDrive(integration)}
+            onRequestConnection={() => setModal('integration-request')}
             onToast={setToast}
           />
         )
         break
       case 'money':
-        page = <MoneyPage />
+        page = (
+          <Suspense fallback={<EmptySkeleton />}>
+            <MoneyPage />
+          </Suspense>
+        )
         break
       case 'analytics':
-        page = <AnalyticsPage />
+        page = (
+          <Suspense fallback={<EmptySkeleton />}>
+            <AnalyticsPage onOpenFiles={() => setActivePage('files')} />
+          </Suspense>
+        )
+        break
+      case 'files':
+        page = (
+          <Suspense fallback={<EmptySkeleton />}>
+            <FilesPage
+              onOpenConnections={() => setActivePage('integrations')}
+              onToast={setToast}
+            />
+          </Suspense>
+        )
         break
       case 'team':
-        page = <TeamPage />
+        page = (
+          <Suspense fallback={<EmptySkeleton />}>
+            <TeamPage canInvite={user.role === 'owner'} />
+          </Suspense>
+        )
         break
       case 'api':
         page = (
@@ -3431,11 +4935,23 @@ function App() {
             onCreate={() => setModal('key')}
             onRevoke={revokeKey}
             onToast={setToast}
+            canManage={user.role === 'owner'}
           />
         )
         break
       case 'settings':
-        page = <SettingsPage user={user} onToast={setToast} />
+        page = (
+          <SettingsPage
+            user={user}
+            onToast={setToast}
+            onNavigate={setActivePage}
+            onSaved={(settings) =>
+              setUser((current) =>
+                current ? { ...current, workspace: settings.name } : current,
+              )
+            }
+          />
+        )
         break
     }
   }
@@ -3449,6 +4965,10 @@ function App() {
         onNavigate={setActivePage}
         onClose={() => setMobileOpen(false)}
         onSignOut={() => void signOut()}
+        projectCount={analytics?.openProjects ?? 0}
+        automationCount={automations.length}
+        connectionCount={integrations.filter((integration) => integration.connected).length}
+        pendingInvoiceCount={analytics?.pendingInvoices ?? 0}
       />
       <div className="app-main">
         <header className="topbar">
@@ -3479,32 +4999,32 @@ function App() {
                 onClick={() => setNotificationsOpen((open) => !open)}
               >
                 <Icon name="bell" size={18} />
-                <span className="notification-dot" />
+                {runs.length > 0 && <span className="notification-dot" />}
               </button>
               {notificationsOpen && (
                 <div className="notification-popover">
                   <div>
                     <strong>Notifications</strong>
-                    <button onClick={() => setNotificationsOpen(false)}>Mark all read</button>
+                    <button onClick={() => setNotificationsOpen(false)}>Close</button>
                   </div>
-                  <button>
-                    <span className="notification-icon notification-icon--lime">
-                      <Icon name="check" size={14} />
-                    </span>
-                    <span>
-                      <strong>Ember Gin feedback is ready</strong>
-                      <small>2 minutes ago</small>
-                    </span>
-                  </button>
-                  <button>
-                    <span className="notification-icon notification-icon--coral">
-                      <Icon name="alert" size={14} />
-                    </span>
-                    <span>
-                      <strong>Casa Lumbre invoice is overdue</strong>
-                      <small>Yesterday at 4:18 PM</small>
-                    </span>
-                  </button>
+                  {runs.slice(0, 5).map((run) => (
+                    <button
+                      key={run.id}
+                      onClick={() => {
+                        setActivePage('runs')
+                        setNotificationsOpen(false)
+                      }}
+                    >
+                      <span className={`notification-icon notification-icon--${run.status === 'failed' ? 'coral' : 'lime'}`}>
+                        <Icon name={run.status === 'failed' ? 'alert' : 'check'} size={14} />
+                      </span>
+                      <span>
+                        <strong>{run.automationName || 'Automation'} · {run.status}</strong>
+                        <small>{new Date(run.startedAt).toLocaleString()}</small>
+                      </span>
+                    </button>
+                  ))}
+                  {runs.length === 0 && <p className="empty-copy">No recent activity.</p>}
                 </div>
               )}
             </div>
@@ -3534,6 +5054,15 @@ function App() {
           <CreateKeyForm onSubmit={createKey} onCancel={() => setModal(null)} />
         </Modal>
       )}
+      {modal === 'integration-request' && (
+        <Modal
+          title="Request a connection"
+          description="Tell us which business system should be connected through the lancee app. MCP remains for small tools and skills."
+          onClose={() => setModal(null)}
+        >
+          <RequestIntegrationForm onSubmit={requestIntegration} onCancel={() => setModal(null)} />
+        </Modal>
+      )}
       {modal === 'n8n' && n8nConfig && (
         <Modal
           title="Configure n8n"
@@ -3554,10 +5083,26 @@ function App() {
           />
         </Modal>
       )}
+      {modal === 'paystack' && paystackConnection && (
+        <Modal
+          title="Connect Paystack"
+          description="Keep this workspace’s payment credential encrypted in the lancee backend."
+          onClose={() => setModal(null)}
+        >
+          <PaystackConnectionForm
+            connection={paystackConnection}
+            canManage={user.role === 'owner'}
+            onSave={savePaystackConnection}
+            onDisconnect={disconnectPaystack}
+            onCancel={() => setModal(null)}
+            onToast={setToast}
+          />
+        </Modal>
+      )}
       {modal === 'mcp' && mcpConnection && (
         <Modal
-          title="Service connector"
-          description="Request secure access, then turn on only the backend services your workflows need."
+          title="Automation tool gateway"
+          description="Request secure access, then turn on browser automation and approved utility tools."
           onClose={() => setModal(null)}
           wide
         >
@@ -3569,6 +5114,34 @@ function App() {
             onToggle={toggleMcpService}
             onInvoke={invokeMcpTool}
             onRevokeAccess={revokeMcpAccess}
+            onClose={() => setModal(null)}
+          />
+        </Modal>
+      )}
+      {modal === 'codex-ai' && codexConnection && (
+        <Modal
+          title="Connect Codex AI"
+          description="Authorize Codex with a short device code. Your AI provider key stays inside lancee."
+          onClose={() => setModal(null)}
+          wide
+        >
+          <CodexAiConnectionPanel
+            connection={codexConnection}
+            onConnectionChange={updateCodexConnection}
+            onClose={() => setModal(null)}
+          />
+        </Modal>
+      )}
+      {modal === 'codex-runtime' && codexRuntimeStatus && (
+        <Modal
+          title="Codex Workspace"
+          description="Sign in to OpenAI, then run Codex against the server-configured workspace."
+          onClose={() => setModal(null)}
+          wide
+        >
+          <CodexRuntimePanel
+            status={codexRuntimeStatus}
+            onStatusChange={updateCodexRuntimeStatus}
             onClose={() => setModal(null)}
           />
         </Modal>

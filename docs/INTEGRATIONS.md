@@ -4,27 +4,48 @@ The product calls these **Connections** in the user interface. They bring a
 freelancer's existing tools into the context of clients, projects, ideas,
 automations, and invoices.
 
+## Application-managed connections
+
+Business-system integrations are implemented by the lancee application and
+its server-side APIs. The Connections page can persist a request for an
+unsupported system through `POST /api/integration-requests`; each request is
+scoped to the current workspace, records its category and optional workflow
+details, and uses the normal idempotent mutation boundary.
+
+This keeps long-lived business credentials, webhooks, and data access in the
+application backend. Google Drive starts OAuth directly from its Connections
+card using the non-sensitive `drive.file` scope and the configured
+`/oauth/callback`; Paystack opens a workspace credential form; and n8n opens
+its signed webhook configuration. Generic connection toggles cannot
+manufacture a connected state.
+
+MCP remains a separate automation-tool gateway. By default the server returns
+only `Browser` and `Utilities` categories from the live MCP catalog. Override
+that allowlist explicitly with `MCP_ALLOWED_CATEGORIES`; do not use MCP as a
+substitute for durable business-system connections.
+
 ## Payments and invoicing
 
-Stripe, PayPal, and Paystack appear in **Connections** and **Money**:
-
-- **Stripe** — intended for card and bank payments, hosted links, invoice
-  reconciliation, and verified webhooks.
-- **PayPal** — intended for PayPal checkout and supported card payments for
-  international clients.
-- **Paystack** — intended for region-friendly card and bank payments across
-  African markets.
+Paystack is the implemented payment connection in **Connections** and
+**Money**. It supports region-friendly card and bank payments through hosted
+checkout.
 
 Paystack now has a real server-side ZAR flow: a configured workspace can create
 a durable invoice and hosted checkout link, then reconcile `charge.success`
 through a verified webhook. The link is reviewed and shared explicitly; lancee
-does not send or directly charge the client. Stripe and PayPal remain clearly
-marked previews.
+does not send or directly charge the client. Unsupported payment providers are
+not shown as connectable cards; use the connection-request form to record a
+needed provider.
 
-The Paystack implementation keeps its key server-side, persists a
-workspace-scoped connection fingerprint, initializes idempotently, protects
-immutable provider references, verifies raw-body webhook signatures, matches
-amount/currency/reference, and requires explicit review before sharing.
+The Connections page accepts a workspace Paystack secret key from an owner.
+The backend validates its mode, encrypts it with AES-256-GCM, persists only the
+ciphertext and a non-secret fingerprint, and returns a workspace-scoped webhook
+URL. `PAYSTACK_SECRET_KEY` is retained as an optional environment fallback.
+
+The Paystack implementation initializes idempotently, protects immutable
+provider references, verifies raw-body webhook signatures with the matching
+workspace key, matches workspace/amount/currency/reference, and requires
+explicit review before sharing.
 Partial payments, refunds, disputes, tax, and multi-currency remain future
 work. See [`PAYSTACK.md`](PAYSTACK.md).
 
@@ -77,14 +98,16 @@ lancee reaches it through the configured DNS gateway:
 https://mcp.hygridtech.co.za
 ```
 
-MCP is included as a platform capability for every workspace. It is not an
-integration a user installs or disconnects. The UI requires no MCP URL or API
-key entry.
+MCP is included as a platform capability for every workspace. It is not a
+business integration a user installs or disconnects. The UI requires no MCP
+URL or API key entry, and the default category allowlist exposes only browser
+automation and utility services.
 
 ### Bearer access lifecycle
 
-Every new workspace starts with MCP in `available` state and can browse the
-service catalog. The user selects **Request bearer access**:
+Every new workspace starts with MCP in `available` state. When the gateway is
+configured, the workspace can load its live service catalog and select
+**Request bearer access**:
 
 ```http
 POST /api/mcp/access-request
@@ -105,8 +128,8 @@ server-to-server:
 `GET /api/mcp/access` returns status and non-secret gateway metadata.
 `POST /api/mcp/access/revoke` revokes the workspace grant. Bearer state and
 per-service activation are stored in workspace-scoped `mcp_access` and
-`mcp_service_state` rows and survive process restarts. Self-service signup
-still requires account verification and invitation flows.
+`mcp_service_state` rows and survive process restarts. Workspace invitations
+use a separate expiring-token flow.
 
 ### Discovery
 
@@ -115,18 +138,11 @@ GET /api/v1/capabilities
 Authorization: Bearer <server-side token>
 ```
 
-The platform exposes only live, runtime-verified services. The placeholder
-catalog models the currently documented workers:
-
-- `browser-worker` — ten browser, audit, extraction, screenshot, and document tools.
-- `text-worker` — text transformation, statistics, and replacement.
-- `data-worker` — bounded CSV/JSON conversion and field selection.
-- `utility-worker` — hashes, Base64, and UUID generation.
-
-After bearer approval, users activate only the services they want and can run a
-representative test tool. Browser automation tests use `website_smoke_test`.
-Service activation is durable. Capability discovery and representative tool
-results remain placeholders until the gateway transport is connected.
+The platform exposes only services and tools returned by the gateway's live
+capability response. The browser receives the runtime input schemas and builds
+bounded representative arguments for manual tests. After bearer approval,
+users activate only the services they want. Activation is durable, and test
+results come from the real gateway tool call rather than a local simulation.
 
 ### Tool invocation
 

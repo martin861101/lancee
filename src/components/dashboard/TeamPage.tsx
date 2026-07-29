@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../../lib/api'
+import './dashboard-page.css'
 
 type TeamMember = {
   id: string
@@ -10,7 +11,7 @@ type TeamMember = {
   joinedAt: string
 }
 
-export default function TeamPage() {
+export default function TeamPage({ canInvite }: { canInvite: boolean }) {
   const [members, setMembers] = useState<TeamMember[]>([])
   const [loading, setLoading] = useState(true)
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -19,47 +20,88 @@ export default function TeamPage() {
   const [inviteRole, setInviteRole] = useState<'owner' | 'collaborator'>('collaborator')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [inviteLink, setInviteLink] = useState('')
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'invited' | 'disabled'>('all')
+  const [roleFilter, setRoleFilter] = useState<'all' | 'owner' | 'collaborator'>('all')
+
+  const loadMembers = useCallback(async () => {
+    setError('')
+    const list = await api.team.list()
+    setMembers(list)
+  }, [])
 
   useEffect(() => {
     let isMounted = true
-    api.team
-      .list()
-      .then((res) => {
-        if (isMounted) setMembers(res)
+    loadMembers()
+      .catch(() => {
+        if (isMounted) setError('Unable to load team members')
       })
-      .catch(() => setError('Unable to load team members'))
       .finally(() => {
         if (isMounted) setLoading(false)
       })
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [loadMembers])
+
+  const stats = useMemo(() => {
+    const active = members.filter((member) => member.status === 'active').length
+    const invited = members.filter((member) => member.status === 'invited').length
+    const owners = members.filter((member) => member.role === 'owner').length
+    return { total: members.length, active, invited, owners }
+  }, [members])
+
+  const filteredMembers = useMemo(() => {
+    const needle = search.trim().toLowerCase()
+    return members.filter((member) => {
+      if (statusFilter !== 'all' && member.status !== statusFilter) return false
+      if (roleFilter !== 'all' && member.role !== roleFilter) return false
+      if (!needle) return true
+      return `${member.name} ${member.email} ${member.role}`.toLowerCase().includes(needle)
+    })
+  }, [members, roleFilter, search, statusFilter])
+
+  const handleRefresh = async () => {
+    setNotice('')
+    try {
+      await loadMembers()
+      setNotice('Team list refreshed.')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to refresh team members.')
+    }
+  }
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!inviteEmail.trim()) return
     setSubmitting(true)
     setError('')
+    setNotice('')
     try {
-      const response = await fetch('/api/workspace/team/invite', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: inviteEmail.trim(),
-          name: inviteName.trim() || inviteEmail.split('@')[0],
-          role: inviteRole,
-        }),
+      const member = await api.team.invite({
+        email: inviteEmail.trim(),
+        name: inviteName.trim() || undefined,
+        role: inviteRole,
       })
-      const payload = await response.json()
-      if (!response.ok) {
-        throw new Error(payload.error || 'Unable to send invitation.')
-      }
-      setMembers((current) => [...current, payload])
+      setMembers((current) => {
+        const withoutDuplicate = current.filter(
+          (item) => item.id !== member.id && item.email.toLowerCase() !== member.email.toLowerCase(),
+        )
+        return [...withoutDuplicate, member]
+      })
       setInviteEmail('')
       setInviteName('')
       setInviteOpen(false)
+      setInviteLink(member.delivery === 'sent' ? '' : member.acceptUrl)
+      setNotice(
+        member.delivery === 'sent'
+          ? `Invitation emailed to ${member.email}.`
+          : member.delivery === 'failed'
+            ? `Email delivery failed. Share the invitation link with ${member.email}.`
+            : `Invitation created. Share the link with ${member.email}.`,
+      )
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to send invitation.')
     } finally {
@@ -67,85 +109,192 @@ export default function TeamPage() {
     }
   }
 
+  const copyValue = async (value: string, message: string) => {
+    try {
+      await navigator.clipboard.writeText(value)
+      setNotice(message)
+    } catch {
+      try {
+        const textarea = document.createElement('textarea')
+        textarea.value = value
+        textarea.style.position = 'fixed'
+        document.body.appendChild(textarea)
+        textarea.select()
+        const successful = document.execCommand('copy')
+        document.body.removeChild(textarea)
+        if (successful) {
+          setNotice(message)
+          return
+        }
+        throw new Error('fallback failed')
+      } catch {
+        setError('Unable to copy email to clipboard.')
+      }
+    }
+  }
+
   return (
-    <div className="content-container animate-fade-in" style={{ padding: '24px' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px' }}>
+    <div className="content-container animate-fade-in dashboard-page">
+      <header className="dashboard-page__header">
         <div>
-          <h2 style={{ fontSize: '22px', fontWeight: 700, margin: 0, color: 'var(--ink)' }}>Team & Permissions</h2>
-          <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: '14px' }}>
+          <h2 className="dashboard-page__title">Team & Permissions</h2>
+          <p className="dashboard-page__description">
             Manage workspace members, role assignments, and collaborator access control.
           </p>
         </div>
-        <button
-          className="button button--primary"
-          onClick={() => setInviteOpen(true)}
-          style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-        >
-          <span>+</span> Invite Member
-        </button>
+        <div className="dashboard-page__actions">
+          <button type="button" className="button button--ghost" onClick={() => void handleRefresh()} disabled={loading}>
+            Refresh
+          </button>
+          {canInvite && (
+            <button
+              type="button"
+              className="button button--primary"
+              onClick={() => setInviteOpen(true)}
+            >
+              Invite member
+            </button>
+          )}
+        </div>
       </header>
 
-      {error && (
-        <div style={{ background: 'rgba(219, 91, 83, 0.1)', color: 'var(--danger)', padding: '12px 16px', borderRadius: '10px', marginBottom: '16px', fontSize: '14px' }}>
-          {error}
+      {error && <div className="dashboard-alert">{error}</div>}
+      {notice && <div className="dashboard-alert dashboard-alert--success">{notice}</div>}
+      {inviteLink && (
+        <div className="dashboard-link-form" style={{ marginBottom: '16px' }}>
+          <label>
+            Invitation link
+            <input
+              value={inviteLink}
+              readOnly
+              onFocus={(event) => event.currentTarget.select()}
+            />
+          </label>
+          <button
+            type="button"
+            className="button button--secondary"
+            onClick={() => void copyValue(inviteLink, 'Invitation link copied.')}
+          >
+            Copy invitation link
+          </button>
         </div>
       )}
 
-      {inviteOpen && (
-        <form onSubmit={handleInvite} style={{ background: 'var(--surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--line)', marginBottom: '24px' }}>
-          <h3 style={{ margin: '0 0 16px', fontSize: '15px', fontWeight: 600 }}>Invite a New Collaborator</h3>
-          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-            <input
-              type="text"
-              placeholder="Colleague name (optional)"
-              value={inviteName}
-              onChange={(e) => setInviteName(e.target.value)}
-              style={{ flex: 1, minWidth: '180px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--line)' }}
-            />
-            <input
-              type="email"
-              placeholder="colleague@company.com"
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
-              required
-              style={{ flex: 1, minWidth: '240px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--line)' }}
-            />
-            <select
-              value={inviteRole}
-              onChange={(e) => setInviteRole(e.target.value as 'owner' | 'collaborator')}
-              style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--line)' }}
-            >
-              <option value="collaborator">Collaborator</option>
-              <option value="owner">Owner / Admin</option>
-            </select>
+      <div className="dashboard-stat-grid">
+        <div className="dashboard-stat">
+          <span>Total members</span>
+          <strong>{stats.total}</strong>
+        </div>
+        <div className="dashboard-stat">
+          <span>Active</span>
+          <strong>{stats.active}</strong>
+        </div>
+        <div className="dashboard-stat">
+          <span>Pending invites</span>
+          <strong>{stats.invited}</strong>
+        </div>
+        <div className="dashboard-stat">
+          <span>Owners</span>
+          <strong>{stats.owners}</strong>
+        </div>
+      </div>
+
+      {canInvite && inviteOpen && (
+        <form className="dashboard-link-form" onSubmit={handleInvite}>
+          <h3>Invite a new collaborator</h3>
+          <div className="dashboard-link-form__grid">
+            <label>
+              Name (optional)
+              <input
+                type="text"
+                placeholder="Colleague name"
+                value={inviteName}
+                onChange={(e) => setInviteName(e.target.value)}
+              />
+            </label>
+            <label>
+              Email
+              <input
+                type="email"
+                placeholder="colleague@company.com"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                required
+              />
+            </label>
+            <label>
+              Role
+              <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as 'owner' | 'collaborator')}>
+                <option value="collaborator">Collaborator</option>
+                <option value="owner">Owner / Admin</option>
+              </select>
+            </label>
+          </div>
+          <div className="dashboard-link-form__footer">
             <button type="submit" className="button button--primary" disabled={submitting}>
-              {submitting ? 'Sending…' : 'Send Invite'}
+              {submitting ? 'Sending…' : 'Send invite'}
             </button>
-            <button type="button" className="button button--ghost" onClick={() => setInviteOpen(false)}>Cancel</button>
+            <button type="button" className="button button--ghost" onClick={() => setInviteOpen(false)}>
+              Cancel
+            </button>
           </div>
         </form>
       )}
 
+      <div className="dashboard-toolbar">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name or email…"
+          aria-label="Search team members"
+        />
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)} aria-label="Filter by status">
+          <option value="all">All statuses</option>
+          <option value="active">Active</option>
+          <option value="invited">Pending invite</option>
+          <option value="disabled">Disabled</option>
+        </select>
+        <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as typeof roleFilter)} aria-label="Filter by role">
+          <option value="all">All roles</option>
+          <option value="owner">Owners</option>
+          <option value="collaborator">Collaborators</option>
+        </select>
+      </div>
+
       {loading ? (
         <div className="skeleton-line" style={{ height: '180px' }} />
       ) : (
-        <div style={{ background: 'var(--surface)', borderRadius: '16px', border: '1px solid var(--line)', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+        <div className="dashboard-panel">
+          <table className="dashboard-table">
             <thead>
-              <tr style={{ background: 'var(--surface-soft)', borderBottom: '1px solid var(--line)' }}>
-                <th style={{ padding: '14px 20px', fontWeight: 600, color: 'var(--muted)' }}>Member</th>
-                <th style={{ padding: '14px 20px', fontWeight: 600, color: 'var(--muted)' }}>Role</th>
-                <th style={{ padding: '14px 20px', fontWeight: 600, color: 'var(--muted)' }}>Status</th>
-                <th style={{ padding: '14px 20px', fontWeight: 600, color: 'var(--muted)' }}>Joined Date</th>
+              <tr>
+                <th>Member</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Joined</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {members.map((member) => (
-                <tr key={member.id} style={{ borderBottom: '1px solid var(--line)' }}>
-                  <td style={{ padding: '16px 20px' }}>
+              {filteredMembers.map((member) => (
+                <tr key={member.id}>
+                  <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'linear-gradient(135deg, #6854e8, #ee45aa)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: '14px' }}>
-                        {member.name.charAt(0).toUpperCase()}
+                      <div
+                        style={{
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '50%',
+                          background: 'linear-gradient(135deg, #6854e8, #ee45aa)',
+                          color: '#fff',
+                          display: 'grid',
+                          placeItems: 'center',
+                          fontWeight: 700,
+                          fontSize: '14px',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {((member.name.trim() || member.email).charAt(0) || '?').toUpperCase()}
                       </div>
                       <div>
                         <strong style={{ display: 'block', color: 'var(--ink)' }}>{member.name}</strong>
@@ -153,32 +302,53 @@ export default function TeamPage() {
                       </div>
                     </div>
                   </td>
-                  <td style={{ padding: '16px 20px', textTransform: 'capitalize', fontWeight: 500 }}>
-                    {member.role}
-                  </td>
-                  <td style={{ padding: '16px 20px' }}>
+                  <td style={{ textTransform: 'capitalize', fontWeight: 500 }}>{member.role}</td>
+                  <td>
                     <span
                       style={{
                         padding: '4px 10px',
                         borderRadius: '20px',
                         fontSize: '12px',
                         fontWeight: 600,
-                        background: member.status === 'active' ? 'rgba(71, 135, 46, 0.12)' : 'rgba(166, 107, 22, 0.12)',
-                        color: member.status === 'active' ? 'var(--success)' : 'var(--warning)',
+                        background:
+                          member.status === 'active'
+                            ? 'rgba(71, 135, 46, 0.12)'
+                            : member.status === 'disabled'
+                              ? 'rgba(219, 91, 83, 0.12)'
+                              : 'rgba(166, 107, 22, 0.12)',
+                        color:
+                          member.status === 'active'
+                            ? 'var(--success)'
+                            : member.status === 'disabled'
+                              ? 'var(--danger)'
+                              : 'var(--warning)',
                       }}
                     >
-                      {member.status === 'active' ? 'Active' : member.status === 'invited' ? 'Pending Invite' : member.status}
+                      {member.status === 'active'
+                        ? 'Active'
+                        : member.status === 'invited'
+                          ? 'Pending invite'
+                          : member.status === 'disabled'
+                            ? 'Disabled'
+                            : member.status}
                     </span>
                   </td>
-                  <td style={{ padding: '16px 20px', color: 'var(--muted)' }}>
+                  <td style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                     {new Date(member.joinedAt).toLocaleDateString()}
+                  </td>
+                  <td>
+                    <button type="button" className="button button--ghost button--small" onClick={() => void copyValue(member.email, `Copied ${member.email}`)}>
+                      Copy email
+                    </button>
                   </td>
                 </tr>
               ))}
-              {members.length === 0 && (
+              {filteredMembers.length === 0 && (
                 <tr>
-                  <td colSpan={4} style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--muted)' }}>
-                    No team members yet. Invite your first collaborator.
+                  <td colSpan={5} className="dashboard-empty">
+                    {members.length === 0
+                      ? 'No team members yet. Invite your first collaborator.'
+                      : 'No members match your filters.'}
                   </td>
                 </tr>
               )}

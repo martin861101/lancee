@@ -13,7 +13,14 @@
     "verify:durability": "node scripts/verify-durable-foundation.mjs",
     "verify:paystack": "node scripts/verify-paystack-flow.mjs",
     "verify:n8n": "node scripts/verify-n8n-bridge.mjs",
-    "verify:offline": "node scripts/verify-offline-sync.mjs"
+    "verify:offline": "node scripts/verify-offline-sync.mjs",
+    "verify:postgres": "node scripts/verify-postgresql.mjs",
+    "verify:ai": "node scripts/verify-ai-providers.mjs",
+    "verify:codex-connector": "node scripts/verify-codex-connector.mjs",
+    "verify:codex-runtime": "node scripts/verify-codex-runtime.mjs",
+    "verify:google-drive": "node scripts/verify-google-drive.mjs",
+    "verify:workspace-flows": "node scripts/verify-workspace-flows.mjs",
+    "migrate:postgres": "node scripts/migrate-sqlite-to-postgres.mjs"
   },
   "dependencies": {
     "@dnd-kit/helpers": "^0.5.0",

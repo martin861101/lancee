@@ -16,8 +16,8 @@ authorization model.
 
 1. The public landing page is rendered for a visitor with no session.
 2. `GET /api/auth/session` restores an existing signed session.
-3. `POST /api/auth/login` resolves the user and owner membership from SQLite,
-   then verifies the configured administrator with `scrypt`.
+3. `POST /api/auth/login` resolves the user and workspace membership from the
+   configured database, then verifies the password with `scrypt`.
 4. The server issues `lancee_session` as an `HttpOnly`, `Secure`,
    `SameSite=Lax` cookie.
 5. `POST /api/auth/logout` expires the cookie and returns the visitor to the
@@ -33,6 +33,9 @@ Controls in `server/index.mjs` include:
 
 - 12-hour default session expiry;
 - a persistent 384-bit signing secret in `.runtime/session-secret`;
+- configurable public registration through `ALLOW_REGISTRATION`;
+- owner-only, seven-day team invitations stored as token hashes;
+- SMTP delivery of invitation links when configured, with a copy/share fallback;
 - constant-time password comparison;
 - five failed attempts per IP per 15 minutes;
 - same-origin checks for mutations;

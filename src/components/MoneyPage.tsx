@@ -9,20 +9,6 @@ import './money-page.css'
 
 const providers = [
   {
-    id: 'stripe',
-    name: 'Stripe',
-    mark: 'S',
-    note: 'Cards and bank transfers',
-    tone: 'stripe',
-  },
-  {
-    id: 'paypal',
-    name: 'PayPal',
-    mark: 'P',
-    note: 'PayPal and card checkout',
-    tone: 'paypal',
-  },
-  {
     id: 'paystack',
     name: 'Paystack',
     mark: 'P',
@@ -434,8 +420,7 @@ export default function MoneyPage() {
         </div>
         <div className="provider-grid">
           {providers.map((provider) => {
-            const paystackProvider = provider.id === 'paystack'
-            const configured = paystackProvider && connection?.configured
+            const configured = connection?.configured
             return (
               <article key={provider.name}>
                 <div className={`provider-mark provider-mark--${provider.tone}`}>
@@ -454,16 +439,14 @@ export default function MoneyPage() {
                   className={configured ? 'is-connected' : undefined}
                   onClick={() =>
                     setNotice(
-                      paystackProvider
-                        ? configured
-                          ? `Paystack ${connection.mode} mode is configured server-side.`
-                          : 'Set PAYSTACK_SECRET_KEY on the server, then restart lancee.'
-                        : `${provider.name} remains a clearly labelled placeholder.`,
+                      configured
+                        ? `Paystack ${connection.mode} mode is configured server-side.`
+                        : 'Set PAYSTACK_SECRET_KEY on the server, then restart lancee.',
                     )
                   }
                 >
                   {configured ? <Icon name="check" /> : <Icon name="link" />}
-                  {configured ? 'Connected' : paystackProvider ? 'Setup details' : 'Preview'}
+                  {configured ? 'Connected' : 'Setup details'}
                 </button>
               </article>
             )
