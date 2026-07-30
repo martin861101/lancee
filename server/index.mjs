@@ -8,6 +8,7 @@ import {
 } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import express from 'express'
 import { openDatabase } from './database.mjs'
@@ -52,10 +53,17 @@ import {
   exchangeAuthorizationCode,
   getGoogleDriveConfig,
   GoogleDriveError,
+  convertDriveEditorContent,
+  fetchGoogleDriveFileContent,
+  getGoogleDriveFileMetadata,
   listGoogleDriveFiles,
+  loadGoogleDriveEditorDocument,
+  loadEditorDocumentFromBuffer,
   parseOAuthState,
   refreshGoogleAccessToken,
   tokenHasDriveFileScope,
+  updateGoogleDriveFileContent,
+  uploadGoogleDriveFile,
 } from './google-drive.mjs'
 
 function nowIso() {
@@ -1070,7 +1078,7 @@ app.use((_request, response, next) => {
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
     'Content-Security-Policy':
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+      "default-src 'self'; script-src 'self' https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; frame-src https://apis.google.com https://docs.google.com https://drive.google.com https://accounts.google.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
   })
   next()
 })
@@ -3406,14 +3414,105 @@ app.get('/api/projects', requireAuth, async (request, response) => {
   })
 })
 
+app.get('/api/clients', requireAuth, async (request, response) => {
+  response.json({
+    clients: await database.listClients(request.auth.context.workspace.id),
+  })
+})
+
+app.post('/api/clients', secureMutations, requireAuth, async (request, response) => {
+  const name = String(request.body?.name || '').trim()
+  const email = String(request.body?.email || '').trim().toLowerCase()
+  const company = String(request.body?.company || '').trim()
+  const notes = String(request.body?.notes || '').trim()
+  if (!name || name.length > 160) {
+    throw new HttpError(400, 'A client name is required and must be 160 characters or fewer.')
+  }
+  if (email.length > 254 || company.length > 160 || notes.length > 2000) {
+    throw new HttpError(400, 'One or more client fields are too long.')
+  }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new HttpError(400, 'Enter a valid client email address.')
+  }
+  const result = await executeIdempotentMutation({
+    request,
+    route: 'POST /api/clients',
+    input: { name, email, company, notes },
+    operation: async () => ({
+      status: 201,
+      response: await database.createClient({
+        workspaceId: request.auth.context.workspace.id,
+        name,
+        email,
+        company,
+        notes,
+      }),
+    }),
+  })
+  sendMutationResponse(response, result)
+})
+
+app.patch('/api/clients/:id', secureMutations, requireAuth, async (request, response) => {
+  const id = String(request.params.id || '')
+  if (!/^clt_[a-z0-9_-]{8,80}$/i.test(id)) {
+    throw new HttpError(400, 'A valid client id is required.')
+  }
+  const fields = {}
+  for (const key of ['name', 'email', 'company', 'status', 'notes']) {
+    if (Object.hasOwn(request.body || {}, key)) {
+      fields[key] = String(request.body[key] || '').trim()
+    }
+  }
+  if (fields.name === '' || (fields.name?.length || 0) > 160) {
+    throw new HttpError(400, 'Client names cannot be empty or longer than 160 characters.')
+  }
+  if (fields.status && !['active', 'archived'].includes(fields.status)) {
+    throw new HttpError(400, 'Select a valid client status.')
+  }
+  if ((fields.email?.length || 0) > 254 || (fields.company?.length || 0) > 160 || (fields.notes?.length || 0) > 2000) {
+    throw new HttpError(400, 'One or more client fields are too long.')
+  }
+  const updated = await database.updateClient(
+    request.auth.context.workspace.id,
+    id,
+    fields,
+  )
+  if (!updated) throw new HttpError(404, 'Client not found.')
+  response.json(updated)
+})
+
+app.delete('/api/clients/:id', secureMutations, requireAuth, async (request, response) => {
+  const id = String(request.params.id || '')
+  if (!/^clt_[a-z0-9_-]{8,80}$/i.test(id)) {
+    throw new HttpError(400, 'A valid client id is required.')
+  }
+  const deleted = await database.deleteClient(
+    request.auth.context.workspace.id,
+    id,
+  )
+  if (!deleted) throw new HttpError(404, 'Client not found.')
+  response.status(204).end()
+})
+
 app.post('/api/projects', secureMutations, requireAuth, async (request, response) => {
   const name = String(request.body?.name || '').trim()
   const client = String(request.body?.client || '').trim()
+  const clientId = String(request.body?.clientId || '').trim() || null
   const scope = String(request.body?.scope || 'New project · add deliverables').trim()
   const due = String(request.body?.due || 'Set date').trim()
   const status = String(request.body?.status || 'In progress').trim()
-  if (!name || name.length > 160 || !client || client.length > 160) {
+  if (!name || name.length > 160 || (!client && !clientId) || client.length > 160) {
     throw new HttpError(400, 'Project and client names are required and must be 160 characters or fewer.')
+  }
+  if (clientId && !/^clt_[a-z0-9_-]{8,80}$/i.test(clientId)) {
+    throw new HttpError(400, 'Select a valid client.')
+  }
+  if (
+    clientId &&
+    !(await database.listClients(request.auth.context.workspace.id))
+      .some((item) => item.id === clientId)
+  ) {
+    throw new HttpError(404, 'The selected client was not found.')
   }
   if (scope.length > 500 || due.length > 40) {
     throw new HttpError(400, 'Project scope or due date is too long.')
@@ -3424,12 +3523,13 @@ app.post('/api/projects', secureMutations, requireAuth, async (request, response
   const result = await executeIdempotentMutation({
     request,
     route: 'POST /api/projects',
-    input: { name, client, scope, due, status },
+    input: { name, clientId, client, scope, due, status },
     operation: async () => ({
       status: 201,
       response: await database.createProject({
         workspaceId: request.auth.context.workspace.id,
         name,
+        clientId,
         client,
         scope,
         due,
@@ -3447,7 +3547,7 @@ app.patch('/api/projects/:id', secureMutations, requireAuth, async (request, res
   }
   const allowedStatuses = new Set(['In progress', 'In review', 'Waiting on client', 'Ready'])
   const fields = {}
-  for (const key of ['status', 'name', 'client', 'scope', 'due']) {
+  for (const key of ['status', 'name', 'client', 'clientId', 'scope', 'due']) {
     if (Object.hasOwn(request.body || {}, key)) fields[key] = String(request.body[key] || '').trim()
   }
   if (Object.hasOwn(request.body || {}, 'boardId')) {
@@ -3457,6 +3557,16 @@ app.patch('/api/projects/:id', secureMutations, requireAuth, async (request, res
   }
   if (fields.status && !allowedStatuses.has(fields.status)) {
     throw new HttpError(400, 'Select a valid project status.')
+  }
+  if (fields.clientId && !/^clt_[a-z0-9_-]{8,80}$/i.test(fields.clientId)) {
+    throw new HttpError(400, 'Select a valid client.')
+  }
+  if (
+    fields.clientId &&
+    !(await database.listClients(request.auth.context.workspace.id))
+      .some((item) => item.id === fields.clientId)
+  ) {
+    throw new HttpError(404, 'The selected client was not found.')
   }
   if (fields.name === '' || fields.client === '') {
     throw new HttpError(400, 'Project and client names cannot be empty.')
@@ -3726,13 +3836,378 @@ async function resolveGoogleDriveAccessToken(workspaceId) {
   }
 }
 
+function googleDriveFileId(request) {
+  const fileId = String(request.params?.fileId || '').trim()
+  if (!/^[A-Za-z0-9_-]{3,200}$/.test(fileId)) {
+    throw new HttpError(400, 'A valid Google Drive file ID is required.')
+  }
+  return fileId
+}
+
+const supportedWorkspaceDocument = (mimeType, name) => {
+  const normalized = String(mimeType || '').toLowerCase()
+  const lowerName = String(name || '').toLowerCase()
+  return (
+    normalized === 'application/pdf' ||
+    normalized === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    normalized === 'application/msword' ||
+    normalized === 'text/markdown' ||
+    normalized === 'text/x-markdown' ||
+    normalized === 'text/plain' ||
+    normalized.startsWith('image/') ||
+    lowerName.endsWith('.pdf') ||
+    lowerName.endsWith('.doc') ||
+    lowerName.endsWith('.docx') ||
+    lowerName.endsWith('.md') ||
+    lowerName.endsWith('.markdown') ||
+    lowerName.endsWith('.txt')
+  )
+}
+
+app.get('/api/documents', requireAuth, async (request, response) => {
+  response.json({
+    documents: await database.listWorkspaceDocuments(
+      request.auth.context.workspace.id,
+    ),
+  })
+})
+
+app.post(
+  '/api/documents',
+  secureMutations,
+  requireAuth,
+  express.raw({ type: 'application/octet-stream', limit: '10mb' }),
+  async (request, response) => {
+    let name
+    try {
+      name = decodeURIComponent(String(request.get('X-File-Name') || '')).trim()
+    } catch {
+      throw new HttpError(400, 'The document name is invalid.')
+    }
+    let mimeType = String(request.get('X-File-Type') || 'application/octet-stream')
+      .trim()
+      .toLowerCase()
+    const destination = String(request.get('X-File-Destination') || 'local')
+      .trim()
+      .toLowerCase()
+    const folderId = String(request.get('X-Drive-Folder-Id') || '').trim() || null
+    if (
+      !name ||
+      name.length > 240 ||
+      name.includes('/') ||
+      name.includes('\\') ||
+      name.includes('\0')
+    ) {
+      throw new HttpError(400, 'Enter a valid document name.')
+    }
+    if (!['local', 'drive', 'both'].includes(destination)) {
+      throw new HttpError(400, 'Select a valid upload destination.')
+    }
+    if (folderId && !/^[A-Za-z0-9_-]{3,200}$/.test(folderId)) {
+      throw new HttpError(400, 'A valid Google Drive folder ID is required.')
+    }
+    if (!Buffer.isBuffer(request.body) || request.body.byteLength === 0) {
+      throw new HttpError(400, 'Choose a non-empty document to upload.')
+    }
+    if (!supportedWorkspaceDocument(mimeType, name)) {
+      throw new HttpError(
+        415,
+        'Upload a PDF, DOC, DOCX, Markdown, text, or image file.',
+      )
+    }
+    if (mimeType === 'application/octet-stream') {
+      const lowerName = name.toLowerCase()
+      if (lowerName.endsWith('.pdf')) mimeType = 'application/pdf'
+      else if (lowerName.endsWith('.docx')) {
+        mimeType =
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      } else if (lowerName.endsWith('.doc')) mimeType = 'application/msword'
+      else if (lowerName.endsWith('.md') || lowerName.endsWith('.markdown')) {
+        mimeType = 'text/markdown'
+      } else if (lowerName.endsWith('.txt')) mimeType = 'text/plain'
+    }
+
+    const selectedWorkspaceId = request.auth.context.workspace.id
+    let document = null
+    let driveFile = null
+    if (destination === 'local' || destination === 'both') {
+      document = await database.createWorkspaceDocument({
+        workspaceId: selectedWorkspaceId,
+        name,
+        mimeType,
+        body: request.body,
+      })
+    }
+    if (destination === 'drive' || destination === 'both') {
+      const accessToken = await resolveGoogleDriveAccessToken(selectedWorkspaceId)
+      driveFile = await uploadGoogleDriveFile({
+        accessToken,
+        name,
+        body: request.body,
+        contentType: mimeType,
+        folderId,
+      })
+      if (document) {
+        document = await database.markWorkspaceDocumentSynced(
+          selectedWorkspaceId,
+          document.id,
+          driveFile,
+        )
+      }
+    }
+    response.status(201).json({ document, driveFile })
+  },
+)
+
+app.get('/api/documents/:id/download', requireAuth, async (request, response) => {
+  const document = await database.getWorkspaceDocument(
+    request.auth.context.workspace.id,
+    request.params.id,
+  )
+  if (!document) throw new HttpError(404, 'Document not found.')
+  response.set({
+    'Cache-Control': 'private, no-store',
+    'Content-Type': document.mimeType,
+    'Content-Length': String(document.size),
+    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(document.name)}`,
+  })
+  response.send(document.body)
+})
+
+app.get('/api/documents/:id/content', requireAuth, async (request, response) => {
+  const document = await database.getWorkspaceDocument(
+    request.auth.context.workspace.id,
+    request.params.id,
+  )
+  if (!document) throw new HttpError(404, 'Document not found.')
+  const previewable =
+    document.mimeType === 'application/pdf' ||
+    document.mimeType.startsWith('image/')
+  if (!previewable) {
+    throw new HttpError(415, 'This document type opens in the lancee editor.')
+  }
+  response.set({
+    'Cache-Control': 'private, no-store',
+    'Content-Type': document.mimeType,
+    'Content-Length': String(document.size),
+    'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(document.name)}`,
+    'X-Frame-Options': 'SAMEORIGIN',
+    'Content-Security-Policy':
+      "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox",
+  })
+  response.send(document.body)
+})
+
+app.get('/api/documents/:id/editor', requireAuth, async (request, response) => {
+  const document = await database.getWorkspaceDocument(
+    request.auth.context.workspace.id,
+    request.params.id,
+  )
+  if (!document) throw new HttpError(404, 'Document not found.')
+  const editorDocument = await loadEditorDocumentFromBuffer({
+    file: {
+      id: document.id,
+      name: document.name,
+      mimeType: document.mimeType,
+      webViewLink: null,
+      modifiedTime: document.updatedAt,
+      version: document.sha256,
+      size: document.size,
+      canEdit: true,
+      canDownload: true,
+      canListChildren: false,
+    },
+    body: document.body,
+  })
+  response.json({ document: editorDocument })
+})
+
+app.put(
+  '/api/documents/:id/content',
+  secureMutations,
+  requireAuth,
+  express.text({
+    type: ['text/html', 'text/markdown', 'text/x-markdown'],
+    limit: '5mb',
+  }),
+  async (request, response) => {
+    const selectedWorkspaceId = request.auth.context.workspace.id
+    const document = await database.getWorkspaceDocument(
+      selectedWorkspaceId,
+      request.params.id,
+    )
+    if (!document) throw new HttpError(404, 'Document not found.')
+    const expectedVersion = String(request.get('X-Document-Version') || '').trim()
+    if (expectedVersion && expectedVersion !== document.sha256) {
+      throw new HttpError(
+        409,
+        'This document changed after it was opened. Reload it before saving.',
+      )
+    }
+    const converted = await convertDriveEditorContent({
+      file: document,
+      content: request.body,
+    })
+    const updated = await database.updateWorkspaceDocumentContent(
+      selectedWorkspaceId,
+      document.id,
+      {
+        body: converted.body,
+        mimeType: document.mimeType,
+      },
+    )
+    response.json({
+      file: {
+        id: updated.id,
+        name: updated.name,
+        mimeType: updated.mimeType,
+        webViewLink: null,
+        modifiedTime: updated.updatedAt,
+        version: updated.sha256,
+        size: updated.size,
+        canEdit: true,
+        canDownload: true,
+        canListChildren: false,
+      },
+    })
+  },
+)
+
+app.post('/api/documents/:id/sync-drive', secureMutations, requireAuth, async (request, response) => {
+  const selectedWorkspaceId = request.auth.context.workspace.id
+  const document = await database.getWorkspaceDocument(
+    selectedWorkspaceId,
+    request.params.id,
+  )
+  if (!document) throw new HttpError(404, 'Document not found.')
+  if (document.driveFileId) {
+    response.json({
+      document,
+      driveFile: {
+        id: document.driveFileId,
+        name: document.name,
+        mimeType: document.mimeType,
+        webViewLink: document.driveWebViewLink,
+      },
+    })
+    return
+  }
+  const folderId = String(request.body?.folderId || '').trim() || null
+  if (folderId && !/^[A-Za-z0-9_-]{3,200}$/.test(folderId)) {
+    throw new HttpError(400, 'A valid Google Drive folder ID is required.')
+  }
+  const accessToken = await resolveGoogleDriveAccessToken(selectedWorkspaceId)
+  const driveFile = await uploadGoogleDriveFile({
+    accessToken,
+    name: document.name,
+    body: document.body,
+    contentType: document.mimeType,
+    folderId,
+  })
+  const updated = await database.markWorkspaceDocumentSynced(
+    selectedWorkspaceId,
+    document.id,
+    driveFile,
+  )
+  response.json({ document: updated, driveFile })
+})
+
+app.delete('/api/documents/:id', secureMutations, requireAuth, async (request, response) => {
+  await database.deleteWorkspaceDocument(
+    request.auth.context.workspace.id,
+    request.params.id,
+  )
+  response.status(204).end()
+})
+
+app.get('/api/google-drive/resource-links', requireAuth, async (request, response) => {
+  response.json({
+    links: await database.listDriveResourceLinks(
+      request.auth.context.workspace.id,
+      {
+        clientId: String(request.query?.clientId || '').trim() || undefined,
+        projectId: String(request.query?.projectId || '').trim() || undefined,
+      },
+    ),
+  })
+})
+
+app.post('/api/google-drive/resource-links', secureMutations, requireAuth, async (request, response) => {
+  const driveFileId = String(request.body?.driveFileId || '').trim()
+  const name = String(request.body?.name || '').trim()
+  const mimeType = String(request.body?.mimeType || '').trim()
+  const webViewLink = String(request.body?.webViewLink || '').trim() || null
+  const resourceKind = String(request.body?.resourceKind || '').trim()
+  const clientId = String(request.body?.clientId || '').trim() || null
+  const projectId = String(request.body?.projectId || '').trim() || null
+  if (!/^[A-Za-z0-9_-]{3,200}$/.test(driveFileId) || !name || name.length > 240) {
+    throw new HttpError(400, 'A valid Google Drive resource is required.')
+  }
+  if (!['folder', 'file'].includes(resourceKind) || (!clientId && !projectId)) {
+    throw new HttpError(400, 'Choose a client or project for this Drive resource.')
+  }
+  if (webViewLink) {
+    let parsedDriveUrl
+    try {
+      parsedDriveUrl = new URL(webViewLink)
+    } catch {
+      throw new HttpError(400, 'The Google Drive view link is invalid.')
+    }
+    if (
+      parsedDriveUrl.protocol !== 'https:' ||
+      !['drive.google.com', 'docs.google.com'].includes(parsedDriveUrl.hostname) ||
+      webViewLink.length > 2048
+    ) {
+      throw new HttpError(400, 'The view link must be a secure Google Drive URL.')
+    }
+  }
+  const link = await database.createDriveResourceLink({
+    workspaceId: request.auth.context.workspace.id,
+    driveFileId,
+    name,
+    mimeType: mimeType || 'application/octet-stream',
+    webViewLink,
+    resourceKind,
+    clientId,
+    projectId,
+  })
+  if (!link) throw new HttpError(404, 'The selected client or project was not found.')
+  response.status(201).json({ link })
+})
+
+app.delete('/api/google-drive/resource-links/:id', secureMutations, requireAuth, async (request, response) => {
+  await database.deleteDriveResourceLink(
+    request.auth.context.workspace.id,
+    request.params.id,
+  )
+  response.status(204).end()
+})
+
 app.get('/api/google-drive/status', requireAuth, async (request, response) => {
   response.set('Cache-Control', 'no-store')
   const token = await database.getGoogleDriveToken(request.auth.context.workspace.id)
   response.json({
     ...driveStatusResponse(token),
     configured: googleDrive.configured,
+    pickerConfigured: googleDrive.pickerConfigured,
     scope: token?.scope || googleDrive.scope,
+  })
+})
+
+app.get('/api/google-drive/picker-config', requireAuth, async (request, response) => {
+  response.set('Cache-Control', 'private, no-store')
+  if (!googleDrive.pickerConfigured) {
+    throw new HttpError(
+      503,
+      'Google Picker requires GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID.',
+    )
+  }
+  response.json({
+    accessToken: await resolveGoogleDriveAccessToken(
+      request.auth.context.workspace.id,
+    ),
+    developerKey: googleDrive.pickerApiKey,
+    appId: googleDrive.pickerAppId,
   })
 })
 
@@ -3917,10 +4392,21 @@ app.get('/api/google-drive/files', requireAuth, async (request, response) => {
     const accessToken = await resolveGoogleDriveAccessToken(workspaceId)
     const pageSize = Number.parseInt(String(request.query?.pageSize || '25'), 10)
     const pageToken = String(request.query?.pageToken || '').trim() || null
+    const folderId = String(request.query?.folderId || '').trim() || null
+    if (folderId && !/^[A-Za-z0-9_-]{3,200}$/.test(folderId)) {
+      throw new HttpError(400, 'A valid Google Drive folder ID is required.')
+    }
+    if (folderId) {
+      const folder = await getGoogleDriveFileMetadata({ accessToken, fileId: folderId })
+      if (folder.mimeType !== 'application/vnd.google-apps.folder') {
+        throw new HttpError(400, 'The selected Google Drive item is not a folder.')
+      }
+    }
     const result = await listGoogleDriveFiles({
       accessToken,
       pageSize,
       pageToken,
+      folderId,
     })
     response.json(result)
   } catch (error) {
@@ -3935,6 +4421,136 @@ app.get('/api/google-drive/files', requireAuth, async (request, response) => {
     response.status(500).json({ error: 'Unable to load Google Drive files.' })
   }
 })
+
+app.get(
+  '/api/google-drive/files/:fileId/editor',
+  requireAuth,
+  async (request, response) => {
+    response.set('Cache-Control', 'no-store')
+    const fileId = googleDriveFileId(request)
+    const accessToken = await resolveGoogleDriveAccessToken(
+      request.auth.context.workspace.id,
+    )
+    const file = await getGoogleDriveFileMetadata({ accessToken, fileId })
+    const document = await loadGoogleDriveEditorDocument({
+      accessToken,
+      file,
+    })
+    response.json({ document })
+  },
+)
+
+app.get(
+  '/api/google-drive/files/:fileId/content',
+  requireAuth,
+  async (request, response) => {
+    const fileId = googleDriveFileId(request)
+    const accessToken = await resolveGoogleDriveAccessToken(
+      request.auth.context.workspace.id,
+    )
+    const file = await getGoogleDriveFileMetadata({ accessToken, fileId })
+    const previewable =
+      file.mimeType === 'application/pdf' || file.mimeType.startsWith('image/')
+    if (!previewable || !file.canDownload) {
+      throw new GoogleDriveError(
+        'DRIVE_FILE_NOT_PREVIEWABLE',
+        'This file is not available as an in-app preview.',
+        415,
+      )
+    }
+    const requestedRange = String(request.get('Range') || '').trim()
+    const range = /^bytes=\d*-\d*$/.test(requestedRange)
+      ? requestedRange
+      : null
+    const content = await fetchGoogleDriveFileContent({
+      accessToken,
+      fileId,
+      range,
+    })
+    response.status(content.status)
+    response.set({
+      'Cache-Control': 'private, no-store',
+      'Content-Type': content.headers.get('content-type') || file.mimeType,
+      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+      'X-Frame-Options': 'SAMEORIGIN',
+      'Content-Security-Policy':
+        "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox",
+    })
+    for (const header of ['accept-ranges', 'content-length', 'content-range']) {
+      const value = content.headers.get(header)
+      if (value) response.set(header, value)
+    }
+    if (!content.body) {
+      response.end()
+      return
+    }
+    Readable.fromWeb(content.body).pipe(response)
+  },
+)
+
+app.put(
+  '/api/google-drive/files/:fileId/content',
+  secureMutations,
+  requireAuth,
+  express.text({
+    type: ['text/html', 'text/markdown', 'text/x-markdown'],
+    limit: '5mb',
+  }),
+  async (request, response) => {
+    const fileId = googleDriveFileId(request)
+    if (typeof request.body !== 'string') {
+      throw new HttpError(
+        415,
+        'Editable Drive content must be sent as HTML or Markdown.',
+      )
+    }
+    const accessToken = await resolveGoogleDriveAccessToken(
+      request.auth.context.workspace.id,
+    )
+    const file = await getGoogleDriveFileMetadata({ accessToken, fileId })
+    if (!file.canEdit) {
+      throw new GoogleDriveError(
+        'DRIVE_FILE_READ_ONLY',
+        'Google Drive reports that this file is read-only.',
+        403,
+      )
+    }
+    const expectedVersion = String(request.get('X-Drive-Version') || '').trim()
+    if (expectedVersion && file.version && expectedVersion !== file.version) {
+      throw new GoogleDriveError(
+        'DRIVE_FILE_CONFLICT',
+        'This file changed in Google Drive after it was opened. Reload it before saving.',
+        409,
+      )
+    }
+    const converted = await convertDriveEditorContent({
+      file,
+      content: request.body,
+    })
+    const result = await executeIdempotentMutation({
+      request,
+      route: 'PUT /api/google-drive/files/:fileId/content',
+      input: {
+        fileId,
+        expectedVersion: expectedVersion || null,
+        contentHash: hashSecret(request.body),
+      },
+      operation: async () => ({
+        status: 200,
+        response: {
+          file: await updateGoogleDriveFileContent({
+            accessToken,
+            fileId,
+            body: converted.body,
+            contentType: converted.contentType,
+            etag: file.etag,
+          }),
+        },
+      }),
+    })
+    sendMutationResponse(response, result)
+  },
+)
 
 app.post(
   '/api/google-drive/disconnect',
@@ -4111,6 +4727,24 @@ app.post(
   },
 )
 
+app.delete(
+  '/api/automations/:id',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const id = String(request.params.id || '')
+    if (!/^aut_[a-z0-9_-]{3,80}$/i.test(id)) {
+      throw new HttpError(400, 'A valid automation id is required.')
+    }
+    const deleted = await database.deleteAutomation(
+      request.auth.context.workspace.id,
+      id,
+    )
+    if (!deleted) throw new HttpError(404, 'Automation not found.')
+    response.status(204).end()
+  },
+)
+
 app.get('/api/automations/runs', requireAuth, async (request, response) => {
   response.json({
     runs: await database.listAutomationRuns(request.auth.context.workspace.id),
@@ -4246,6 +4880,17 @@ app.use((error, _request, response, _next) => {
       error: error.message,
       code: error.code,
     })
+    return
+  }
+  if (error instanceof GoogleDriveError) {
+    response.status(error.status || 502).json({
+      error: error.message,
+      code: error.code,
+    })
+    return
+  }
+  if (error?.type === 'entity.too.large') {
+    response.status(413).json({ error: 'Document content exceeds the 5 MB editor limit.' })
     return
   }
   if (error?.type === 'entity.parse.failed') {

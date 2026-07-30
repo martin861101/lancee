@@ -563,6 +563,7 @@ automation secrets should remain server-side.
 | n8n callback returns `401` | Timestamp, nonce, canonical path/body, and HMAC | Sign the exact transmitted bytes and keep clocks within five minutes |
 | n8n callback returns `409` | Nonce reuse | Generate a new random nonce for every request |
 | Installed app has no offline shell | First production load and service-worker state | Load once online over HTTPS, then confirm the worker is active before disconnecting |
+| An Ideas canvas is missing on another device | Canvas persistence scope | Excalidraw documents currently persist in IndexedDB per browser; board names alone are server-backed |
 | Idea note stays queued after reconnect | Network and authenticated session | Sign in again if the session expired; the stable queued mutation will then retry |
 | Idea note says `Needs review` | Server version shown on the card | Choose **Use server** or deliberately resubmit with **Keep mine** |
 | Public URL returns `502` | PM2 status and listener | Confirm the process is online and listening on `0.0.0.0:5177` |

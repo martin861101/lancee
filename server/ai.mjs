@@ -8,6 +8,13 @@ function normalizedEndpoint(value) {
   return value.replace(/\/+$/, '')
 }
 
+function hermesCompletionEndpoint(value) {
+  const baseUrl = normalizedEndpoint(value)
+  if (baseUrl.endsWith('/chat/completions')) return baseUrl
+  if (baseUrl.endsWith('/v1')) return `${baseUrl}/chat/completions`
+  return `${baseUrl}/v1/chat/completions`
+}
+
 function validateMessages(messages) {
   if (!Array.isArray(messages) || messages.length === 0 || messages.length > 50) {
     throw new AiError('AI_INVALID_MESSAGES', 'Provide between 1 and 50 messages.', 400)
@@ -27,19 +34,31 @@ function validateMessages(messages) {
 }
 
 function getAiConfig() {
-  const provider = (process.env.AI_PROVIDER || 'openai').trim().toLowerCase()
-  const apiKey = (process.env.AI_API_KEY || '').trim()
+  const provider = (
+    process.env.AI_PROVIDER ||
+    (process.env.HERMES_API_URL ? 'hermes' : 'openai')
+  ).trim().toLowerCase()
+  const apiKey = (
+    provider === 'hermes'
+      ? process.env.HERMESW_API_KEY
+      : process.env.AI_API_KEY
+  || '').trim()
   const defaultModels = {
     openai: 'gpt-4o-mini',
     anthropic: 'claude-3-5-haiku-latest',
     gemini: 'gemini-2.0-flash',
+    hermes: 'hermes-agent',
   }
   const model = (process.env.AI_MODEL || defaultModels[provider] || '').trim()
   const maxTokens = Number.parseInt(process.env.AI_MAX_TOKENS || '2048', 10)
   const temperature = Number.parseFloat(process.env.AI_TEMPERATURE || '0.3')
-  const endpointUrl = (process.env.AI_ENDPOINT_URL || '').trim()
+  const endpointUrl = (
+    provider === 'hermes'
+      ? process.env.HERMES_API_URL
+      : process.env.AI_ENDPOINT_URL
+  || '').trim()
   const timeoutMilliseconds = Number.parseInt(process.env.AI_TIMEOUT_MS || '30000', 10)
-  if (!['openai', 'anthropic', 'gemini'].includes(provider)) {
+  if (!['openai', 'anthropic', 'gemini', 'hermes'].includes(provider)) {
     return {
       configured: false,
       provider,
@@ -48,15 +67,18 @@ function getAiConfig() {
     }
   }
   return {
-    configured: Boolean(apiKey && model),
+    configured: Boolean(apiKey && model && (provider !== 'hermes' || endpointUrl)),
     provider,
     apiKey,
     model,
     maxTokens: Number.isFinite(maxTokens) ? Math.min(8192, Math.max(128, maxTokens)) : 2048,
     temperature: Number.isFinite(temperature) ? Math.min(2, Math.max(0, temperature)) : 0.3,
-    baseUrl: normalizedEndpoint(
-      endpointUrl || PROVIDER_ENDPOINTS[provider] || PROVIDER_ENDPOINTS.openai,
-    ),
+    baseUrl:
+      provider === 'hermes'
+        ? hermesCompletionEndpoint(endpointUrl)
+        : normalizedEndpoint(
+            endpointUrl || PROVIDER_ENDPOINTS[provider] || PROVIDER_ENDPOINTS.openai,
+          ),
     timeoutMilliseconds: Number.isFinite(timeoutMilliseconds)
       ? Math.min(120_000, Math.max(1_000, timeoutMilliseconds))
       : 30_000,

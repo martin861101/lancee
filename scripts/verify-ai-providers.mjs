@@ -7,6 +7,8 @@ const originalEnvironment = {
   apiKey: process.env.AI_API_KEY,
   model: process.env.AI_MODEL,
   endpoint: process.env.AI_ENDPOINT_URL,
+  hermesUrl: process.env.HERMES_API_URL,
+  hermesKey: process.env.HERMESW_API_KEY,
 }
 
 const calls = []
@@ -74,13 +76,26 @@ try {
   assert.equal(calls[2].body.contents[0].role, 'model')
   assert.equal(gemini.usage.totalTokens, 5)
 
+  process.env.AI_PROVIDER = 'hermes'
+  process.env.AI_MODEL = ''
+  process.env.HERMES_API_URL = 'https://hermes.example'
+  process.env.HERMESW_API_KEY = 'hermes-test-key'
+  const hermes = await completeChat({
+    systemPrompt: 'Manage this workspace.',
+    messages: [{ role: 'user', content: 'Summarize this client.' }],
+  })
+  assert.equal(hermes.content, 'OpenAI ready')
+  assert.equal(calls[3].url, 'https://hermes.example/v1/chat/completions')
+  assert.equal(calls[3].headers.Authorization, 'Bearer hermes-test-key')
+  assert.equal(calls[3].body.model, 'hermes-agent')
+
   await assert.rejects(
     completeChat({ messages: [] }),
     (error) => error.code === 'AI_INVALID_MESSAGES' && error.status === 400,
   )
 
   console.log(
-    'AI providers verified: OpenAI, Anthropic, and Gemini authentication, request formats, response parsing, usage, and validation.',
+    'AI providers verified: OpenAI, Anthropic, Gemini, and Hermes authentication, request formats, response parsing, usage, and validation.',
   )
 } finally {
   globalThis.fetch = originalFetch
@@ -92,4 +107,6 @@ try {
   restore('AI_API_KEY', originalEnvironment.apiKey)
   restore('AI_MODEL', originalEnvironment.model)
   restore('AI_ENDPOINT_URL', originalEnvironment.endpoint)
+  restore('HERMES_API_URL', originalEnvironment.hermesUrl)
+  restore('HERMESW_API_KEY', originalEnvironment.hermesKey)
 }

@@ -23,19 +23,31 @@ SMTP, production deployment, and troubleshooting, follow
   action.
 - **Home** — projects, deadlines, outstanding invoices, useful automations,
   recent activity, and one quick-task entry point.
-- **Work** — travel-aware client and project tracking, deadlines, progress,
-  deliverables, and authenticated project attachments with upload, download,
-  integrity checking, and deletion.
-- **Ideas** — a visual canvas with durable, versioned quick notes that remain
-  readable and editable offline, plus briefs, references, palettes, tasks, and
-  optional AI-assisted grouping.
+- **Clients** — a sidebar-accessible client directory with search, contact
+  details, status controls, project counts, confirmed deletion, and a focused
+  client workspace.
+- **Projects** — a searchable, filterable table of every client project with
+  status badges, due and created dates, ownership, pagination, quick actions,
+  Drive relationships, deliverables, and authenticated project attachments.
+  Selecting a project opens its full Kanban workspace with stage controls,
+  persistent drag-and-drop status movement, progress, deadline, owner, files,
+  external links, and Drive resources.
+- **Ideas** — an MIT-licensed Excalidraw workspace for freehand drawing,
+  shapes, arrows, text, images, embeddable content, reusable libraries, export,
+  and keyboard/touch editing. Named boards remain attached to the lancee
+  workspace and each canvas is restored locally between sessions.
+- **Files** — an expandable Google Drive folder tree with persistent links to
+  clients and projects, plus a lancee document library. Upload PDF, DOC/DOCX,
+  Markdown, text, and image files to lancee, Drive, or both; edit supported
+  documents in-app and sync local files to Drive later.
 - **Automations** — plain-language routines for repetitive work, schedules,
-  connected tools, and activity history.
+  connected tools, activity history, and confirmed deletion.
 - **Connections** — independent backend-managed Google Drive OAuth with
-  non-sensitive per-file access, encrypted workspace Paystack credentials,
-  signed n8n webhooks, and a separate MCP gateway limited to browser automation
-  and utility tools. Requests for additional business systems are persisted
-  without pretending an unsupported provider is connected.
+  non-sensitive per-file access through Google Picker, encrypted workspace
+  Paystack credentials, signed n8n webhooks, and a separate MCP gateway limited
+  to browser automation and utility tools. Requests for additional business
+  systems are persisted without pretending an unsupported provider is
+  connected.
 - **Codex Workspace** — an embedded Codex App Server connection with native
   OpenAI device login, isolated per-user auth state, sandboxed repository work,
   and streamed task output.
@@ -48,6 +60,24 @@ SMTP, production deployment, and troubleshooting, follow
 
 See [`docs/PRODUCT_VISION.md`](docs/PRODUCT_VISION.md) for the target user, product
 principles, information architecture, role of AI, and delivery roadmap.
+
+## Visual system
+
+The public landing page and authenticated dashboard share a dark navy visual
+system with a subtle monochrome grain texture, translucent glass surfaces, cool
+blue actions, and offset shadows. The landing narrative alternates that dark
+atmosphere with calm off-white feature bands. The grain follows the low-opacity
+soft-light overlay used by the Gold Dune page background without introducing
+gold or brown color into the navy palette. In the dashboard, it begins after
+the navigation sidebar so navigation stays clear while page content retains
+depth and contrast.
+
+The landing page uses native document scrolling so its hero and calls to action
+remain reliable across desktop and mobile browsers. Hero lines and section
+headings use one-time GSAP reveals, with all motion disabled when the visitor
+requests reduced motion. See
+[`docs/LANDING_MOTION.md`](docs/LANDING_MOTION.md) for configuration and
+maintenance notes.
 
 ## Authentication
 
@@ -194,18 +224,19 @@ Configuration, live boundaries, webhook setup, and deterministic verification ar
 
 The production build is installable as a PWA. Its service worker caches the
 application shell and static assets, but explicitly bypasses all API requests.
-The last workspace identity and Idea quick-note snapshots are stored in
-IndexedDB so an installed app can reopen a previously viewed board offline.
-
-Quick-note creates and edits are recorded locally before network I/O and retain
-stable idempotency keys. Reconnect flushes the queue. A stale version is never
-overwritten automatically: the Ideas canvas shows the server version and asks
-the user to choose **Use server** or **Keep mine**.
+The full Excalidraw document and its imported assets are stored in IndexedDB
+under a workspace-and-board-specific persistence key, so a previously opened
+canvas can be edited offline. Board names are still managed through the
+authenticated lancee API. Canvas documents are currently browser-local rather
+than shared across devices or collaborators.
 
 Payments, API-key operations, MCP access, n8n configuration/delivery, and other
 high-impact mutations remain online-only. See
 [`docs/OFFLINE_PWA.md`](docs/OFFLINE_PWA.md) for the exact cache, queue,
 security, and conflict boundaries.
+
+See [`docs/IDEAS_CANVAS.md`](docs/IDEAS_CANVAS.md) for the editor feature set,
+persistence boundary, licensing, and extension points.
 
 ## Backend status
 
@@ -219,6 +250,15 @@ keys, Paystack, n8n, MCP, SMTP, and AI.
 Unsupported providers are handled through persisted connection requests rather
 than fake connection toggles. Optional demo seeding is off unless
 `SEED_DEMO_DATA=true`.
+
+Client-first Work navigation, expandable Drive relationships, local document
+storage, in-app editing, and upload/sync behavior are documented in
+[`docs/CLIENT_FILE_WORKSPACES.md`](docs/CLIENT_FILE_WORKSPACES.md).
+
+To use an exposed Hermes Agent, set `HERMES_API_URL` and the requested
+`HERMESW_API_KEY` in the server environment. lancee uses Hermes’ OpenAI-compatible
+chat endpoint and defaults to the `hermes-agent` model. See
+[`docs/HERMES.md`](docs/HERMES.md).
 
 The improvement-plan review and sequencing rationale are documented in
 [`docs/IMPROVEMENT_PLAN_REVIEW.md`](docs/IMPROVEMENT_PLAN_REVIEW.md).
@@ -306,6 +346,7 @@ pnpm verify:ai
 pnpm verify:codex-connector
 pnpm verify:google-drive
 pnpm verify:workspace-flows
+pnpm verify:client-files
 # With DATABASE_URL or PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE:
 pnpm verify:postgres
 node --check server/index.mjs
@@ -316,7 +357,9 @@ node --check server/n8n.mjs
 node --check public/sw.js
 ```
 
-The application lint and production build complete without errors or warnings.
+The application lint and production build complete without errors. Because the
+full Ideas editor is lazy-loaded as an isolated route, Vite may report some of
+its feature-complete chunks as larger than the default advisory threshold.
 
 ## Production
 

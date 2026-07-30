@@ -14,10 +14,13 @@ details, and uses the normal idempotent mutation boundary.
 
 This keeps long-lived business credentials, webhooks, and data access in the
 application backend. Google Drive starts OAuth directly from its Connections
-card using the non-sensitive `drive.file` scope and the configured
-`/oauth/callback`; Paystack opens a workspace credential form; and n8n opens
-its signed webhook configuration. Generic connection toggles cannot
-manufacture a connected state.
+card using the non-sensitive `drive.file` scope, Google Picker, and the
+configured `/oauth/callback`. Only files and folders explicitly selected by
+the user are listed in lancee. The authenticated document workspace edits
+Google Docs, Markdown, and DOCX files in place, previews PDFs and images, and
+uses Drive version checks to prevent stale saves. Paystack opens a workspace
+credential form, and n8n opens its signed webhook configuration. Generic
+connection toggles cannot manufacture a connected state.
 
 MCP remains a separate automation-tool gateway. By default the server returns
 only `Browser` and `Utilities` categories from the live MCP catalog. Override

@@ -133,6 +133,18 @@ try {
     driveAuthorizationUrl.searchParams.get('include_granted_scopes'),
     'false',
   )
+  assert.equal(
+    driveAuthorizationUrl.searchParams.get('trigger_onepick'),
+    'true',
+  )
+  assert.equal(
+    driveAuthorizationUrl.searchParams.get('allow_multiple'),
+    'true',
+  )
+  assert.equal(
+    driveAuthorizationUrl.searchParams.get('allow_folder_selection'),
+    'true',
+  )
 
   const driveCallback = await fetch(
     `${application.origin}/oauth/callback?error=access_denied`,
@@ -227,6 +239,90 @@ try {
   assert.deepEqual(Buffer.from(await download.arrayBuffer()), fileContent)
   assert.match(download.headers.get('content-disposition'), /project brief\.txt/)
 
+  const projectMove = await sessionRequest(
+    application.origin,
+    cookie,
+    `/api/projects/${project.id}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'workspace-project-move-0001',
+      },
+      body: JSON.stringify({ status: 'In review' }),
+    },
+  )
+  assert.equal(projectMove.status, 200)
+  assert.equal((await projectMove.json()).status, 'In review')
+
+  const automationCreate = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/automations',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'workspace-automation-create-0001',
+      },
+      body: JSON.stringify({
+        name: 'Disposable verifier',
+        description: 'Checks confirmed automation deletion.',
+        model: 'Rules',
+      }),
+    },
+  )
+  assert.equal(automationCreate.status, 201)
+  const automation = await automationCreate.json()
+  const automationDelete = await sessionRequest(
+    application.origin,
+    cookie,
+    `/api/automations/${automation.id}`,
+    { method: 'DELETE' },
+  )
+  assert.equal(automationDelete.status, 204)
+  const automationList = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/automations',
+  )
+  assert.equal(automationList.status, 200)
+  assert.equal(
+    (await automationList.json()).automations.some(
+      (item) => item.id === automation.id,
+    ),
+    false,
+  )
+
+  const clientList = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/clients',
+  )
+  assert.equal(clientList.status, 200)
+  const client = (await clientList.json()).clients.find(
+    (item) => item.name === 'Example Client',
+  )
+  assert(client)
+  const clientDelete = await sessionRequest(
+    application.origin,
+    cookie,
+    `/api/clients/${client.id}`,
+    { method: 'DELETE' },
+  )
+  assert.equal(clientDelete.status, 204)
+  const projectList = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/projects',
+  )
+  assert.equal(projectList.status, 200)
+  assert.equal(
+    (await projectList.json()).projects.find((item) => item.id === project.id)
+      .clientId,
+    null,
+  )
+
   const paystackSecret = 'sk_test_workspaceflow123456789'
   const paystackConnect = await sessionRequest(
     application.origin,
@@ -297,7 +393,7 @@ try {
   assert.equal(removeFile.status, 204)
 
   console.log(
-    'Workspace flows verified: safe Google OAuth callback/scope, same-origin mutations, canonical settings, encrypted provider connection, and real project file upload/download.',
+    'Workspace flows verified: safe Google OAuth callback/scope, same-origin mutations, canonical settings, project status moves, confirmed client/automation deletion, encrypted provider connection, and real project file upload/download.',
   )
 } finally {
   await stopApplication(application)

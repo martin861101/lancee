@@ -4,10 +4,12 @@ import {
   useEffect,
   useEffectEvent,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type ReactNode,
 } from 'react'
+import gsap from 'gsap'
 import {
   api,
   type Automation,
@@ -39,12 +41,14 @@ import { IDEA_SYNC_REQUEST_EVENT } from './pwa'
 const IdeasCanvasPage = lazy(() => import('./components/IdeasCanvasPage'))
 const MoneyPage = lazy(() => import('./components/MoneyPage'))
 const WorkPage = lazy(() => import('./components/WorkPage'))
+const ClientsPage = lazy(() => import('./components/dashboard/ClientsPage'))
 const AnalyticsPage = lazy(() => import('./components/dashboard/AnalyticsPage'))
 const TeamPage = lazy(() => import('./components/dashboard/TeamPage'))
 const FilesPage = lazy(() => import('./components/dashboard/FilesPage'))
 
 type Page =
   | 'overview'
+  | 'clients'
   | 'work'
   | 'ideas'
   | 'automations'
@@ -58,6 +62,7 @@ type Page =
   | 'settings'
 const pageIds = new Set<Page>([
   'overview',
+  'clients',
   'work',
   'ideas',
   'automations',
@@ -122,7 +127,8 @@ type IconName =
 
 const navItems: { id: Page; label: string; icon: IconName; section: string }[] = [
   { id: 'overview', label: 'Home', icon: 'grid', section: 'Your work' },
-  { id: 'work', label: 'Work', icon: 'briefcase', section: 'Your work' },
+  { id: 'clients', label: 'Clients', icon: 'user', section: 'Your work' },
+  { id: 'work', label: 'Projects', icon: 'briefcase', section: 'Your work' },
   { id: 'ideas', label: 'Ideas', icon: 'lightbulb', section: 'Your work' },
   { id: 'files', label: 'Files', icon: 'file', section: 'Your work' },
   { id: 'automations', label: 'Automations', icon: 'activity', section: 'Business' },
@@ -719,12 +725,14 @@ function AutomationsPage({
   automations,
   busyId,
   onCreate,
+  onDelete,
   onToggle,
   onRun,
 }: {
   automations: Automation[]
   busyId: string | null
   onCreate: () => void
+  onDelete: (automation: Automation) => void
   onToggle: (automation: Automation) => void
   onRun: (automation: Automation) => void
 }) {
@@ -807,6 +815,16 @@ function AutomationsPage({
               </span>
               <div className="automation-card__actions">
                 <StatusPill status={automation.status} />
+                <button
+                  className="automation-delete"
+                  type="button"
+                  disabled={busyId === automation.id}
+                  onClick={() => onDelete(automation)}
+                  title={`Delete ${automation.name}`}
+                >
+                  <Icon name="trash" size={12} />
+                  Delete
+                </button>
               </div>
             </div>
             <div className="automation-card__body">
@@ -2409,9 +2427,228 @@ function SettingsPage({
   )
 }
 
-function LandingPage({ onSignIn }: { onSignIn: () => void }) {
+const GREEN = '#7fb944'
+
+function TermsPage({ onBack }: { onBack: () => void }) {
   return (
-    <main className="landing">
+    <main className="landing policy-page">
+      <header className="landing-nav">
+        <a className="landing-brand" href="#" onClick={onBack}>
+          <BrandMark />
+          <span>lancee</span>
+        </a>
+        <nav aria-label="Policy navigation">
+          <a href="#" onClick={onBack}>Back to home</a>
+        </nav>
+      </header>
+      <section className="policy-content">
+        <h1>Terms and Conditions</h1>
+        <p>Last updated: July 2026</p>
+        <h2>1. Acceptance of Terms</h2>
+        <p>By accessing or using lancee ("the Service"), you agree to be bound by these Terms and Conditions. If you do not agree, do not use the Service.</p>
+        <h2>2. Description of Service</h2>
+        <p>lancee provides a workspace platform for independent professionals to manage projects, ideas, automations, invoices, and payments.</p>
+        <h2>3. User Responsibilities</h2>
+        <p>You are responsible for maintaining the confidentiality of your account credentials and for all activities that occur under your account. You agree to use the Service in compliance with all applicable laws.</p>
+        <h2>4. Intellectual Property</h2>
+        <p>All content, trademarks, and intellectual property within the Service remain the property of lancee or its licensors. You may not reproduce, distribute, or create derivative works without explicit permission.</p>
+        <h2>5. Limitation of Liability</h2>
+        <p>lancee is provided "as is" without warranties of any kind. lancee shall not be liable for any damages arising from the use or inability to use the Service.</p>
+        <h2>6. Termination</h2>
+        <p>We reserve the right to suspend or terminate access to the Service at our discretion, without prior notice, for conduct that violates these Terms or is harmful to other users.</p>
+        <h2>7. Changes to Terms</h2>
+        <p>We may update these Terms from time to time. Continued use of the Service after changes constitutes acceptance of the new Terms.</p>
+        <h2>8. Contact</h2>
+        <p>For questions about these Terms, please contact us through the Service.</p>
+      </section>
+      <footer className="landing-footer policy-footer">
+        <small>© 2026 lancee All Rights Reserved</small>
+        <small>
+          Engineered by{" "}
+          <a href="https://hookitupservices.com" target="_blank" rel="noopener noreferrer" style={{ color: GREEN }}>
+            Hookitup Solutions
+          </a>
+        </small>
+      </footer>
+    </main>
+  )
+}
+
+function PrivacyPage({ onBack }: { onBack: () => void }) {
+  return (
+    <main className="landing policy-page">
+      <header className="landing-nav">
+        <a className="landing-brand" href="#" onClick={onBack}>
+          <BrandMark />
+          <span>lancee</span>
+        </a>
+        <nav aria-label="Policy navigation">
+          <a href="#" onClick={onBack}>Back to home</a>
+        </nav>
+      </header>
+      <section className="policy-content">
+        <h1>Privacy Policy</h1>
+        <p>Last updated: July 2026</p>
+        <h2>1. Information We Collect</h2>
+        <p>We collect information you provide when creating an account, including your name, email address, and workspace details. We also collect data about your usage of the Service.</p>
+        <h2>2. How We Use Your Information</h2>
+        <p>Your information is used to provide, maintain, and improve the Service; to process transactions; to communicate with you; and to ensure security and compliance.</p>
+        <h2>3. Data Storage and Security</h2>
+        <p>We implement industry-standard security measures including encryption at rest and in transit. Credentials are stored server-side and never exposed to clients.</p>
+        <h2>4. Third-Party Services</h2>
+        <p>The Service integrates with third-party tools you explicitly authorize. Data shared with these services is governed by their respective privacy policies.</p>
+        <h2>5. Data Retention</h2>
+        <p>We retain your data for as long as your account is active. Upon account deletion, data is permanently removed within 30 days.</p>
+        <h2>6. Your Rights</h2>
+        <p>You may access, update, or delete your personal data at any time through your account settings. You may also request a copy of your data.</p>
+        <h2>7. Cookies</h2>
+        <p>We use HTTP-only session cookies essential for authentication. No tracking cookies are used.</p>
+        <h2>8. Contact</h2>
+        <p>For privacy-related inquiries, please contact us through the Service.</p>
+      </section>
+      <footer className="landing-footer policy-footer">
+        <small>© 2026 lancee All Rights Reserved</small>
+        <small>
+          Engineered by{" "}
+          <a href="https://hookitupservices.com" target="_blank" rel="noopener noreferrer" style={{ color: GREEN }}>
+            Hookitup Solutions
+          </a>
+        </small>
+      </footer>
+    </main>
+  )
+}
+
+function RefundPage({ onBack }: { onBack: () => void }) {
+  return (
+    <main className="landing policy-page">
+      <header className="landing-nav">
+        <a className="landing-brand" href="#" onClick={onBack}>
+          <BrandMark />
+          <span>lancee</span>
+        </a>
+        <nav aria-label="Policy navigation">
+          <a href="#" onClick={onBack}>Back to home</a>
+        </nav>
+      </header>
+      <section className="policy-content">
+        <h1>Refund Policy</h1>
+        <p>Last updated: July 2026</p>
+        <h2>1. Subscription Billing</h2>
+        <p>lancee operates on a subscription billing model. Charges are processed through integrated payment providers (Stripe, PayPal, Paystack) and are subject to their terms.</p>
+        <h2>2. Refund Eligibility</h2>
+        <p>Refund requests are evaluated on a case-by-case basis. If you experience a technical issue that prevents normal use of the Service, we will work to resolve it promptly.</p>
+        <h2>3. Cancellation</h2>
+        <p>You may cancel your subscription at any time. Upon cancellation, access to paid features continues until the end of the current billing period.</p>
+        <h2>4. Disputes</h2>
+        <p>If you believe you have been billed incorrectly, please contact us within 14 days of the charge. We will investigate and correct any errors.</p>
+        <h2>5. Changes to This Policy</h2>
+        <p>We reserve the right to modify this Refund Policy. Users will be notified of material changes.</p>
+        <h2>6. Contact</h2>
+        <p>For refund requests or billing questions, please contact us through the Service.</p>
+      </section>
+      <footer className="landing-footer policy-footer">
+        <small>© 2026 lancee All Rights Reserved</small>
+        <small>
+          Engineered by{" "}
+          <a href="https://hookitupservices.com" target="_blank" rel="noopener noreferrer" style={{ color: GREEN }}>
+            Hookitup Solutions
+          </a>
+        </small>
+      </footer>
+    </main>
+  )
+}
+
+function LandingPage({ onSignIn }: { onSignIn: () => void }) {
+  const landingRef = useRef<HTMLElement>(null)
+  const [policyView, setPolicyView] = useState<'landing' | 'terms' | 'privacy' | 'refund'>('landing')
+
+  useEffect(() => {
+    const landing = landingRef.current
+    if (!landing || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return
+    }
+
+    const headings = Array.from(
+      landing.querySelectorAll<HTMLElement>(
+        '.landing-section h2, .landing-section h3, .landing-workflow h2, .landing-security h2, .landing-cta h2',
+      ),
+    )
+    const heroLines = Array.from(
+      landing.querySelectorAll<HTMLElement>('.landing-hero__title-line'),
+    )
+
+    gsap.set(headings, {
+      autoAlpha: 0,
+      y: 46,
+      filter: 'blur(10px)',
+      clipPath: 'inset(0 0 24% 0)',
+    })
+
+    const heroTimeline = gsap.timeline({ defaults: { ease: 'power4.out' } })
+    heroTimeline
+      .fromTo(
+        '.landing-hero .landing-eyebrow',
+        { autoAlpha: 0, y: 16 },
+        { autoAlpha: 1, y: 0, duration: 0.65 },
+      )
+      .fromTo(
+        heroLines,
+        { autoAlpha: 0, yPercent: 115, rotate: 1.5, filter: 'blur(12px)' },
+        {
+          autoAlpha: 1,
+          yPercent: 0,
+          rotate: 0,
+          filter: 'blur(0px)',
+          duration: 1.05,
+          stagger: 0.12,
+        },
+        '-=0.28',
+      )
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return
+          const heading = entry.target as HTMLElement
+          gsap.to(heading, {
+            autoAlpha: 1,
+            y: 0,
+            filter: 'blur(0px)',
+            clipPath: 'inset(0 0 0% 0)',
+            duration: 0.95,
+            ease: 'power4.out',
+            clearProps: 'transform,filter,clipPath,opacity,visibility',
+          })
+          observer.unobserve(heading)
+        })
+      },
+      {
+        threshold: 0.22,
+        rootMargin: '0px 0px -8% 0px',
+      },
+    )
+
+    headings.forEach((heading) => observer.observe(heading))
+
+    return () => {
+      observer.disconnect()
+      heroTimeline.kill()
+      gsap.killTweensOf([...headings, ...heroLines])
+      gsap.set([...headings, ...heroLines], { clearProps: 'all' })
+    }
+  }, [])
+
+if (policyView !== 'landing') {
+    const back = () => setPolicyView('landing')
+    if (policyView === 'terms') return <TermsPage onBack={back} />
+    if (policyView === 'privacy') return <PrivacyPage onBack={back} />
+    if (policyView === 'refund') return <RefundPage onBack={back} />
+  }
+
+  return (
+    <main ref={landingRef} className="landing">
       <header className="landing-nav">
         <a className="landing-brand" href="#top" aria-label="lancee home">
           <BrandMark />
@@ -2439,14 +2676,19 @@ function LandingPage({ onSignIn }: { onSignIn: () => void }) {
           <span className="landing-eyebrow">
             <i /> Your work · ideas · tools · money
           </span>
-          <h1>
-            Run your business.
-            <br />
-            <em>Keep your freedom.</em>
+          <h1 aria-label="Run your business. Keep your freedom.">
+            <span className="landing-hero__title-mask">
+              <span className="landing-hero__title-line">Run your business.</span>
+            </span>
+            <span className="landing-hero__title-mask">
+              <span className="landing-hero__title-line">
+                <em>Keep your freedom.</em>
+              </span>
+            </span>
           </h1>
           <p>
             One calm place for client work, ideas, useful automations, connected tools,
-            invoices, and payments—wherever you happen to be working.
+            invoices, and payments, wherever you happen to be working.
           </p>
           <div className="landing-hero__actions">
             <button className="button button--primary" onClick={onSignIn}>
@@ -2593,10 +2835,8 @@ function LandingPage({ onSignIn }: { onSignIn: () => void }) {
               <Icon name="wallet" size={20} />
             </span>
             <span className="landing-feature__number">03</span>
-            <h3>Finish the job and get paid</h3>
-            <p>
-              Turn approved work into a clear invoice and let clients pay through the
-              provider that works best for both of you.
+            <h3>Automated Workflows</h3>
+            <p>From client approvals, straight to secure payments, in one seamless workflow
             </p>
             <div className="feature-events">
               <span>
@@ -2687,10 +2927,9 @@ function LandingPage({ onSignIn }: { onSignIn: () => void }) {
       <section className="landing-section landing-integrations" id="integrations">
         <div className="landing-section__heading">
           <span className="landing-eyebrow">Keep the tools that already work</span>
-          <h2>Connect what you use. Ignore what you don’t.</h2>
+          <h2>Connect what you use. Ignore what you don't.</h2>
           <p>
-            Storage, design, communication, automation, and payment services meet in one
-            understandable workspace.
+            Storage, design, communication, automation, and payments all linked together. Where mobility meets productivity. Travel, work, earn.
           </p>
         </div>
         <div className="landing-integration-row">
@@ -2741,7 +2980,7 @@ function LandingPage({ onSignIn }: { onSignIn: () => void }) {
         </div>
         <div>
           <span className="landing-eyebrow">Security by design</span>
-          <h2>Your business stays yours.</h2>
+          <h2>Your business. Your way.</h2>
           <p>
             Credentials stay server-side, connections are explicitly activated, and
             automated actions remain visible and under your control.
@@ -2773,17 +3012,18 @@ function LandingPage({ onSignIn }: { onSignIn: () => void }) {
       </section>
 
       <footer className="landing-footer">
-        <a className="landing-brand" href="#top">
-          <BrandMark />
-          <span>lancee</span>
-        </a>
-        <p>Work freely. Stay organised. Get paid.</p>
-        <div>
-          <a href="#security">Security</a>
-          <a href="#integrations">Connections</a>
-          <button onClick={onSignIn}>Sign in</button>
+        <small>© 2026 lancee All Rights Reserved</small>
+        <div className="landing-footer__links">
+          <button onClick={() => setPolicyView('terms')}>Terms &amp; Conditions</button>
+          <button onClick={() => setPolicyView('privacy')}>Privacy Policy</button>
+          <button onClick={() => setPolicyView('refund')}>Refund Policy</button>
         </div>
-        <small>© 2026 Hookitup Solutions</small>
+        <small>
+          Engineered by{" "}
+          <a href="https://hookitupservices.com" target="_blank" rel="noopener noreferrer" style={{ color: GREEN }}>
+            Hookitup Solutions
+          </a>
+        </small>
       </footer>
     </main>
   )
@@ -4587,6 +4827,33 @@ function App() {
     }
   }
 
+  const deleteAutomation = async (automation: Automation) => {
+    if (
+      !window.confirm(
+        `Delete “${automation.name}”? Its run history will also be permanently removed.`,
+      )
+    ) return
+    setBusyId(automation.id)
+    try {
+      await api.automations.remove(automation.id)
+      const remaining = automations.filter((item) => item.id !== automation.id)
+      setAutomations(remaining)
+      setRuns((current) =>
+        current.filter((run) => run.automationId !== automation.id),
+      )
+      setSelectedAutomation((current) =>
+        current === automation.id ? (remaining[0]?.id || '') : current,
+      )
+      setToast(`${automation.name} was deleted`)
+    } catch (error) {
+      setToast(
+        error instanceof Error ? error.message : 'Unable to delete automation.',
+      )
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const runAutomation = (automation: Automation) => {
     setSelectedAutomation(automation.id)
     setPrompt(`Run ${automation.name} with its default workflow`)
@@ -4854,8 +5121,16 @@ function App() {
           <Suspense fallback={<EmptySkeleton />}>
             <WorkPage
               onToast={setToast}
-              onOpenSettings={() => setActivePage('settings')}
+              ownerName={user.name}
+              ownerInitials={user.initials}
             />
+          </Suspense>
+        )
+        break
+      case 'clients':
+        page = (
+          <Suspense fallback={<EmptySkeleton />}>
+            <ClientsPage onToast={setToast} />
           </Suspense>
         )
         break
@@ -4872,6 +5147,7 @@ function App() {
             automations={automations}
             busyId={busyId}
             onCreate={() => setModal('automation')}
+            onDelete={deleteAutomation}
             onToggle={toggleAutomation}
             onRun={runAutomation}
           />

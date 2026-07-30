@@ -616,9 +616,22 @@ export async function openDatabase({
       error_code TEXT,
       completed_at TEXT
     )`,
+    `CREATE TABLE IF NOT EXISTS clients (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL DEFAULT '',
+      company TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, name)
+    )`,
     `CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      client_id TEXT REFERENCES clients(id) ON DELETE SET NULL,
       name TEXT NOT NULL,
       client TEXT NOT NULL,
       scope TEXT NOT NULL,
@@ -629,6 +642,7 @@ export async function openDatabase({
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS client_id TEXT REFERENCES clients(id) ON DELETE SET NULL`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS board_id TEXT`,
     `CREATE TABLE IF NOT EXISTS project_links (
       id TEXT PRIMARY KEY,
@@ -652,6 +666,34 @@ export async function openDatabase({
     )`,
     `ALTER TABLE project_files ADD COLUMN IF NOT EXISTS content_base64 TEXT`,
     `ALTER TABLE project_files ADD COLUMN IF NOT EXISTS content_sha256 TEXT`,
+    `CREATE TABLE IF NOT EXISTS google_drive_resource_links (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      drive_file_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      web_view_link TEXT,
+      resource_kind TEXT NOT NULL CHECK (resource_kind IN ('folder', 'file')),
+      client_id TEXT REFERENCES clients(id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (client_id IS NOT NULL OR project_id IS NOT NULL)
+    )`,
+    `CREATE TABLE IF NOT EXISTS workspace_documents (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+      size INTEGER NOT NULL DEFAULT 0,
+      content_base64 TEXT NOT NULL,
+      content_sha256 TEXT NOT NULL,
+      drive_file_id TEXT,
+      drive_web_view_link TEXT,
+      synced_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS workspace_cloud_links (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -674,6 +716,12 @@ export async function openDatabase({
       ON automation_runs (workspace_id, started_at)`,
     `CREATE INDEX IF NOT EXISTS idx_projects_workspace_status
       ON projects (workspace_id, status)`,
+    `CREATE INDEX IF NOT EXISTS idx_clients_workspace_name
+      ON clients (workspace_id, name)`,
+    `CREATE INDEX IF NOT EXISTS idx_drive_resource_links_client
+      ON google_drive_resource_links (workspace_id, client_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_drive_resource_links_project
+      ON google_drive_resource_links (workspace_id, project_id)`,
     `CREATE INDEX IF NOT EXISTS idx_invoices_workspace_status
       ON invoices (workspace_id, status)`,
     `CREATE INDEX IF NOT EXISTS idx_idempotency_expiry
@@ -905,6 +953,70 @@ export async function openDatabase({
   }
 
   await dumpAllTables()
+  }
+
+  // Preserve legacy projects that stored only a client name by promoting those
+  // names to first-class client records and linking the project automatically.
+  const legacyProjectClients = await query(
+    `SELECT DISTINCT workspace_id, client
+     FROM projects
+     WHERE client_id IS NULL AND TRIM(client) <> ''`,
+  )
+  for (const legacy of legacyProjectClients) {
+    const clientId = stableId(
+      'clt',
+      `${legacy.workspace_id}:${String(legacy.client).trim().toLowerCase()}`,
+    )
+    const timestamp = nowIso()
+    await query(
+      `INSERT INTO clients (
+         id, workspace_id, name, email, company, status, notes, created_at, updated_at
+       ) VALUES ($1, $2, $3, '', '', 'active', '', $4, $5)
+       ON CONFLICT(id) DO NOTHING`,
+      [clientId, legacy.workspace_id, String(legacy.client).trim(), timestamp, timestamp],
+    )
+    await query(
+      `UPDATE projects
+       SET client_id = $1
+       WHERE workspace_id = $2 AND client_id IS NULL AND LOWER(client) = LOWER($3)`,
+      [clientId, legacy.workspace_id, String(legacy.client).trim()],
+    )
+  }
+
+  async function getClientById(selectedWorkspaceId, clientId) {
+    const rows = await query(
+      `SELECT * FROM clients WHERE workspace_id = $1 AND id = $2`,
+      [selectedWorkspaceId, clientId],
+    )
+    return rows[0] || null
+  }
+
+  async function ensureClient({ selectedWorkspaceId, clientId, name }) {
+    if (clientId) {
+      const existing = await getClientById(selectedWorkspaceId, clientId)
+      if (existing) return existing
+    }
+    const normalizedName = String(name || '').trim()
+    const matches = await query(
+      `SELECT * FROM clients
+       WHERE workspace_id = $1 AND LOWER(name) = LOWER($2)
+       LIMIT 1`,
+      [selectedWorkspaceId, normalizedName],
+    )
+    if (matches[0]) return matches[0]
+    const timestamp = nowIso()
+    const id = stableId(
+      'clt',
+      `${selectedWorkspaceId}:${normalizedName.toLowerCase()}`,
+    )
+    await query(
+      `INSERT INTO clients (
+         id, workspace_id, name, email, company, status, notes, created_at, updated_at
+       ) VALUES ($1, $2, $3, '', '', 'active', '', $4, $5)
+       ON CONFLICT(id) DO NOTHING`,
+      [id, selectedWorkspaceId, normalizedName, timestamp, timestamp],
+    )
+    return await getClientById(selectedWorkspaceId, id)
   }
 
   return {
@@ -2037,6 +2149,16 @@ export async function openDatabase({
       return await this.getAutomation(selectedWorkspaceId, id)
     },
 
+    async deleteAutomation(selectedWorkspaceId, id) {
+      const rows = await query(
+        `DELETE FROM automations
+         WHERE workspace_id = $1 AND id = $2
+         RETURNING id`,
+        [selectedWorkspaceId, id],
+      )
+      return rows.length > 0
+    },
+
     async listAutomationRuns(selectedWorkspaceId) {
       const rows = await query(
         `SELECT automation_runs.id, automation_runs.automation_id, automations.name AS automation_name,
@@ -2388,9 +2510,125 @@ export async function openDatabase({
       }))
     },
 
+    async listClients(selectedWorkspaceId) {
+      const rows = await query(
+        `SELECT
+           clients.*,
+           COUNT(projects.id) AS project_count
+         FROM clients
+         LEFT JOIN projects
+           ON projects.client_id = clients.id
+          AND projects.workspace_id = clients.workspace_id
+         WHERE clients.workspace_id = $1
+         GROUP BY clients.id, clients.workspace_id, clients.name, clients.email,
+                  clients.company, clients.status, clients.notes,
+                  clients.created_at, clients.updated_at
+         ORDER BY clients.status ASC, clients.name ASC`,
+        [selectedWorkspaceId],
+      )
+      return rows.map((row) => ({
+        id: row.id,
+        workspaceId: row.workspace_id,
+        name: row.name,
+        email: row.email,
+        company: row.company,
+        status: row.status,
+        notes: row.notes,
+        projectCount: Number(row.project_count || 0),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }))
+    },
+
+    async createClient({
+      workspaceId: selectedWorkspaceId,
+      name,
+      email = '',
+      company = '',
+      notes = '',
+    }) {
+      const client = await ensureClient({ selectedWorkspaceId, name })
+      await query(
+        `UPDATE clients
+         SET email = $1, company = $2, notes = $3, updated_at = $4
+         WHERE workspace_id = $5 AND id = $6`,
+        [email, company, notes, nowIso(), selectedWorkspaceId, client.id],
+      )
+      const updated = await getClientById(selectedWorkspaceId, client.id)
+      return {
+        id: updated.id,
+        workspaceId: updated.workspace_id,
+        name: updated.name,
+        email: updated.email,
+        company: updated.company,
+        status: updated.status,
+        notes: updated.notes,
+        projectCount: 0,
+        createdAt: updated.created_at,
+        updatedAt: updated.updated_at,
+      }
+    },
+
+    async updateClient(selectedWorkspaceId, id, fields) {
+      const sets = []
+      const params = []
+      let idx = 1
+      for (const [field, column] of [
+        ['name', 'name'],
+        ['email', 'email'],
+        ['company', 'company'],
+        ['status', 'status'],
+        ['notes', 'notes'],
+      ]) {
+        if (Object.hasOwn(fields, field)) {
+          sets.push(`${column} = $${idx++}`)
+          params.push(fields[field])
+        }
+      }
+      if (!sets.length) return null
+      sets.push(`updated_at = $${idx++}`)
+      params.push(nowIso(), selectedWorkspaceId, id)
+      await query(
+        `UPDATE clients SET ${sets.join(', ')}
+         WHERE workspace_id = $${idx++} AND id = $${idx}`,
+        params,
+      )
+      if (Object.hasOwn(fields, 'name')) {
+        await query(
+          `UPDATE projects SET client = $1, updated_at = $2
+           WHERE workspace_id = $3 AND client_id = $4`,
+          [fields.name, nowIso(), selectedWorkspaceId, id],
+        )
+      }
+      const row = await getClientById(selectedWorkspaceId, id)
+      return row
+        ? {
+            id: row.id,
+            workspaceId: row.workspace_id,
+            name: row.name,
+            email: row.email,
+            company: row.company,
+            status: row.status,
+            notes: row.notes,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+          }
+        : null
+    },
+
+    async deleteClient(selectedWorkspaceId, id) {
+      const rows = await query(
+        `DELETE FROM clients
+         WHERE workspace_id = $1 AND id = $2
+         RETURNING id`,
+        [selectedWorkspaceId, id],
+      )
+      return rows.length > 0
+    },
+
     async listProjects(selectedWorkspaceId) {
       const rows = await query(
-        `SELECT id, workspace_id, name, client, scope, due, status, progress, accent, board_id, created_at, updated_at
+        `SELECT id, workspace_id, client_id, name, client, scope, due, status, progress, accent, board_id, created_at, updated_at
          FROM projects
          WHERE workspace_id = $1
          ORDER BY created_at DESC`,
@@ -2399,6 +2637,7 @@ export async function openDatabase({
       return rows.map((row) => ({
         id: row.id,
         workspaceId: row.workspace_id,
+        clientId: row.client_id,
         name: row.name,
         client: row.client,
         scope: row.scope,
@@ -2412,7 +2651,12 @@ export async function openDatabase({
       }))
     },
 
-    async createProject({ workspaceId, name, client, scope = 'New project · add deliverables', due = 'Set date', status = 'In progress', progress = 0, accent = '#6854e8', boardId }) {
+    async createProject({ workspaceId, name, clientId, client, scope = 'New project · add deliverables', due = 'Set date', status = 'In progress', progress = 0, accent = '#6854e8', boardId }) {
+      const clientRecord = await ensureClient({
+        selectedWorkspaceId: workspaceId,
+        clientId,
+        name: client,
+      })
       const id = `prj_${createHash('sha256')
         .update(`${workspaceId}:${name}:${nowIso()}`)
         .digest('hex')
@@ -2420,15 +2664,16 @@ export async function openDatabase({
       const timestamp = nowIso()
       await query(
         `INSERT INTO projects (
-           id, workspace_id, name, client, scope, due, status, progress, accent, created_at, updated_at, board_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-        [id, workspaceId, name, client, scope, due, status, progress, accent, timestamp, timestamp, boardId || null],
+           id, workspace_id, client_id, name, client, scope, due, status, progress, accent, created_at, updated_at, board_id
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [id, workspaceId, clientRecord.id, name, clientRecord.name, scope, due, status, progress, accent, timestamp, timestamp, boardId || null],
       )
       const rows = await query(`SELECT * FROM projects WHERE workspace_id = $1 AND id = $2`, [workspaceId, id])
       const row = rows[0]
       return {
         id: row.id,
         workspaceId: row.workspace_id,
+        clientId: row.client_id,
         name: row.name,
         client: row.client,
         scope: row.scope,
@@ -2452,6 +2697,7 @@ export async function openDatabase({
       return row ? {
         id: row.id,
         workspaceId: row.workspace_id,
+        clientId: row.client_id,
         name: row.name,
         client: row.client,
         scope: row.scope,
@@ -2466,12 +2712,29 @@ export async function openDatabase({
     },
 
     async updateProject(selectedWorkspaceId, id, fields) {
+      if (Object.hasOwn(fields, 'clientId') || Object.hasOwn(fields, 'client')) {
+        const currentRows = await query(
+          `SELECT client FROM projects WHERE workspace_id = $1 AND id = $2`,
+          [selectedWorkspaceId, id],
+        )
+        const clientRecord = await ensureClient({
+          selectedWorkspaceId,
+          clientId: fields.clientId,
+          name: fields.client || currentRows[0]?.client,
+        })
+        fields = {
+          ...fields,
+          clientId: clientRecord.id,
+          client: clientRecord.name,
+        }
+      }
       const sets = []
       const params = []
       let idx = 1
       if (Object.hasOwn(fields, 'status')) { sets.push(`status = $${idx++}`); params.push(fields.status) }
       if (Object.hasOwn(fields, 'name')) { sets.push(`name = $${idx++}`); params.push(fields.name) }
       if (Object.hasOwn(fields, 'client')) { sets.push(`client = $${idx++}`); params.push(fields.client) }
+      if (Object.hasOwn(fields, 'clientId')) { sets.push(`client_id = $${idx++}`); params.push(fields.clientId) }
       if (Object.hasOwn(fields, 'scope')) { sets.push(`scope = $${idx++}`); params.push(fields.scope) }
       if (Object.hasOwn(fields, 'due')) { sets.push(`due = $${idx++}`); params.push(fields.due || 'Set date') }
       if (fields.boardId !== undefined) { sets.push(`board_id = $${idx++}`); params.push(fields.boardId || null) }
@@ -2488,6 +2751,7 @@ export async function openDatabase({
       return row ? {
         id: row.id,
         workspaceId: row.workspace_id,
+        clientId: row.client_id,
         name: row.name,
         client: row.client,
         scope: row.scope,
@@ -2503,6 +2767,243 @@ export async function openDatabase({
 
     async deleteProject(selectedWorkspaceId, id) {
       await query(`DELETE FROM projects WHERE workspace_id = $1 AND id = $2`, [selectedWorkspaceId, id])
+    },
+
+    async listDriveResourceLinks(selectedWorkspaceId, { clientId, projectId } = {}) {
+      const conditions = ['links.workspace_id = $1']
+      const params = [selectedWorkspaceId]
+      if (clientId) {
+        params.push(clientId)
+        conditions.push(`links.client_id = $${params.length}`)
+      }
+      if (projectId) {
+        params.push(projectId)
+        conditions.push(`links.project_id = $${params.length}`)
+      }
+      const rows = await query(
+        `SELECT
+           links.*,
+           clients.name AS client_name,
+           projects.name AS project_name
+         FROM google_drive_resource_links links
+         LEFT JOIN clients ON clients.id = links.client_id
+         LEFT JOIN projects ON projects.id = links.project_id
+         WHERE ${conditions.join(' AND ')}
+         ORDER BY links.created_at DESC`,
+        params,
+      )
+      return rows.map((row) => ({
+        id: row.id,
+        driveFileId: row.drive_file_id,
+        name: row.name,
+        mimeType: row.mime_type,
+        webViewLink: row.web_view_link,
+        resourceKind: row.resource_kind,
+        clientId: row.client_id,
+        clientName: row.client_name,
+        projectId: row.project_id,
+        projectName: row.project_name,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }))
+    },
+
+    async createDriveResourceLink({
+      workspaceId: selectedWorkspaceId,
+      driveFileId,
+      name,
+      mimeType,
+      webViewLink,
+      resourceKind,
+      clientId,
+      projectId,
+    }) {
+      if (clientId && !(await getClientById(selectedWorkspaceId, clientId))) return null
+      if (projectId) {
+        const projects = await query(
+          `SELECT id, client_id FROM projects WHERE workspace_id = $1 AND id = $2`,
+          [selectedWorkspaceId, projectId],
+        )
+        if (!projects[0]) return null
+        if (clientId && projects[0].client_id !== clientId) return null
+        if (!clientId) clientId = projects[0].client_id
+      }
+      const id = stableId(
+        'drl',
+        `${selectedWorkspaceId}:${driveFileId}:${clientId || ''}:${projectId || ''}`,
+      )
+      const timestamp = nowIso()
+      await query(
+        `INSERT INTO google_drive_resource_links (
+           id, workspace_id, drive_file_id, name, mime_type, web_view_link,
+           resource_kind, client_id, project_id, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT(id) DO UPDATE SET
+           name = EXCLUDED.name,
+           mime_type = EXCLUDED.mime_type,
+           web_view_link = EXCLUDED.web_view_link,
+           resource_kind = EXCLUDED.resource_kind,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          id,
+          selectedWorkspaceId,
+          driveFileId,
+          name,
+          mimeType,
+          webViewLink || null,
+          resourceKind,
+          clientId || null,
+          projectId || null,
+          timestamp,
+          timestamp,
+        ],
+      )
+      const links = await this.listDriveResourceLinks(selectedWorkspaceId, {
+        clientId: clientId || undefined,
+        projectId: projectId || undefined,
+      })
+      return links.find((link) => link.id === id) || null
+    },
+
+    async deleteDriveResourceLink(selectedWorkspaceId, id) {
+      await query(
+        `DELETE FROM google_drive_resource_links WHERE workspace_id = $1 AND id = $2`,
+        [selectedWorkspaceId, id],
+      )
+    },
+
+    async listWorkspaceDocuments(selectedWorkspaceId) {
+      const rows = await query(
+        `SELECT id, workspace_id, name, mime_type, size, content_sha256,
+                drive_file_id, drive_web_view_link, synced_at, created_at, updated_at
+         FROM workspace_documents
+         WHERE workspace_id = $1
+         ORDER BY updated_at DESC`,
+        [selectedWorkspaceId],
+      )
+      return rows.map((row) => ({
+        id: row.id,
+        workspaceId: row.workspace_id,
+        name: row.name,
+        mimeType: row.mime_type,
+        size: row.size,
+        sha256: row.content_sha256,
+        driveFileId: row.drive_file_id,
+        driveWebViewLink: row.drive_web_view_link,
+        syncedAt: row.synced_at,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }))
+    },
+
+    async createWorkspaceDocument({
+      workspaceId: selectedWorkspaceId,
+      name,
+      mimeType,
+      body,
+    }) {
+      const timestamp = nowIso()
+      const contentSha256 = createHash('sha256').update(body).digest('hex')
+      const id = `doc_${createHash('sha256')
+        .update(`${selectedWorkspaceId}:${name}:${contentSha256}:${timestamp}`)
+        .digest('hex')
+        .slice(0, 16)}`
+      await query(
+        `INSERT INTO workspace_documents (
+           id, workspace_id, name, mime_type, size, content_base64,
+           content_sha256, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          id,
+          selectedWorkspaceId,
+          name,
+          mimeType,
+          body.byteLength,
+          body.toString('base64'),
+          contentSha256,
+          timestamp,
+          timestamp,
+        ],
+      )
+      return (await this.listWorkspaceDocuments(selectedWorkspaceId))
+        .find((document) => document.id === id)
+    },
+
+    async getWorkspaceDocument(selectedWorkspaceId, id) {
+      const rows = await query(
+        `SELECT * FROM workspace_documents WHERE workspace_id = $1 AND id = $2`,
+        [selectedWorkspaceId, id],
+      )
+      const row = rows[0]
+      return row
+        ? {
+            id: row.id,
+            workspaceId: row.workspace_id,
+            name: row.name,
+            mimeType: row.mime_type,
+            size: row.size,
+            body: Buffer.from(row.content_base64, 'base64'),
+            sha256: row.content_sha256,
+            driveFileId: row.drive_file_id,
+            driveWebViewLink: row.drive_web_view_link,
+            syncedAt: row.synced_at,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+          }
+        : null
+    },
+
+    async markWorkspaceDocumentSynced(selectedWorkspaceId, id, driveFile) {
+      const timestamp = nowIso()
+      await query(
+        `UPDATE workspace_documents
+         SET drive_file_id = $1, drive_web_view_link = $2,
+             synced_at = $3, updated_at = $4
+         WHERE workspace_id = $5 AND id = $6`,
+        [
+          driveFile.id,
+          driveFile.webViewLink || null,
+          timestamp,
+          timestamp,
+          selectedWorkspaceId,
+          id,
+        ],
+      )
+      return (await this.listWorkspaceDocuments(selectedWorkspaceId))
+        .find((document) => document.id === id)
+    },
+
+    async updateWorkspaceDocumentContent(
+      selectedWorkspaceId,
+      id,
+      { body, mimeType },
+    ) {
+      const timestamp = nowIso()
+      const contentSha256 = createHash('sha256').update(body).digest('hex')
+      await query(
+        `UPDATE workspace_documents
+         SET mime_type = $1, size = $2, content_base64 = $3,
+             content_sha256 = $4, drive_file_id = NULL,
+             drive_web_view_link = NULL, synced_at = NULL, updated_at = $5
+         WHERE workspace_id = $6 AND id = $7`,
+        [
+          mimeType,
+          body.byteLength,
+          body.toString('base64'),
+          contentSha256,
+          timestamp,
+          selectedWorkspaceId,
+          id,
+        ],
+      )
+      return await this.getWorkspaceDocument(selectedWorkspaceId, id)
+    },
+
+    async deleteWorkspaceDocument(selectedWorkspaceId, id) {
+      await query(
+        `DELETE FROM workspace_documents WHERE workspace_id = $1 AND id = $2`,
+        [selectedWorkspaceId, id],
+      )
     },
 
     async listProjectLinks(selectedWorkspaceId, projectId) {

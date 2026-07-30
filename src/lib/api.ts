@@ -55,6 +55,25 @@ export type Integration = {
   accent: string
 }
 
+export type GoogleDriveFile = {
+  id: string
+  name: string
+  mimeType: string
+  webViewLink: string | null
+  modifiedTime: string | null
+  size: number | null
+  canEdit: boolean
+  canDownload: boolean
+  canListChildren: boolean
+}
+
+export type GoogleDriveEditorDocument = GoogleDriveFile & {
+  kind: 'rich-text' | 'markdown'
+  version: string | null
+  content: string
+  warnings: string[]
+}
+
 export type IntegrationRequest = {
   id: string
   name: string
@@ -230,6 +249,7 @@ export type WorkspaceSettings = {
 export type Project = {
   id: string
   workspaceId?: string
+  clientId?: string | null
   name: string
   client: string
   scope: string
@@ -245,10 +265,53 @@ export type Project = {
 export type ProjectInput = {
   name: string
   client: string
+  clientId?: string | null
   scope?: string
   due?: string
   status?: string
   boardId?: string | null
+}
+
+export type Client = {
+  id: string
+  workspaceId: string
+  name: string
+  email: string
+  company: string
+  status: 'active' | 'archived'
+  notes: string
+  projectCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type GoogleDriveResourceLink = {
+  id: string
+  driveFileId: string
+  name: string
+  mimeType: string
+  webViewLink: string | null
+  resourceKind: 'folder' | 'file'
+  clientId: string | null
+  clientName: string | null
+  projectId: string | null
+  projectName: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type WorkspaceDocument = {
+  id: string
+  workspaceId: string
+  name: string
+  mimeType: string
+  size: number
+  sha256: string
+  driveFileId: string | null
+  driveWebViewLink: string | null
+  syncedAt: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export type ProjectLink = {
@@ -654,6 +717,19 @@ export const api = {
         throw new Error(payload.error || 'Unable to toggle automation.')
       }
       return payload as Automation
+    },
+    async remove(id: string) {
+      const response = await fetch(`/api/automations/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: mutationHeaders(),
+      })
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string
+        }
+        throw new Error(payload.error || 'Unable to delete automation.')
+      }
     },
   },
   runs: {
@@ -1288,14 +1364,24 @@ export const api = {
       if (!response.ok || !payload.url) throw new Error(payload.error || 'Unable to get auth URL')
       return payload.url
     },
-    async list() {
-      const response = await fetch('/api/google-drive/files', { credentials: 'same-origin' })
+    async list(folderId?: string) {
+      const query = folderId
+        ? `?folderId=${encodeURIComponent(folderId)}`
+        : ''
+      const response = await fetch(`/api/google-drive/files${query}`, {
+        credentials: 'same-origin',
+      })
       const payload = (await response.json()) as {
         files?: Array<{
           id: string
           name: string
           mimeType: string
-          webViewLink: string
+          webViewLink: string | null
+          modifiedTime: string | null
+          size: number | null
+          canEdit: boolean
+          canDownload: boolean
+          canListChildren: boolean
         }>
         error?: string
       }
@@ -1307,7 +1393,139 @@ export const api = {
         name: file.name,
         mimeType: file.mimeType,
         webViewLink: file.webViewLink,
+        modifiedTime: file.modifiedTime,
+        size: file.size,
+        canEdit: file.canEdit,
+        canDownload: file.canDownload,
+        canListChildren: file.canListChildren,
       }))
+    },
+    async getPickerConfig() {
+      const response = await fetch('/api/google-drive/picker-config', {
+        credentials: 'same-origin',
+      })
+      const payload = (await response.json()) as {
+        accessToken?: string
+        developerKey?: string
+        appId?: string
+        error?: string
+      }
+      if (
+        !response.ok ||
+        !payload.accessToken ||
+        !payload.developerKey ||
+        !payload.appId
+      ) {
+        throw new Error(payload.error || 'Unable to start Google Picker.')
+      }
+      return {
+        accessToken: payload.accessToken,
+        developerKey: payload.developerKey,
+        appId: payload.appId,
+      }
+    },
+    resourceLinks: {
+      async list(filters: { clientId?: string; projectId?: string } = {}) {
+        const search = new URLSearchParams()
+        if (filters.clientId) search.set('clientId', filters.clientId)
+        if (filters.projectId) search.set('projectId', filters.projectId)
+        const response = await fetch(
+          `/api/google-drive/resource-links${search.size ? `?${search}` : ''}`,
+          { credentials: 'same-origin' },
+        )
+        const payload = (await response.json()) as {
+          links?: GoogleDriveResourceLink[]
+          error?: string
+        }
+        if (!response.ok || !payload.links) {
+          throw new Error(payload.error || 'Unable to load Drive links.')
+        }
+        return payload.links
+      },
+      async add(input: {
+        driveFileId: string
+        name: string
+        mimeType: string
+        webViewLink: string | null
+        resourceKind: 'folder' | 'file'
+        clientId?: string | null
+        projectId?: string | null
+      }) {
+        const response = await fetch('/api/google-drive/resource-links', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: mutationHeaders(true),
+          body: JSON.stringify(input),
+        })
+        const payload = (await response.json()) as {
+          link?: GoogleDriveResourceLink
+          error?: string
+        }
+        if (!response.ok || !payload.link) {
+          throw new Error(payload.error || 'Unable to link this Drive item.')
+        }
+        return payload.link
+      },
+      async remove(id: string) {
+        const response = await fetch(
+          `/api/google-drive/resource-links/${encodeURIComponent(id)}`,
+          {
+            method: 'DELETE',
+            credentials: 'same-origin',
+            headers: mutationHeaders(),
+          },
+        )
+        if (!response.ok) throw new Error('Unable to remove this Drive link.')
+      },
+    },
+    async getEditorDocument(fileId: string) {
+      const response = await fetch(
+        `/api/google-drive/files/${encodeURIComponent(fileId)}/editor`,
+        { credentials: 'same-origin' },
+      )
+      const payload = (await response.json()) as {
+        document?: GoogleDriveEditorDocument
+        error?: string
+      }
+      if (!response.ok || !payload.document) {
+        throw new Error(payload.error || 'Unable to open this Google Drive document.')
+      }
+      return payload.document
+    },
+    contentUrl(fileId: string) {
+      return `/api/google-drive/files/${encodeURIComponent(fileId)}/content`
+    },
+    async saveEditorDocument(
+      document: GoogleDriveEditorDocument,
+      content: string,
+    ) {
+      const contentType =
+        document.kind === 'markdown'
+          ? 'text/markdown; charset=utf-8'
+          : 'text/html; charset=utf-8'
+      const response = await fetch(
+        `/api/google-drive/files/${encodeURIComponent(document.id)}/content`,
+        {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: {
+            ...mutationHeaders(),
+            'Content-Type': contentType,
+            ...(document.version
+              ? { 'X-Drive-Version': document.version }
+              : {}),
+          },
+          body: content,
+        },
+      )
+      const payload = (await response.json()) as {
+        file?: GoogleDriveFile & { version: string | null }
+        error?: string
+      }
+      if (!response.ok || !payload.file) {
+        throw new Error(payload.error || 'Unable to save this Google Drive document.')
+      }
+      return payload.file
     },
     async disconnect() {
       const response = await fetch('/api/google-drive/disconnect', {
@@ -1323,6 +1541,128 @@ export const api = {
         throw new Error(payload.error || 'Unable to disconnect Google Drive.')
       }
       return payload
+    },
+  },
+  documents: {
+    async list() {
+      const response = await fetch('/api/documents', {
+        credentials: 'same-origin',
+      })
+      const payload = (await response.json()) as {
+        documents?: WorkspaceDocument[]
+        error?: string
+      }
+      if (!response.ok || !payload.documents) {
+        throw new Error(payload.error || 'Unable to load documents.')
+      }
+      return payload.documents
+    },
+    async upload(
+      file: File,
+      destination: 'local' | 'drive' | 'both',
+      folderId?: string,
+    ) {
+      const response = await fetch('/api/documents', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          ...mutationHeaders(),
+          'Content-Type': 'application/octet-stream',
+          'X-File-Name': encodeURIComponent(file.name),
+          'X-File-Type': file.type || 'application/octet-stream',
+          'X-File-Destination': destination,
+          ...(folderId ? { 'X-Drive-Folder-Id': folderId } : {}),
+        },
+        body: file,
+      })
+      const payload = (await response.json()) as {
+        document?: WorkspaceDocument | null
+        driveFile?: GoogleDriveFile | null
+        error?: string
+      }
+      if (!response.ok) {
+        throw new Error(payload.error || 'Unable to upload this document.')
+      }
+      return payload
+    },
+    async syncToDrive(id: string, folderId?: string) {
+      const response = await fetch(
+        `/api/documents/${encodeURIComponent(id)}/sync-drive`,
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: mutationHeaders(true),
+          body: JSON.stringify({ folderId: folderId || null }),
+        },
+      )
+      const payload = (await response.json()) as {
+        document?: WorkspaceDocument
+        driveFile?: GoogleDriveFile
+        error?: string
+      }
+      if (!response.ok || !payload.document) {
+        throw new Error(payload.error || 'Unable to sync this document.')
+      }
+      return payload
+    },
+    async getEditorDocument(id: string) {
+      const response = await fetch(
+        `/api/documents/${encodeURIComponent(id)}/editor`,
+        { credentials: 'same-origin' },
+      )
+      const payload = (await response.json()) as {
+        document?: GoogleDriveEditorDocument
+        error?: string
+      }
+      if (!response.ok || !payload.document) {
+        throw new Error(payload.error || 'Unable to open this document.')
+      }
+      return payload.document
+    },
+    async saveEditorDocument(
+      document: GoogleDriveEditorDocument,
+      content: string,
+    ) {
+      const response = await fetch(
+        `/api/documents/${encodeURIComponent(document.id)}/content`,
+        {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: {
+            ...mutationHeaders(),
+            'Content-Type':
+              document.kind === 'markdown'
+                ? 'text/markdown; charset=utf-8'
+                : 'text/html; charset=utf-8',
+            ...(document.version
+              ? { 'X-Document-Version': document.version }
+              : {}),
+          },
+          body: content,
+        },
+      )
+      const payload = (await response.json()) as {
+        file?: GoogleDriveFile & { version: string | null }
+        error?: string
+      }
+      if (!response.ok || !payload.file) {
+        throw new Error(payload.error || 'Unable to save this document.')
+      }
+      return payload.file
+    },
+    contentUrl(id: string) {
+      return `/api/documents/${encodeURIComponent(id)}/content`
+    },
+    downloadUrl(id: string) {
+      return `/api/documents/${encodeURIComponent(id)}/download`
+    },
+    async remove(id: string) {
+      const response = await fetch(`/api/documents/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: mutationHeaders(),
+      })
+      if (!response.ok) throw new Error('Unable to delete this document.')
     },
   },
   cloudLinks: {
@@ -1417,6 +1757,65 @@ export const api = {
           dueThisWeek: number
         }
         weeklyActivity: Array<{ day: string; runs: number; success: number }>
+      }
+    },
+  },
+  clients: {
+    async list() {
+      const response = await fetch('/api/clients', {
+        credentials: 'same-origin',
+      })
+      const payload = (await response.json()) as {
+        clients?: Client[]
+        error?: string
+      }
+      if (!response.ok || !payload.clients) {
+        throw new Error(payload.error || 'Unable to load clients.')
+      }
+      return payload.clients
+    },
+    async create(input: {
+      name: string
+      email?: string
+      company?: string
+      notes?: string
+    }) {
+      const response = await fetch('/api/clients', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify(input),
+      })
+      const payload = (await response.json()) as Client & { error?: string }
+      if (!response.ok || !payload.id) {
+        throw new Error(payload.error || 'Unable to create client.')
+      }
+      return payload as Client
+    },
+    async update(id: string, fields: Partial<Client>) {
+      const response = await fetch(`/api/clients/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify(fields),
+      })
+      const payload = (await response.json()) as Client & { error?: string }
+      if (!response.ok || !payload.id) {
+        throw new Error(payload.error || 'Unable to update client.')
+      }
+      return payload as Client
+    },
+    async remove(id: string) {
+      const response = await fetch(`/api/clients/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: mutationHeaders(),
+      })
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string
+        }
+        throw new Error(payload.error || 'Unable to delete client.')
       }
     },
   },

@@ -5,6 +5,9 @@ import {
   randomBytes,
   timingSafeEqual,
 } from 'node:crypto'
+import HTMLtoDOCX from 'html-to-docx'
+import mammoth from 'mammoth'
+import sanitizeHtml from 'sanitize-html'
 
 export const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
 const RESTRICTED_DRIVE_SCOPES = new Set([
@@ -16,8 +19,64 @@ const RESTRICTED_DRIVE_SCOPES = new Set([
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const GOOGLE_DRIVE_FILES_URL = 'https://www.googleapis.com/drive/v3/files'
+const GOOGLE_DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files'
 const OAUTH_STATE_TTL_SECONDS = 10 * 60
 const TOKEN_REFRESH_SKEW_MS = 60_000
+const GOOGLE_DOCUMENT_MIME = 'application/vnd.google-apps.document'
+const DOCX_MIME =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+const MARKDOWN_MIMES = new Set(['text/markdown', 'text/x-markdown'])
+export const GOOGLE_DRIVE_EDITOR_MAX_BYTES = 5 * 1024 * 1024
+
+const EDITOR_HTML_OPTIONS = {
+  allowedTags: [
+    'a',
+    'b',
+    'blockquote',
+    'br',
+    'code',
+    'div',
+    'em',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'hr',
+    'i',
+    'img',
+    'li',
+    'ol',
+    'p',
+    'pre',
+    's',
+    'span',
+    'strike',
+    'strong',
+    'sub',
+    'sup',
+    'table',
+    'tbody',
+    'td',
+    'th',
+    'thead',
+    'tr',
+    'u',
+    'ul',
+  ],
+  allowedAttributes: {
+    a: ['href', 'title'],
+    img: ['src', 'alt', 'title', 'width', 'height'],
+    ol: ['start'],
+    td: ['colspan', 'rowspan'],
+    th: ['colspan', 'rowspan'],
+  },
+  allowedSchemes: ['http', 'https', 'mailto'],
+  allowedSchemesByTag: {
+    img: ['data'],
+  },
+}
 
 export class GoogleDriveError extends Error {
   constructor(code, message, status = 502, details = {}) {
@@ -106,11 +165,16 @@ export function getGoogleDriveConfig({ publicOrigin, env = process.env } = {}) {
     env.GOOGLE_DRIVE_REDIRECT_URI ||
       `${publicOrigin}/oauth/callback`,
   ).trim()
+  const pickerApiKey = String(env.GOOGLE_PICKER_API_KEY || '').trim()
+  const pickerAppId = String(env.GOOGLE_PICKER_APP_ID || '').trim()
   return {
     clientId,
     clientSecret,
     redirectUri,
     configured: Boolean(clientId && clientSecret && redirectUri),
+    pickerApiKey,
+    pickerAppId,
+    pickerConfigured: Boolean(pickerApiKey && pickerAppId),
     scope: DRIVE_FILE_SCOPE,
   }
 }
@@ -277,12 +341,13 @@ export async function listGoogleDriveFiles({
   pageSize = 25,
   pageToken = null,
   query = null,
+  folderId = null,
 }) {
   const url = new URL(GOOGLE_DRIVE_FILES_URL)
   const size = Math.min(100, Math.max(1, Number(pageSize) || 25))
   url.searchParams.set(
     'fields',
-    'nextPageToken,files(id,name,mimeType,webViewLink,iconLink,modifiedTime,owners(displayName,emailAddress),size,shared)',
+    'nextPageToken,files(id,name,mimeType,webViewLink,iconLink,modifiedTime,owners(displayName,emailAddress),size,shared,capabilities(canEdit,canDownload,canListChildren))',
   )
   url.searchParams.set('pageSize', String(size))
   url.searchParams.set('orderBy', 'modifiedTime desc')
@@ -292,6 +357,7 @@ export async function listGoogleDriveFiles({
   if (pageToken) url.searchParams.set('pageToken', pageToken)
   // Exclude trashed files by default; allow caller to narrow further.
   const q = ['trashed = false']
+  if (folderId) q.push(`'${String(folderId)}' in parents`)
   if (query && String(query).trim()) q.push(`(${String(query).trim()})`)
   url.searchParams.set('q', q.join(' and '))
 
@@ -325,6 +391,9 @@ export async function listGoogleDriveFiles({
       modifiedTime: file.modifiedTime || null,
       size: file.size ? Number(file.size) : null,
       shared: Boolean(file.shared),
+      canEdit: Boolean(file.capabilities?.canEdit),
+      canDownload: file.capabilities?.canDownload !== false,
+      canListChildren: Boolean(file.capabilities?.canListChildren),
       owners: Array.isArray(file.owners)
         ? file.owners.map((owner) => ({
             displayName: owner.displayName || null,
@@ -333,6 +402,319 @@ export async function listGoogleDriveFiles({
         : [],
     })),
     nextPageToken: data.nextPageToken || null,
+  }
+}
+
+function fileMetadataFields() {
+  return [
+    'id',
+    'name',
+    'mimeType',
+    'webViewLink',
+    'modifiedTime',
+    'version',
+    'size',
+    'capabilities(canEdit,canDownload,canListChildren)',
+  ].join(',')
+}
+
+async function googleDriveResponseError(response, fallbackMessage) {
+  const data = await response.json().catch(() => ({}))
+  if (response.status === 412) {
+    throw new GoogleDriveError(
+      'DRIVE_FILE_CONFLICT',
+      'This file changed in Google Drive while it was being saved. Reload it and review the latest version.',
+      409,
+      { googleError: data.error || null },
+    )
+  }
+  throw new GoogleDriveError(
+    'DRIVE_FILE_REQUEST_FAILED',
+    data.error?.message || data.error_description || fallbackMessage,
+    response.status === 401 || response.status === 403 || response.status === 404
+      ? response.status
+      : 502,
+    { googleError: data.error || null },
+  )
+}
+
+export function googleDriveEditorKind(file) {
+  const mimeType = String(file?.mimeType || '').toLowerCase()
+  const name = String(file?.name || '').toLowerCase()
+  if (mimeType === GOOGLE_DOCUMENT_MIME || mimeType === DOCX_MIME) {
+    return 'rich-text'
+  }
+  if (MARKDOWN_MIMES.has(mimeType) || name.endsWith('.md') || name.endsWith('.markdown')) {
+    return 'markdown'
+  }
+  if (mimeType === 'application/pdf') return 'pdf'
+  if (mimeType.startsWith('image/')) return 'image'
+  return 'unsupported'
+}
+
+export function sanitizeDriveEditorHtml(value) {
+  return sanitizeHtml(String(value || ''), EDITOR_HTML_OPTIONS)
+}
+
+export async function getGoogleDriveFileMetadata({ accessToken, fileId }) {
+  const url = new URL(`${GOOGLE_DRIVE_FILES_URL}/${encodeURIComponent(fileId)}`)
+  url.searchParams.set('fields', fileMetadataFields())
+  url.searchParams.set('supportsAllDrives', 'true')
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+    },
+  })
+  if (!response.ok) {
+    await googleDriveResponseError(response, 'Unable to load this Google Drive file.')
+  }
+  const file = await response.json()
+  return {
+    id: String(file.id || fileId),
+    name: String(file.name || 'Untitled'),
+    mimeType: String(file.mimeType || 'application/octet-stream'),
+    webViewLink: file.webViewLink || null,
+    modifiedTime: file.modifiedTime || null,
+    version: file.version ? String(file.version) : null,
+    size: file.size ? Number(file.size) : null,
+    canEdit: Boolean(file.capabilities?.canEdit),
+    canDownload: file.capabilities?.canDownload !== false,
+    canListChildren: Boolean(file.capabilities?.canListChildren),
+    etag: response.headers.get('etag') || null,
+  }
+}
+
+export async function fetchGoogleDriveFileContent({
+  accessToken,
+  fileId,
+  exportMimeType = null,
+  range = null,
+}) {
+  const url = exportMimeType
+    ? new URL(`${GOOGLE_DRIVE_FILES_URL}/${encodeURIComponent(fileId)}/export`)
+    : new URL(`${GOOGLE_DRIVE_FILES_URL}/${encodeURIComponent(fileId)}`)
+  if (exportMimeType) {
+    url.searchParams.set('mimeType', exportMimeType)
+  } else {
+    url.searchParams.set('alt', 'media')
+    url.searchParams.set('supportsAllDrives', 'true')
+  }
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    Accept: exportMimeType || '*/*',
+  }
+  if (range && !exportMimeType) headers.Range = range
+  const response = await fetch(url, { headers })
+  if (!response.ok && response.status !== 206) {
+    await googleDriveResponseError(response, 'Unable to read this Google Drive file.')
+  }
+  return response
+}
+
+async function responseBuffer(response, maximumBytes = GOOGLE_DRIVE_EDITOR_MAX_BYTES) {
+  const declaredLength = Number(response.headers.get('content-length') || 0)
+  if (declaredLength > maximumBytes) {
+    throw new GoogleDriveError(
+      'DRIVE_FILE_TOO_LARGE',
+      `This file is larger than the ${Math.floor(maximumBytes / 1024 / 1024)} MB editor limit.`,
+      413,
+    )
+  }
+  const buffer = Buffer.from(await response.arrayBuffer())
+  if (buffer.byteLength > maximumBytes) {
+    throw new GoogleDriveError(
+      'DRIVE_FILE_TOO_LARGE',
+      `This file is larger than the ${Math.floor(maximumBytes / 1024 / 1024)} MB editor limit.`,
+      413,
+    )
+  }
+  return buffer
+}
+
+export async function loadGoogleDriveEditorDocument({
+  accessToken,
+  file,
+}) {
+  const kind = googleDriveEditorKind(file)
+  if (kind !== 'rich-text' && kind !== 'markdown') {
+    throw new GoogleDriveError(
+      'DRIVE_FILE_NOT_EDITABLE',
+      'This file type is available as a preview, not an editable document.',
+      415,
+    )
+  }
+
+  const response = await fetchGoogleDriveFileContent({
+    accessToken,
+    fileId: file.id,
+    exportMimeType:
+      kind === 'rich-text' && file.mimeType === GOOGLE_DOCUMENT_MIME
+        ? DOCX_MIME
+        : null,
+  })
+  const buffer = await responseBuffer(response)
+  return await loadEditorDocumentFromBuffer({ file, body: buffer })
+}
+
+export async function loadEditorDocumentFromBuffer({ file, body }) {
+  const kind = googleDriveEditorKind(file)
+  if (kind !== 'rich-text' && kind !== 'markdown') {
+    throw new GoogleDriveError(
+      'DRIVE_FILE_NOT_EDITABLE',
+      'This file type is available as a preview, not an editable document.',
+      415,
+    )
+  }
+  if (kind === 'markdown') {
+    return {
+      ...file,
+      kind,
+      content: body.toString('utf8'),
+      warnings: [],
+    }
+  }
+  const converted = await mammoth.convertToHtml({ buffer: body })
+  return {
+    ...file,
+    kind,
+    content: sanitizeDriveEditorHtml(converted.value),
+    warnings: converted.messages.map((message) => String(message.message || message)),
+  }
+}
+
+export async function convertDriveEditorContent({
+  file,
+  content,
+}) {
+  const kind = googleDriveEditorKind(file)
+  if (kind === 'markdown') {
+    return {
+      body: Buffer.from(String(content), 'utf8'),
+      contentType: file.mimeType || 'text/markdown',
+    }
+  }
+  if (kind !== 'rich-text') {
+    throw new GoogleDriveError(
+      'DRIVE_FILE_NOT_EDITABLE',
+      'This file type cannot be edited in lancee.',
+      415,
+    )
+  }
+  const html = sanitizeDriveEditorHtml(content)
+  if (file.mimeType === GOOGLE_DOCUMENT_MIME) {
+    return {
+      body: Buffer.from(`<!doctype html><html><body>${html}</body></html>`, 'utf8'),
+      contentType: 'text/html; charset=utf-8',
+    }
+  }
+  const docx = await HTMLtoDOCX(
+    `<!doctype html><html><body>${html}</body></html>`,
+    null,
+    {
+      title: file.name,
+      creator: 'lancee',
+      lastModifiedBy: 'lancee',
+    },
+  )
+  return {
+    body: Buffer.from(docx),
+    contentType: DOCX_MIME,
+  }
+}
+
+export async function updateGoogleDriveFileContent({
+  accessToken,
+  fileId,
+  body,
+  contentType,
+  etag = null,
+}) {
+  const url = new URL(`${GOOGLE_DRIVE_UPLOAD_URL}/${encodeURIComponent(fileId)}`)
+  url.searchParams.set('uploadType', 'media')
+  url.searchParams.set('supportsAllDrives', 'true')
+  url.searchParams.set('fields', fileMetadataFields())
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    Accept: 'application/json',
+    'Content-Type': contentType,
+  }
+  if (etag) headers['If-Match'] = etag
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers,
+    body,
+  })
+  if (!response.ok) {
+    await googleDriveResponseError(response, 'Unable to save this Google Drive file.')
+  }
+  const file = await response.json()
+  return {
+    id: String(file.id || fileId),
+    name: String(file.name || 'Untitled'),
+    mimeType: String(file.mimeType || 'application/octet-stream'),
+    webViewLink: file.webViewLink || null,
+    modifiedTime: file.modifiedTime || null,
+    version: file.version ? String(file.version) : null,
+    size: file.size ? Number(file.size) : null,
+    canEdit: Boolean(file.capabilities?.canEdit),
+    canDownload: file.capabilities?.canDownload !== false,
+    canListChildren: Boolean(file.capabilities?.canListChildren),
+  }
+}
+
+export async function uploadGoogleDriveFile({
+  accessToken,
+  name,
+  body,
+  contentType = 'application/octet-stream',
+  folderId = null,
+}) {
+  const boundary = `lancee_${randomBytes(18).toString('hex')}`
+  const metadata = {
+    name,
+    ...(folderId ? { parents: [folderId] } : {}),
+  }
+  const multipartBody = Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`,
+      'utf8',
+    ),
+    Buffer.from(
+      `--${boundary}\r\nContent-Type: ${contentType}\r\n\r\n`,
+      'utf8',
+    ),
+    Buffer.isBuffer(body) ? body : Buffer.from(body),
+    Buffer.from(`\r\n--${boundary}--`, 'utf8'),
+  ])
+  const url = new URL(GOOGLE_DRIVE_UPLOAD_URL)
+  url.searchParams.set('uploadType', 'multipart')
+  url.searchParams.set('supportsAllDrives', 'true')
+  url.searchParams.set('fields', fileMetadataFields())
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+      'Content-Type': `multipart/related; boundary=${boundary}`,
+    },
+    body: multipartBody,
+  })
+  if (!response.ok) {
+    await googleDriveResponseError(response, 'Unable to upload this file to Google Drive.')
+  }
+  const file = await response.json()
+  return {
+    id: String(file.id || ''),
+    name: String(file.name || name),
+    mimeType: String(file.mimeType || contentType),
+    webViewLink: file.webViewLink || null,
+    modifiedTime: file.modifiedTime || null,
+    version: file.version ? String(file.version) : null,
+    size: file.size ? Number(file.size) : null,
+    canEdit: Boolean(file.capabilities?.canEdit),
+    canDownload: file.capabilities?.canDownload !== false,
+    canListChildren: Boolean(file.capabilities?.canListChildren),
   }
 }
 

@@ -1727,7 +1727,32 @@ kbd {
 .automation-card__actions {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 7px;
+}
+
+.automation-delete {
+  display: inline-flex;
+  min-height: 25px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  color: #a84f48;
+  background: #fff7f6;
+  border: 1px solid #efcfcc;
+  border-radius: 7px;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.automation-delete:hover {
+  color: #8f3933;
+  background: #fff0ee;
+  border-color: #e9bdb9;
+}
+
+.automation-delete:disabled {
+  cursor: not-allowed;
+  opacity: .5;
 }
 
 .automation-card__body {
@@ -5163,10 +5188,10 @@ kbd {
 }
 
 .landing-footer {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr auto;
-  min-height: 100px;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
+  min-height: 100px;
   gap: 34px;
   padding: 24px max(24px, calc((100vw - 1240px) / 2));
   color: #8b9484;
@@ -5179,9 +5204,23 @@ kbd {
   margin: 0;
 }
 
-.landing-footer > div {
+.landing-footer__links {
   display: flex;
   gap: 20px;
+}
+
+.landing-footer__links button {
+  padding: 0;
+  color: inherit;
+  background: none;
+  border: 0;
+  font-size: 9px;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.landing-footer__links button:hover {
+  color: var(--accent);
 }
 
 .landing-footer button {
@@ -5194,6 +5233,52 @@ kbd {
 .landing-footer > small {
   color: #5f675b;
   font-size: 8px;
+}
+
+.landing-footer > small a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Policy pages */
+.policy-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.policy-content {
+  flex: 1;
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 80px 24px 60px;
+  color: #d5dce7;
+}
+
+.policy-content h1 {
+  font-size: 32px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  color: #f1f4ed;
+}
+
+.policy-content h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 28px 0 8px;
+  color: #f1f4ed;
+}
+
+.policy-content p {
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 0 0 12px;
+  color: #b8c4ae;
+}
+
+.policy-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 /* Authentication */
@@ -6923,5 +7008,1276 @@ kbd {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* Authenticated dashboard — unified dark navy theme */
+.app-shell {
+  --ink: #f2f5fb;
+  --ink-soft: #c0c7d4;
+  --muted: #8f99aa;
+  --muted-2: #707b8f;
+  --canvas: #0b0f18;
+  --surface: #111722;
+  --surface-soft: #171e2b;
+  --surface-dark: #080c13;
+  --line: #283142;
+  --line-strong: #354056;
+  --accent: #4e7fe9;
+  --accent-bright: #73a8ff;
+  --success: #61d58a;
+  --warning: #f2bd50;
+  --danger: #ff7b76;
+  --shadow-sm: 0 1px 0 rgba(255, 255, 255, 0.02), 0 12px 32px rgba(0, 0, 0, 0.16);
+  --shadow-md: 0 22px 64px rgba(0, 0, 0, 0.38);
+  color: var(--ink);
+  color-scheme: dark;
+  background:
+    radial-gradient(circle at 82% -15%, rgba(54, 93, 180, 0.14), transparent 30rem),
+    #0b0f18;
+}
+
+.app-shell .app-main,
+.app-shell .content {
+  background:
+    radial-gradient(circle at 84% -12%, rgba(59, 91, 165, 0.1), transparent 28rem),
+    #0b0f18;
+}
+
+.app-shell .topbar {
+  color: #eef2f9;
+  background: rgba(11, 16, 26, 0.92);
+  border-bottom-color: #252d3d;
+}
+
+.app-shell .breadcrumb-workspace,
+.app-shell .breadcrumb-slash {
+  color: #707b8e;
+}
+
+.app-shell .global-search,
+.app-shell .icon-button {
+  color: #919bad;
+  background: #151b27;
+  border-color: #293244;
+}
+
+.app-shell .global-search:hover,
+.app-shell .icon-button:hover {
+  color: #f5f7fc;
+  background: #1b2331;
+  border-color: #3b475d;
+}
+
+.app-shell kbd {
+  color: #929caf;
+  background: #101621;
+  border-color: #30394b;
+  box-shadow: none;
+}
+
+.app-shell .topbar-avatar {
+  color: #edf2fb;
+  background: linear-gradient(145deg, #465a7c, #28354a);
+  border: 1px solid #4d5b72;
+}
+
+.app-shell .sidebar {
+  background:
+    radial-gradient(circle at 40% -5%, rgba(68, 94, 178, 0.15), transparent 15rem),
+    #080c13;
+  border-right-color: #202838;
+}
+
+.app-shell .workspace-switcher {
+  background: #101621;
+  border-color: #232c3c;
+}
+
+.app-shell .workspace-switcher:hover {
+  background: #161d2a;
+  border-color: #354056;
+}
+
+.app-shell .workspace-avatar {
+  color: white;
+  background: linear-gradient(145deg, #4d82ed, #345dbf);
+}
+
+.app-shell .nav-group button.is-active {
+  background: linear-gradient(90deg, rgba(58, 102, 204, 0.28), rgba(38, 51, 78, 0.42));
+}
+
+.app-shell .usage-card {
+  background:
+    linear-gradient(145deg, rgba(60, 99, 197, 0.14), transparent 65%),
+    #0e141f;
+  border-color: #232c3c;
+}
+
+.app-shell .page-header h1,
+.app-shell .page-header h2,
+.app-shell .panel-heading h3,
+.app-shell .metric-card > strong,
+.app-shell .automation-summary strong,
+.app-shell .automation-card__body h3,
+.app-shell .run-stat-grid strong,
+.app-shell .integration-card h3,
+.app-shell .run-title strong,
+.app-shell .workforce-row__name strong,
+.app-shell .settings-card h3,
+.app-shell .api-quickstart h2,
+.app-shell .empty-state strong {
+  color: #f2f5fa;
+}
+
+.app-shell .page-eyebrow,
+.app-shell .micro-label {
+  color: #778398;
+}
+
+.app-shell .button--primary {
+  background: linear-gradient(180deg, #4c80ee, #3063d3);
+  border-color: #5789ef;
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.16),
+    0 8px 24px rgba(38, 86, 194, 0.24);
+}
+
+.app-shell .button--primary:hover {
+  background: linear-gradient(180deg, #5a8ef4, #386edf);
+}
+
+.app-shell .button--secondary,
+.app-shell .button--dark {
+  color: #d5dbe6;
+  background: #171e2b;
+  border-color: #303a4d;
+  box-shadow: none;
+}
+
+.app-shell .button--secondary:hover,
+.app-shell .button--dark:hover {
+  color: white;
+  background: #202939;
+  border-color: #435068;
+}
+
+.app-shell .button--danger {
+  color: #ff918c;
+  background: rgba(144, 40, 48, 0.17);
+  border-color: rgba(220, 87, 92, 0.34);
+}
+
+.app-shell .automation-delete {
+  color: #ff9a96;
+  background: rgba(142, 42, 51, .18);
+  border-color: rgba(220, 91, 98, .3);
+}
+
+.app-shell .automation-delete:hover {
+  color: #ffd0cd;
+  background: rgba(167, 49, 60, .28);
+  border-color: rgba(237, 111, 117, .48);
+}
+
+.app-shell :is(
+  .panel,
+  .metric-card,
+  .automation-summary,
+  .automation-card,
+  .run-stat-grid,
+  .integration-card,
+  .keys-panel,
+  .api-quickstart,
+  .settings-card
+) {
+  color: #c8cfda;
+  background: #111722;
+  border-color: #283142;
+  box-shadow: var(--shadow-sm);
+}
+
+.app-shell :is(
+  .period-button,
+  .search-field,
+  .category-select,
+  .filter-tabs,
+  .automation-model,
+  .tool-stack span
+) {
+  color: #aab3c3;
+  background: #171e2b;
+  border-color: #303a4d;
+}
+
+.app-shell .search-field input,
+.app-shell .category-select select {
+  color: #edf1f8;
+}
+
+.app-shell .filter-tabs button {
+  color: #8e98aa;
+}
+
+.app-shell .filter-tabs button:hover {
+  color: #d9dfea;
+}
+
+.app-shell .filter-tabs button.is-active {
+  color: white;
+  background: #26334a;
+  box-shadow: inset 0 0 0 1px #3a4d6e;
+}
+
+.app-shell .command-card,
+.app-shell .integration-banner {
+  background:
+    radial-gradient(circle at 90% -30%, rgba(72, 119, 232, 0.2), transparent 22rem),
+    linear-gradient(135deg, #101722, #161f2d);
+  border: 1px solid #2a3446;
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.24);
+}
+
+.app-shell .command-box {
+  background: #111722;
+  border-color: #303a4c;
+}
+
+.app-shell .command-box textarea {
+  color: #edf1f8;
+}
+
+.app-shell .automation-select,
+.app-shell .automation-select select {
+  color: #a6b0c0;
+}
+
+.app-shell .metric-icon--lime,
+.app-shell .automation-avatar--lime,
+.app-shell .run-icon,
+.app-shell .key-icon,
+.app-shell .new-automation-icon,
+.app-shell .setting-row__icon {
+  color: #79d49a;
+  background: rgba(44, 128, 77, 0.2);
+}
+
+.app-shell .metric-icon--violet,
+.app-shell .automation-avatar--violet {
+  color: #ab96ff;
+  background: rgba(105, 78, 201, 0.22);
+}
+
+.app-shell .metric-icon--blue,
+.app-shell .automation-avatar--blue {
+  color: #82b2ff;
+  background: rgba(45, 94, 174, 0.24);
+}
+
+.app-shell .metric-icon--coral,
+.app-shell .automation-avatar--coral {
+  color: #ff9a85;
+  background: rgba(157, 63, 45, 0.22);
+}
+
+.app-shell .bar-chart {
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(33.333% - 1px),
+    #273043 33.333%,
+    transparent calc(33.333% + 1px)
+  );
+  border-bottom-color: #273043;
+}
+
+.app-shell .workforce-row {
+  border-bottom-color: #242d3d;
+}
+
+.app-shell .workforce-row:hover,
+.app-shell .data-table tbody tr:hover,
+.app-shell .key-row:hover {
+  background: #171f2c;
+}
+
+.app-shell .data-table th,
+.app-shell .data-table td,
+.app-shell .key-row,
+.app-shell .automation-card__stats {
+  border-color: #263042;
+}
+
+.app-shell .data-table td,
+.app-shell .key-row > div > strong,
+.app-shell .automation-card__stats strong {
+  color: #aeb7c6;
+}
+
+.app-shell .run-stat-grid article:not(:last-child),
+.app-shell .automation-summary > div:not(:last-child),
+.app-shell .automation-card__stats > div:not(:last-child) {
+  border-color: #2a3445;
+}
+
+.app-shell .automation-card:hover,
+.app-shell .integration-card:hover {
+  background: #151c28;
+  border-color: #3b475c;
+  box-shadow: 0 14px 35px rgba(0, 0, 0, 0.24);
+}
+
+.app-shell .automation-card--new {
+  color: #aeb7c6;
+  background: rgba(17, 23, 34, 0.55);
+  border-color: #3a465b;
+}
+
+.app-shell .automation-card--new:hover {
+  color: white;
+  background: #151d2a;
+  border-color: #5275bf;
+}
+
+.app-shell .status-pill {
+  color: #aab3c1;
+  background: #1b2330;
+  border-color: #303b4e;
+}
+
+.app-shell .status-pill--active,
+.app-shell .status-pill--completed,
+.app-shell .connected-label,
+.app-shell .configured-label {
+  color: #65d88d;
+  background: rgba(28, 124, 67, 0.24);
+  border-color: rgba(67, 181, 108, 0.28);
+}
+
+.app-shell .status-pill--running,
+.app-shell .platform-label {
+  color: #84aaff;
+  background: rgba(48, 87, 170, 0.25);
+  border-color: rgba(88, 129, 217, 0.28);
+}
+
+.app-shell .status-pill--failed {
+  color: #ff8a84;
+  background: rgba(145, 44, 51, 0.24);
+  border-color: rgba(219, 84, 89, 0.28);
+}
+
+.app-shell .status-pill--paused,
+.app-shell .status-pill--draft {
+  color: #d1a85c;
+  background: rgba(132, 95, 31, 0.2);
+  border-color: rgba(180, 133, 53, 0.25);
+}
+
+.app-shell .category-select,
+.app-shell .integration-logo {
+  background: #171e2b;
+  border-color: #303a4d;
+}
+
+.app-shell .logo-notion,
+.app-shell .logo-codex i {
+  color: #e8edf5;
+  border-color: currentColor;
+}
+
+.app-shell :is(
+  .codex-connection-state,
+  .codex-connect-steps,
+  .codex-runtime-session,
+  .codex-runtime-composer,
+  .codex-runtime-empty,
+  .n8n-intro,
+  .webhook-direction,
+  .n8n-history,
+  .mcp-connection,
+  .mcp-route-strip,
+  .mcp-service-card,
+  .mcp-tool-preview,
+  .integration-boundary-note,
+  .security-note,
+  .permission-box
+) {
+  color: #bdc5d2;
+  background: #151c28;
+  border-color: #2e394c;
+}
+
+.app-shell :is(
+  .codex-connection-state,
+  .codex-connect-steps,
+  .codex-runtime-session,
+  .codex-runtime-composer,
+  .n8n-intro,
+  .webhook-direction,
+  .n8n-history,
+  .mcp-connection,
+  .mcp-route-strip,
+  .mcp-service-card,
+  .mcp-tool-preview,
+  .security-note
+) h3,
+.app-shell :is(
+  .codex-connection-state,
+  .codex-connect-steps,
+  .codex-runtime-session,
+  .n8n-intro,
+  .webhook-direction,
+  .n8n-history,
+  .mcp-connection,
+  .mcp-service-card,
+  .security-note
+) strong {
+  color: #eef2f8;
+}
+
+.app-shell .security-note > span {
+  color: #78a9ff;
+  background: rgba(49, 91, 173, 0.25);
+}
+
+.app-shell .api-quickstart {
+  background: linear-gradient(135deg, #111722, #131b29);
+}
+
+.app-shell .settings-nav button,
+.app-shell .settings-nav > span {
+  color: #8f99aa;
+}
+
+.app-shell .settings-nav button:hover {
+  color: #e6eaf2;
+  background: #141b27;
+}
+
+.app-shell .settings-nav button.is-active,
+.app-shell .settings-nav > span.is-active {
+  color: white;
+  background: #1c2637;
+  box-shadow: inset 0 0 0 1px #303e56;
+}
+
+.app-shell .form-field > span {
+  color: #b9c1ce;
+}
+
+.app-shell :is(
+  .form-field input,
+  .form-field textarea,
+  .form-field select,
+  .modal-form input,
+  .modal-form textarea,
+  .modal-form select,
+  .copy-field input
+) {
+  color: #edf1f8;
+  background: #0e141f;
+  border-color: #303a4d;
+}
+
+.app-shell :is(
+  .form-field input,
+  .form-field textarea,
+  .form-field select,
+  .modal-form input,
+  .modal-form textarea,
+  .modal-form select
+):focus {
+  color: white;
+  background: #111925;
+  border-color: #527fe2;
+  box-shadow: 0 0 0 3px rgba(65, 112, 219, 0.15);
+}
+
+.app-shell .form-footer {
+  background: #0e141f;
+  border-color: #293244;
+}
+
+.app-shell .setting-row + .setting-row {
+  border-color: #283142;
+}
+
+.app-shell .notification-popover,
+.app-shell .command-palette,
+.app-shell .modal {
+  color: #d8dee8;
+  background: #121925;
+  border-color: #303a4d;
+  box-shadow: var(--shadow-md);
+}
+
+.app-shell .notification-popover > div,
+.app-shell .notification-popover > button {
+  color: #d8dee8;
+  background: #121925;
+  border-color: #283244;
+}
+
+.app-shell .notification-popover > button:hover {
+  background: #192231;
+}
+
+.app-shell .command-palette label {
+  background: #151d2a;
+  border-color: #2f3a4d;
+}
+
+.app-shell .command-palette input {
+  color: white;
+}
+
+.app-shell .command-results button {
+  color: #b8c0cd;
+  border-color: #273143;
+}
+
+.app-shell .command-results button:hover {
+  color: white;
+  background: #1b2535;
+}
+
+.app-shell .modal__heading {
+  border-color: #2b3547;
+}
+
+.app-shell .modal-form__footer,
+.app-shell .modal-actions {
+  border-color: #293345;
+}
+
+.app-shell .toast {
+  color: #edf2f8;
+  background: #17202d;
+  border: 1px solid #344158;
+  box-shadow: var(--shadow-md);
+}
+
+/* Standard dashboard pages: Files, Analytics, and Team */
+.app-shell .dashboard-page {
+  min-height: calc(100vh - 64px);
+  color: var(--ink);
+  background: transparent;
+}
+
+.app-shell :is(
+  .dashboard-stat,
+  .dashboard-panel,
+  .dashboard-drive-browser,
+  .dashboard-document-library,
+  .dashboard-provider-card,
+  .dashboard-link-form,
+  .drive-tree,
+  .drive-linker,
+  .drive-workspace
+) {
+  color: #c4ccd8;
+  background: #111722;
+  border-color: #283142;
+  box-shadow: var(--shadow-sm);
+}
+
+.app-shell .dashboard-table thead tr,
+.app-shell .drive-tree__column-head,
+.app-shell .drive-workspace__header,
+.app-shell .drive-workspace__toolbar {
+  color: #929caf;
+  background: #181f2c;
+  border-color: #2a3446;
+}
+
+.app-shell .dashboard-table td,
+.app-shell .document-library__row,
+.app-shell .drive-tree__row {
+  border-color: #273143;
+}
+
+.app-shell .dashboard-table tbody tr:hover,
+.app-shell .drive-tree__row:hover,
+.app-shell .drive-tree__row.is-selected {
+  background: #182232;
+}
+
+.app-shell :is(
+  .dashboard-toolbar input,
+  .dashboard-toolbar select,
+  .document-upload__picker,
+  .dashboard-link-form input,
+  .dashboard-link-form select,
+  .dashboard-link-form textarea,
+  .drive-linker select
+) {
+  color: #edf1f8;
+  background: #0e141f;
+  border-color: #303a4d;
+}
+
+.app-shell .drive-workspace__body,
+.app-shell .drive-workspace__image-stage,
+.app-shell .drive-workspace__markdown {
+  background: #0c111b;
+  border-color: #293345;
+}
+
+.app-shell .drive-workspace__paper {
+  color: #20242c;
+  background: #f8f9fc;
+}
+
+/* Money */
+.app-shell .money-page {
+  --money-ink: #f2f5fa;
+  --money-muted: #8e98aa;
+  --money-line: #293345;
+  min-height: calc(100vh - 64px);
+  color: var(--money-ink);
+  background: transparent;
+}
+
+.app-shell .money-primary {
+  color: white;
+  background: linear-gradient(180deg, #4c80ee, #3063d3);
+  border: 1px solid #5789ef;
+}
+
+.app-shell .money-primary:hover {
+  background: linear-gradient(180deg, #5a8ef4, #386edf);
+}
+
+.app-shell :is(.money-stats article, .money-card) {
+  color: #c7cfdb;
+  background: #111722;
+  border-color: #293345;
+  box-shadow: var(--shadow-sm);
+}
+
+.app-shell .money-balance {
+  background:
+    radial-gradient(circle at 82% 0, rgba(71, 123, 237, 0.23), transparent 22rem),
+    linear-gradient(135deg, #111a29, #172236);
+  border-color: #34435c;
+}
+
+.app-shell :is(.invoice-row, .money-empty, .payment-list li) {
+  border-color: #283244;
+}
+
+.app-shell .money-empty strong,
+.app-shell .payment-list time b {
+  color: #e6ebf3;
+}
+
+.app-shell .invoice-status--paid {
+  color: #63db8d;
+  background: rgba(30, 130, 72, 0.24);
+}
+
+.app-shell .invoice-status--pending {
+  color: #f1c25b;
+  background: rgba(137, 97, 28, 0.24);
+}
+
+.app-shell .invoice-status--initializing {
+  color: #a997ff;
+  background: rgba(93, 67, 184, 0.23);
+}
+
+.app-shell .invoice-status--failed {
+  color: #ff8983;
+  background: rgba(146, 45, 51, 0.23);
+}
+
+.app-shell .invoice-more:hover,
+.app-shell .payment-note {
+  color: #b7c0ce;
+  background: #192230;
+}
+
+.app-shell .workflow-card {
+  background:
+    radial-gradient(circle at 90% 0, rgba(92, 136, 245, 0.26), transparent 18rem),
+    #243f83;
+  border-color: #3f62b6;
+}
+
+.app-shell .provider-grid article {
+  color: #c7ced9;
+  background: #151c28;
+  border-color: #2f394b;
+}
+
+.app-shell .provider-grid button {
+  color: #cbd2de;
+  background: #1d2635;
+  border-color: #354259;
+}
+
+.app-shell .money-modal {
+  --money-ink: #f0f4fa;
+  --money-muted: #919bad;
+  color: #eef2f8;
+  background: #121925;
+  border: 1px solid #303a4d;
+}
+
+.app-shell .money-modal input {
+  color: #eef2f8;
+  background: #0d141f;
+  border-color: #303a4d;
+}
+
+.app-shell .money-modal__close {
+  color: #a8b1c0;
+  background: #1c2533;
+}
+
+/* Ideas */
+.app-shell .ideas-page {
+  --ink: #f2f5fb;
+  --ink-soft: #c1c9d6;
+  --muted: #8f99aa;
+  --canvas: #0b0f18;
+  --surface: #111722;
+  --line: #283142;
+  --line-strong: #354056;
+  color: var(--ink);
+  background: #0b0f18;
+}
+
+.app-shell .ideas-header,
+.app-shell .board-tabs {
+  background: #101722;
+  border-color: #283142;
+}
+
+.app-shell .ideas-share {
+  background: linear-gradient(180deg, #4c80ee, #3063d3);
+}
+
+.app-shell .ideas-avatar {
+  border-color: #111722;
+}
+
+.app-shell .ideas-sync-strip {
+  color: #74d89a;
+  background: rgba(23, 100, 57, 0.23);
+  border-color: rgba(59, 165, 96, 0.25);
+}
+
+.app-shell .ideas-sync-strip.is-offline {
+  color: #e8bd67;
+  background: rgba(126, 86, 24, 0.22);
+  border-color: rgba(184, 133, 51, 0.27);
+}
+
+.app-shell .ideas-workspace {
+  background-color: #0d131e;
+  background-image: radial-gradient(#293347 1px, transparent 1px);
+}
+
+.app-shell .canvas-toolbar,
+.app-shell .quick-add,
+.app-shell .ai-helper {
+  color: #bbc3cf;
+  background: rgba(20, 28, 41, 0.96);
+  border-color: #303b4f;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.26);
+}
+
+.app-shell .canvas-toolbar button:hover,
+.app-shell .canvas-toolbar .tool-button--active {
+  color: white;
+  background: #263246;
+}
+
+.app-shell .quick-add input {
+  color: white;
+  background: transparent;
+}
+
+.app-shell .added-note {
+  color: #d9dfe8;
+  background: #161f2d;
+  border-color: #354158;
+}
+
+.app-shell .added-note textarea,
+.app-shell .added-note button {
+  color: #dce2eb;
+  background: #101722;
+  border-color: #303b4f;
+}
+
+/* Project and dashboard dialogs */
+.app-shell .work-dialog {
+  --work-ink: #f0f3f9;
+  --work-muted: #909aac;
+  --work-line: #303a4d;
+  color: #edf1f8;
+  background: #121925;
+  border-color: #354158;
+}
+
+.app-shell .work-dialog input,
+.app-shell .work-dialog select,
+.app-shell .work-dialog textarea {
+  color: #eef2f8;
+  background: #0e141f;
+  border-color: #303a4d;
+}
+
+.app-shell :is(
+  .work-dialog__fieldset,
+  .work-dialog__file-row,
+  .work-dialog__selected-files
+) {
+  color: #bec7d3;
+  background: #151d2a;
+  border-color: #303a4d;
+}
+
+.app-shell .work-dialog__actions {
+  border-color: #2c3648;
+}
+
+/* Sandy grain atmosphere and glass depth */
+.app-shell .app-main {
+  position: relative;
+  isolation: isolate;
+  background: #090d15;
+}
+
+.app-shell .app-main::before {
+  position: fixed;
+  z-index: 0;
+  inset: 0 0 0 var(--sidebar-width);
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+  content: '';
+  mix-blend-mode: soft-light;
+  opacity: .1;
+  pointer-events: none;
+}
+
+.app-shell .app-main > .topbar,
+.app-shell .app-main > .content {
+  position: relative;
+  z-index: 1;
+}
+
+.app-shell .content,
+.app-shell :is(.page, .dashboard-page, .projects-page, .money-page, .ideas-page) {
+  background: transparent;
+}
+
+.app-shell .topbar {
+  background: rgba(10, 14, 23, .7);
+  box-shadow: 8px 10px 24px rgba(2, 5, 10, .18);
+  backdrop-filter: blur(22px) saturate(125%);
+}
+
+.app-shell .sidebar {
+  background:
+    radial-gradient(circle at 35% -8%, rgba(72, 91, 169, .16), transparent 17rem),
+    rgba(8, 12, 19, .94);
+  box-shadow:
+    12px 9px 0 rgba(3, 5, 10, .17),
+    18px 0 46px rgba(1, 3, 8, .4);
+  backdrop-filter: blur(24px) saturate(120%);
+}
+
+.app-shell :is(
+  .panel,
+  .metric-card,
+  .automation-summary,
+  .automation-card,
+  .run-stat-grid,
+  .integration-card,
+  .keys-panel,
+  .api-quickstart,
+  .settings-card,
+  .dashboard-stat,
+  .dashboard-panel,
+  .dashboard-drive-browser,
+  .dashboard-document-library,
+  .dashboard-provider-card,
+  .dashboard-link-form,
+  .drive-tree,
+  .drive-linker,
+  .drive-workspace,
+  .projects-table-card,
+  .project-workspace__stats,
+  .project-workspace__toolbar,
+  .project-lane,
+  .clients-directory,
+  .client-detail-panel,
+  .money-stats article,
+  .money-card
+) {
+  background: linear-gradient(145deg, rgba(23, 30, 45, .78), rgba(13, 18, 29, .68));
+  border-color: rgba(132, 147, 177, .24);
+  box-shadow:
+    9px 11px 0 rgba(3, 6, 12, .22),
+    0 22px 52px rgba(1, 4, 9, .24),
+    inset 0 1px rgba(255, 255, 255, .035);
+  backdrop-filter: blur(17px) saturate(120%);
+}
+
+.app-shell :is(
+  .project-kanban-card,
+  .client-contact-grid > div,
+  .provider-grid article,
+  .codex-connection-state,
+  .codex-connect-steps,
+  .codex-runtime-session,
+  .codex-runtime-composer,
+  .n8n-intro,
+  .webhook-direction,
+  .n8n-history,
+  .mcp-connection,
+  .mcp-route-strip,
+  .mcp-service-card,
+  .mcp-tool-preview
+) {
+  background: linear-gradient(145deg, rgba(31, 40, 59, .76), rgba(19, 25, 38, .7));
+  border-color: rgba(130, 145, 176, .23);
+  box-shadow:
+    5px 7px 0 rgba(2, 5, 10, .2),
+    0 14px 30px rgba(1, 4, 9, .18),
+    inset 0 1px rgba(255, 255, 255, .03);
+  backdrop-filter: blur(13px);
+}
+
+.app-shell :is(
+  .modal,
+  .command-palette,
+  .notification-popover,
+  .work-dialog,
+  .money-modal,
+  .clients-modal
+) {
+  background: linear-gradient(145deg, rgba(25, 33, 49, .94), rgba(12, 17, 27, .92));
+  border-color: rgba(143, 158, 188, .28);
+  box-shadow:
+    12px 14px 0 rgba(2, 4, 9, .28),
+    0 34px 85px rgba(0, 0, 0, .45);
+  backdrop-filter: blur(24px) saturate(125%);
+}
+
+.app-shell :is(
+  .global-search,
+  .search-field,
+  .projects-search,
+  .clients-search,
+  .dashboard-toolbar input,
+  .dashboard-toolbar select,
+  .form-field input,
+  .form-field textarea,
+  .form-field select
+) {
+  background: rgba(12, 18, 29, .68);
+  border-color: rgba(127, 143, 174, .27);
+  backdrop-filter: blur(12px);
+}
+
+/* Landing page uses the same dashboard palette and atmosphere */
+.landing {
+  --ink: #f2f5fb;
+  --ink-soft: #c1c9d6;
+  --muted: #8f99aa;
+  --muted-2: #707b8f;
+  --canvas: #090d15;
+  --surface: #111722;
+  --surface-soft: #171e2b;
+  --line: #2a3446;
+  --line-strong: #354158;
+  position: relative;
+  isolation: isolate;
+  color: #f1f4f9;
+  background: #090d15;
+  color-scheme: dark;
+}
+
+.landing::before {
+  position: fixed;
+  z-index: 0;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+  content: '';
+  mix-blend-mode: soft-light;
+  opacity: .1;
+  pointer-events: none;
+}
+
+.landing > * {
+  position: relative;
+  z-index: 1;
+}
+
+.landing .landing-nav {
+  z-index: 80;
+  color: #f0f3f9;
+  background: rgba(8, 12, 20, .72);
+  border-color: rgba(142, 157, 186, .18);
+  box-shadow:
+    9px 10px 0 rgba(2, 4, 9, .18),
+    0 20px 42px rgba(0, 0, 0, .22);
+  backdrop-filter: blur(24px) saturate(125%);
+}
+
+.landing :is(.landing-hero, .landing-workflow, .landing-security, .landing-cta) {
+  background: transparent;
+}
+
+.landing .landing-proof,
+.landing .landing-footer {
+  color: #8994a7;
+  background: rgba(8, 12, 19, .74);
+  border-color: rgba(137, 151, 180, .16);
+  backdrop-filter: blur(20px);
+}
+
+.landing :is(
+  .landing-product,
+  .landing-feature,
+  .landing-workflow__visual,
+  .landing-integration-row,
+  .landing-security__points span
+) {
+  color: #e6ebf3;
+  background: linear-gradient(145deg, rgba(27, 35, 51, .76), rgba(13, 18, 28, .66));
+  border-color: rgba(141, 156, 186, .25);
+  box-shadow:
+    11px 13px 0 rgba(2, 5, 10, .24),
+    0 28px 64px rgba(0, 0, 0, .28),
+    inset 0 1px rgba(255, 255, 255, .04);
+  backdrop-filter: blur(19px) saturate(120%);
+}
+
+.landing :is(
+  .landing-run,
+  .landing-mini-grid article,
+  .landing-activity,
+  .workflow-automation-card,
+  .workflow-result,
+  .workflow-tool-row span,
+  .feature-events span,
+  .feature-connections span
+) {
+  color: #d5dce7;
+  background: linear-gradient(145deg, rgba(33, 42, 60, .78), rgba(20, 26, 39, .7));
+  border-color: rgba(132, 148, 179, .23);
+  box-shadow:
+    5px 7px 0 rgba(2, 5, 10, .18),
+    inset 0 1px rgba(255, 255, 255, .03);
+}
+
+.landing :is(
+  .landing-section__heading > p,
+  .landing-workflow__copy > p,
+  .landing-security > div:nth-child(2) > p,
+  .landing-feature > p,
+  .landing-integration-row p,
+  .workflow-steps p,
+  .workflow-result p,
+  .landing-run__automation small,
+  .landing-mini-grid span,
+  .landing-activity > span
+) {
+  color: #919cad;
+}
+
+.landing :is(
+  .landing-section__heading h2,
+  .landing-workflow h2,
+  .landing-security h2,
+  .landing-feature h3,
+  .landing-integration-row h3,
+  .workflow-automation-card strong,
+  .workflow-result strong,
+  .landing-mini-grid strong
+) {
+  color: #f1f4f9;
+}
+
+.landing .landing-product__top {
+  color: #aab3c2;
+}
+
+.landing .landing-command-preview,
+.landing .feature-prompt {
+  color: #e7ebf3;
+  background: rgba(10, 16, 26, .78);
+  border: 1px solid rgba(133, 148, 178, .2);
+}
+
+.landing .landing-run__progress {
+  background: #2a3447;
+}
+
+.landing .landing-feature__icon,
+.landing .landing-integration-row .integration-logo,
+.landing .landing-stack-logo {
+  color: #87aeff;
+  background: rgba(49, 82, 151, .28);
+  border-color: rgba(100, 135, 209, .25);
+}
+
+.landing .landing-feature--connect .landing-feature__icon {
+  color: #b19cff;
+  background: rgba(93, 69, 184, .27);
+}
+
+.landing .landing-feature--observe .landing-feature__icon {
+  color: #7fc7ff;
+  background: rgba(40, 104, 159, .27);
+}
+
+.landing .landing-security {
+  border-color: rgba(133, 148, 178, .18);
+}
+
+.landing .landing-security__points span {
+  color: #c0c9d6;
+}
+
+.landing .landing-security__points svg {
+  color: #79a7ff;
+}
+
+.landing :is(.button--primary, .landing-command-preview button) {
+  color: white;
+  background: linear-gradient(180deg, #4c80ee, #3063d3);
+  border-color: #5789ef;
+  box-shadow: 0 10px 26px rgba(30, 72, 168, .28);
+}
+
+.landing .landing-eyebrow,
+.landing .landing-hero .landing-eyebrow,
+.landing .landing-workflow .landing-eyebrow,
+.landing .landing-cta .landing-eyebrow {
+  color: #a8b8d6;
+}
+
+.landing .landing-hero__copy > p,
+.landing .landing-hero__actions > a,
+.landing .landing-sign-in {
+  color: #aeb7c5;
+}
+
+/* Alternating landing tones: dark atmosphere, then a calm warm canvas. */
+.landing .landing-section {
+  --ink: #151a23;
+  --ink-soft: #444d5b;
+  --muted: #697382;
+  color: #171c25;
+  background:
+    radial-gradient(circle at 12% 15%, rgba(255, 255, 255, .72), transparent 26rem),
+    radial-gradient(circle at 86% 72%, rgba(91, 126, 191, .14), transparent 30rem),
+    #dfe5ed;
+  box-shadow: 0 0 0 100vmax #dfe5ed;
+  clip-path: inset(0 -100vmax);
+}
+
+.landing .landing-section :is(.landing-section__heading h2, .landing-feature h3, .landing-integration-row h3) {
+  color: #171c25;
+}
+
+.landing .landing-section :is(
+  .landing-section__heading > p,
+  .landing-feature > p,
+  .landing-integration-row p
+) {
+  color: #5e6876;
+}
+
+.landing .landing-section .landing-eyebrow {
+  color: #526c9c;
+}
+
+.landing .landing-section :is(.landing-feature, .landing-integration-row) {
+  color: #242b36;
+  background: linear-gradient(145deg, rgba(250, 252, 255, .86), rgba(224, 231, 241, .74));
+  border-color: rgba(84, 94, 110, .2);
+  box-shadow:
+    11px 13px 0 rgba(16, 29, 48, .1),
+    0 28px 60px rgba(23, 39, 62, .12),
+    inset 0 1px rgba(255, 255, 255, .8);
+  backdrop-filter: blur(18px) saturate(112%);
+}
+
+.landing .landing-section :is(
+  .feature-prompt,
+  .feature-events span,
+  .feature-connections span
+) {
+  color: #323b49;
+  background: rgba(255, 255, 255, .68);
+  border-color: rgba(83, 95, 113, .17);
+  box-shadow: 4px 6px 0 rgba(18, 32, 53, .08);
+}
+
+.landing .landing-section .landing-feature__number,
+.landing .landing-section .landing-integration-row small {
+  color: #6e7886;
+}
+
+.landing .landing-section .landing-integration-row article + article {
+  border-color: rgba(76, 88, 106, .16);
+}
+
+@media (max-width: 800px) {
+  .app-shell .app-main::before {
+    left: 0;
+  }
+}
+
+/* Landing heading reveals */
+
+.landing-hero__title-mask,
+.landing-hero__title-line {
+  display: block;
+}
+
+.landing-hero__title-mask {
+  overflow: hidden;
+  padding: 0.07em 0 0.09em;
+  margin: -0.07em 0 -0.09em;
+}
+
+.landing-hero__title-line {
+  transform-origin: 12% 100%;
+  will-change: transform, filter, opacity;
+}
+
+.landing :is(
+  .landing-section h2,
+  .landing-section h3,
+  .landing-workflow h2,
+  .landing-security h2,
+  .landing-cta h2
+) {
+  will-change: transform, filter, opacity, clip-path;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing :is(
+    .landing-hero__title-line,
+    .landing-section h2,
+    .landing-section h3,
+    .landing-workflow h2,
+    .landing-security h2,
+    .landing-cta h2
+  ) {
+    will-change: auto;
   }
 }
