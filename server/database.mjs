@@ -306,7 +306,7 @@ export async function openDatabase({
     `CREATE TABLE IF NOT EXISTS workspace_members (
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      role TEXT NOT NULL CHECK (role IN ('owner', 'collaborator')),
+      role TEXT NOT NULL CHECK (role IN ('owner', 'collaborator', 'viewer')),
       created_at TEXT NOT NULL,
       PRIMARY KEY (workspace_id, user_id)
     )`,
@@ -316,7 +316,7 @@ export async function openDatabase({
       invited_by TEXT NOT NULL REFERENCES users(id),
       email TEXT NOT NULL,
       name TEXT NOT NULL,
-      role TEXT NOT NULL CHECK (role IN ('owner', 'collaborator')),
+      role TEXT NOT NULL CHECK (role IN ('owner', 'collaborator', 'viewer')),
       token_hash TEXT NOT NULL UNIQUE,
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted')),
       expires_at TEXT NOT NULL,
@@ -749,6 +749,85 @@ export async function openDatabase({
         if (!/duplicate column name/i.test(String(migrationError))) throw migrationError
       }
     }
+  }
+
+  if (isSqlite) {
+    const roleTables = await query(
+      `SELECT name, sql FROM sqlite_master
+       WHERE type = 'table' AND name IN ('workspace_members', 'team_invitations')`,
+    )
+    if (roleTables.some((row) => !String(row.sql || '').includes("'viewer'"))) {
+      await query('PRAGMA foreign_keys = OFF')
+      try {
+        await query('BEGIN IMMEDIATE')
+        await query('ALTER TABLE workspace_members RENAME TO workspace_members_role_legacy')
+        await query(
+          `CREATE TABLE workspace_members (
+            workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            role TEXT NOT NULL CHECK (role IN ('owner', 'collaborator', 'viewer')),
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (workspace_id, user_id)
+          )`,
+        )
+        await query(
+          `INSERT INTO workspace_members (workspace_id, user_id, role, created_at)
+           SELECT workspace_id, user_id, role, created_at FROM workspace_members_role_legacy`,
+        )
+        await query('DROP TABLE workspace_members_role_legacy')
+        await query('ALTER TABLE team_invitations RENAME TO team_invitations_role_legacy')
+        await query(
+          `CREATE TABLE team_invitations (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+            invited_by TEXT NOT NULL REFERENCES users(id),
+            email TEXT NOT NULL,
+            name TEXT NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('owner', 'collaborator', 'viewer')),
+            token_hash TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted')),
+            expires_at TEXT NOT NULL,
+            accepted_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE (workspace_id, email)
+          )`,
+        )
+        await query(
+          `INSERT INTO team_invitations (
+             id, workspace_id, invited_by, email, name, role, token_hash, status,
+             expires_at, accepted_at, created_at, updated_at
+           )
+           SELECT id, workspace_id, invited_by, email, name, role, token_hash, status,
+             expires_at, accepted_at, created_at, updated_at
+           FROM team_invitations_role_legacy`,
+        )
+        await query('DROP TABLE team_invitations_role_legacy')
+        await query(
+          `CREATE INDEX IF NOT EXISTS idx_team_invitations_token
+           ON team_invitations (token_hash, status)`,
+        )
+        await query('COMMIT')
+      } catch (error) {
+        await query('ROLLBACK').catch(() => undefined)
+        throw error
+      } finally {
+        await query('PRAGMA foreign_keys = ON')
+      }
+    }
+  } else {
+    await query(`ALTER TABLE workspace_members DROP CONSTRAINT IF EXISTS workspace_members_role_check`)
+    await query(
+      `ALTER TABLE workspace_members
+       ADD CONSTRAINT workspace_members_role_check
+       CHECK (role IN ('owner', 'collaborator', 'viewer'))`,
+    )
+    await query(`ALTER TABLE team_invitations DROP CONSTRAINT IF EXISTS team_invitations_role_check`)
+    await query(
+      `ALTER TABLE team_invitations
+       ADD CONSTRAINT team_invitations_role_check
+       CHECK (role IN ('owner', 'collaborator', 'viewer'))`,
+    )
   }
 
   await query(
@@ -3387,6 +3466,58 @@ export async function openDatabase({
           expiresAt: row.expires_at,
         })),
       ]
+    },
+
+    async updateTeamMember(selectedWorkspaceId, memberId, { name, role }) {
+      const timestamp = nowIso()
+      if (String(memberId).startsWith('inv_')) {
+        const rows = await query(
+          `UPDATE team_invitations
+           SET name = $1, role = $2, updated_at = $3
+           WHERE workspace_id = $4 AND id = $5 AND status = 'pending'
+           RETURNING id, name, email, role, created_at`,
+          [name, role, timestamp, selectedWorkspaceId, memberId],
+        )
+        const row = rows[0]
+        return row ? {
+          id: row.id,
+          name: row.name,
+          email: row.email,
+          role: row.role,
+          status: 'invited',
+          joinedAt: row.created_at,
+        } : null
+      }
+      await query(
+        `UPDATE users SET name = $1 WHERE id = $2
+         AND EXISTS (
+           SELECT 1 FROM workspace_members
+           WHERE workspace_id = $3 AND user_id = $2
+         )`,
+        [name, memberId, selectedWorkspaceId],
+      )
+      await query(
+        `UPDATE workspace_members SET role = $1
+         WHERE workspace_id = $2 AND user_id = $3`,
+        [role, selectedWorkspaceId, memberId],
+      )
+      return (await this.listTeamMembers(selectedWorkspaceId))
+        .find((member) => member.id === memberId) || null
+    },
+
+    async removeTeamMember(selectedWorkspaceId, memberId) {
+      if (String(memberId).startsWith('inv_')) {
+        await query(
+          `DELETE FROM team_invitations
+           WHERE workspace_id = $1 AND id = $2 AND status = 'pending'`,
+          [selectedWorkspaceId, memberId],
+        )
+        return
+      }
+      await query(
+        `DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`,
+        [selectedWorkspaceId, memberId],
+      )
     },
 
     async recordApiRequest(selectedWorkspaceId, failed = false) {

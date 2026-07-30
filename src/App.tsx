@@ -45,6 +45,7 @@ const ClientsPage = lazy(() => import('./components/dashboard/ClientsPage'))
 const AnalyticsPage = lazy(() => import('./components/dashboard/AnalyticsPage'))
 const TeamPage = lazy(() => import('./components/dashboard/TeamPage'))
 const FilesPage = lazy(() => import('./components/dashboard/FilesPage'))
+const WorkflowsPage = lazy(() => import('./components/WorkflowsPage'))
 
 type Page =
   | 'overview'
@@ -52,6 +53,7 @@ type Page =
   | 'work'
   | 'ideas'
   | 'automations'
+  | 'workflows'
   | 'runs'
   | 'integrations'
   | 'money'
@@ -66,6 +68,7 @@ const pageIds = new Set<Page>([
   'work',
   'ideas',
   'automations',
+  'workflows',
   'runs',
   'integrations',
   'money',
@@ -132,13 +135,12 @@ const navItems: { id: Page; label: string; icon: IconName; section: string }[] =
   { id: 'ideas', label: 'Ideas', icon: 'lightbulb', section: 'Your work' },
   { id: 'files', label: 'Files', icon: 'file', section: 'Your work' },
   { id: 'automations', label: 'Automations', icon: 'activity', section: 'Business' },
-  { id: 'runs', label: 'Activity Logs', icon: 'layers', section: 'Business' },
+  { id: 'workflows', label: 'Workflows', icon: 'layers', section: 'Business' },
   { id: 'integrations', label: 'Connections', icon: 'plug', section: 'Business' },
-  { id: 'money', label: 'Money', icon: 'wallet', section: 'Business' },
+  { id: 'money', label: 'Invoicing', icon: 'wallet', section: 'Business' },
   { id: 'analytics', label: 'Analytics', icon: 'target', section: 'Business' },
   { id: 'team', label: 'Team', icon: 'user', section: 'Platform' },
-  { id: 'api', label: 'API Keys', icon: 'key', section: 'Platform' },
-  { id: 'settings', label: 'Settings & DB', icon: 'settings', section: 'Platform' },
+  { id: 'settings', label: 'Settings', icon: 'settings', section: 'Platform' },
 ]
 
 function Icon({
@@ -358,6 +360,72 @@ function BrandMark({ compact = false }: { compact?: boolean }) {
   )
 }
 
+type LandingTool = 'gmail' | 'calendar' | 'drive' | 'slack' | 'zoom' | 'stripe' | 'paypal' | 'paystack'
+
+function LandingToolLogo({ name }: { name: LandingTool }) {
+  const labels: Record<LandingTool, string> = {
+    gmail: 'Gmail',
+    calendar: 'Google Calendar',
+    drive: 'Google Drive',
+    slack: 'Slack',
+    zoom: 'Zoom',
+    stripe: 'Stripe',
+    paypal: 'PayPal',
+    paystack: 'Paystack',
+  }
+
+  return (
+    <span
+      className={`landing-tool-logo landing-tool-logo--${name}`}
+      aria-label={labels[name]}
+      role="img"
+    >
+      {name === 'gmail' && (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="#4285f4" d="M3 19V8.1l4 3V19Z" />
+          <path fill="#34a853" d="M17 19v-7.9l4-3V19Z" />
+          <path fill="#fbbc04" d="M3 8.1V6.5c0-1.5 1.7-2.3 2.9-1.4L12 9.7 18.1 5c1.2-.9 2.9 0 2.9 1.4v1.6l-9 6.8Z" />
+          <path fill="#ea4335" d="m3.7 5.3 8.3 6.3 8.3-6.3c.4.3.7.7.7 1.2v1.6l-9 6.8-9-6.8V6.5c0-.5.3-1 .7-1.2Z" />
+        </svg>
+      )}
+      {name === 'calendar' && (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="#4285f4" d="M5 2h14a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3Z" />
+          <path fill="#fff" d="M7 8h10v9H7z" />
+          <path fill="#34a853" d="M2 8h5v9H2z" />
+          <path fill="#fbbc04" d="M7 17h10v5H7z" />
+          <path fill="#ea4335" d="M17 8h5v9h-5z" />
+          <path fill="#4285f4" d="M9.2 11.4v1.3h2.1c-.2 1-1 1.5-2.1 1.5a2.2 2.2 0 1 1 0-4.4c.6 0 1.1.2 1.5.6l1-1a3.6 3.6 0 1 0-2.5 6.2c2.1 0 3.5-1.5 3.5-3.5 0-.3 0-.5-.1-.7Z" />
+        </svg>
+      )}
+      {name === 'drive' && (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="#0f9d58" d="M8.2 3h7.6l6.1 10.6h-7.6Z" />
+          <path fill="#f4b400" d="m8.2 3 3.8 6.6-6.1 10.6-3.8-6.6Z" />
+          <path fill="#4285f4" d="M5.9 20.2 9.7 13h12.2l-3.8 7.2Z" />
+        </svg>
+      )}
+      {name === 'slack' && (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect fill="#36c5f0" x="10.2" y="2" width="3.7" height="9" rx="1.8" />
+          <rect fill="#2eb67d" x="13" y="10.2" width="9" height="3.7" rx="1.8" />
+          <rect fill="#ecb22e" x="10.2" y="13" width="3.7" height="9" rx="1.8" />
+          <rect fill="#e01e5a" x="2" y="10.2" width="9" height="3.7" rx="1.8" />
+        </svg>
+      )}
+      {name === 'zoom' && (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect fill="#2d8cff" x="2" y="4" width="20" height="16" rx="5" />
+          <path fill="#fff" d="M6 8h7.5A2.5 2.5 0 0 1 16 10.5V16H8.5A2.5 2.5 0 0 1 6 13.5Zm10 3 3-2v6l-3-2Z" />
+        </svg>
+      )}
+      {name === 'stripe' && <strong>stripe</strong>}
+      {name === 'paypal' && <strong><i>P</i>P</strong>}
+      {name === 'paystack' && <strong><i />paystack</strong>}
+    </span>
+  )
+}
+
 function StatusPill({ status }: { status: Automation['status'] | Run['status'] }) {
   return (
     <span className={`status-pill status-pill--${status}`}>
@@ -392,11 +460,18 @@ function PageHeader({
   description?: string
   action?: ReactNode
 }) {
+  const titleWords = title.split(' ')
   return (
     <div className="page-header">
       <div>
         {eyebrow && <span className="page-eyebrow">{eyebrow}</span>}
-        <h1>{title}</h1>
+          <h1 aria-label={title}>
+            {titleWords.map((word, index) =>
+              index % 2 === 1
+                ? <em key={`${word}-${index}`}>{word} </em>
+                : <span key={`${word}-${index}`}>{word} </span>,
+            )}
+          </h1>
         {description && <p>{description}</p>}
       </div>
       {action}
@@ -747,15 +822,30 @@ function AutomationsPage({
   return (
     <div className="page">
       <PageHeader
-        eyebrow="Repeatable routines"
+        eyebrow="Powered by n8n"
         title="Automations"
-        description="Save the repeat work you do every week, then run it manually or on a schedule."
+        description="This space is dedicated to the n8n workflows that run your connected business processes."
         action={
           <button className="button button--primary" onClick={onCreate}>
             <Icon name="plus" size={16} /> New automation
           </button>
         }
       />
+
+      <section className="n8n-showcase">
+        <div className="n8n-showcase__logo" aria-label="n8n">
+          <span>n8n</span>
+          <i /><i /><i />
+        </div>
+        <div>
+          <span className="micro-label">Visual workflow automation</span>
+          <h2>Connect a trigger to the work that follows.</h2>
+          <p>n8n lets you join apps, approvals, schedules, and data in a visual flow while lancee keeps the business context close.</p>
+        </div>
+        <div className="n8n-showcase__diagram" aria-hidden="true">
+          <span>Trigger</span><i /><span>Review</span><i /><span>Action</span>
+        </div>
+      </section>
 
       <section className="automation-summary">
         <div>
@@ -999,7 +1089,7 @@ function IntegrationLogo({ integration }: { integration: Integration }) {
   }
   return (
     <span className="integration-logo" style={{ '--integration-accent': integration.accent } as React.CSSProperties}>
-      {marks[integration.icon]}
+      {marks[integration.icon] || <span className="logo-letter">{integration.name.slice(0, 2)}</span>}
     </span>
   )
 }
@@ -1032,7 +1122,21 @@ function IntegrationsPage({
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('All')
   const categories = ['All', 'Payments', 'Design', 'Storage', 'Automation', 'Communication']
-  const filtered = integrations.filter(
+  const connectionCatalog: Integration[] = [
+    {
+      id: 'general-ai',
+      name: 'General AI',
+      description: 'One provider-neutral connection for OpenAI-compatible and other leading AI services.',
+      category: 'Automation',
+      connected: false,
+      icon: 'ai',
+      accent: 'violet',
+    },
+    ...integrations.filter(
+      (integration) => !['codex-ai', 'codex-runtime'].includes(integration.id),
+    ),
+  ]
+  const filtered = connectionCatalog.filter(
     (integration) =>
       (category === 'All' || integration.category === category) &&
       `${integration.name} ${integration.description}`.toLowerCase().includes(query.toLowerCase()),
@@ -1062,7 +1166,7 @@ function IntegrationsPage({
           <span className="micro-label">Connection health</span>
           <h2>Your everyday tools, in one view.</h2>
           <p>
-            {integrations.filter((item) => item.connected && item.id !== 'mcp-grid').length}{' '}
+            {connectionCatalog.filter((item) => item.connected && item.id !== 'mcp-grid').length}{' '}
             tools are connected, plus the built-in service connector.
           </p>
         </div>
@@ -1152,6 +1256,9 @@ function IntegrationsPage({
               onClick={() => {
                 if (integration.id === 'n8n') onConfigureN8n()
                 else if (integration.id === 'mcp-grid') onConfigureMcp()
+                else if (integration.id === 'general-ai') {
+                  onToast('General AI is ready for provider configuration in the upcoming AI layer.')
+                }
                 else if (integration.id === 'codex-ai') onConfigureCodex()
                 else if (integration.id === 'codex-runtime') onConfigureCodexRuntime()
                 else if (integration.id === 'paystack') onConfigurePaystack()
@@ -2194,11 +2301,13 @@ function SettingsPage({
   onToast,
   onNavigate,
   onSaved,
+  initialSection,
 }: {
   user: User
   onToast: (message: string) => void
   onNavigate: (page: Page) => void
   onSaved: (settings: { name: string }) => void
+  initialSection: 'profile' | 'general' | 'dev'
 }) {
   const canEdit = user.role === 'owner'
   const [workspace, setWorkspace] = useState(user.workspace)
@@ -2209,6 +2318,7 @@ function SettingsPage({
   const [saving, setSaving] = useState(false)
   const [settingsLoading, setSettingsLoading] = useState(true)
   const [settingsError, setSettingsError] = useState('')
+  const [section, setSection] = useState(initialSection)
   const [dbInfo, setDbInfo] = useState<{
     provider: string
     mode: string
@@ -2216,6 +2326,10 @@ function SettingsPage({
     status: string
     tablesCount: number
   } | null>(null)
+
+  useEffect(() => {
+    setSection(initialSection)
+  }, [initialSection])
 
   useEffect(() => {
     api.workspace
@@ -2283,25 +2397,33 @@ function SettingsPage({
     <div className="page settings-page">
       <PageHeader
         eyebrow="Your account"
-        title="Settings & Database"
-        description="Manage workspace details, travel preferences, security, and database health."
+        title={section === 'profile' ? 'Your Profile' : section === 'dev' ? 'Dev Tools' : 'Settings'}
+        description={
+          section === 'dev'
+            ? 'Technical diagnostics, API access, and activity records for workspace administrators.'
+            : 'Manage your account and workspace preferences in plain language.'
+        }
       />
       <div className="settings-layout">
         <aside className="settings-nav">
-          <span className="is-active">
+          <button type="button" className={section === 'profile' ? 'is-active' : ''} onClick={() => setSection('profile')}>
+            <Icon name="user" size={16} /> Profile
+          </button>
+          <button type="button" className={section === 'general' ? 'is-active' : ''} onClick={() => setSection('general')}>
             <Icon name="grid" size={16} /> General
-          </span>
+          </button>
           <button type="button" onClick={() => onNavigate('team')}>
             <Icon name="user" size={16} /> Collaborators
-          </button>
-          <button type="button" onClick={() => onNavigate('api')}>
-            <Icon name="shield" size={16} /> Security
           </button>
           <button type="button" onClick={() => onNavigate('analytics')}>
             <Icon name="activity" size={16} /> Plan & usage
           </button>
+          <button type="button" className={section === 'dev' ? 'is-active' : ''} onClick={() => setSection('dev')}>
+            <Icon name="code" size={16} /> Dev Tools
+          </button>
         </aside>
         <div className="settings-content">
+          {section !== 'dev' && (
           <form className="settings-card" onSubmit={save}>
             <div className="settings-card__heading">
               <h3>Workspace profile</h3>
@@ -2373,7 +2495,10 @@ function SettingsPage({
               )}
             </div>
           </form>
+          )}
 
+          {section === 'dev' && (
+          <>
           <section className="settings-card">
             <div className="settings-card__heading">
               <h3>Database Backend</h3>
@@ -2407,27 +2532,41 @@ function SettingsPage({
 
           <section className="settings-card">
             <div className="settings-card__heading">
-              <h3>Authentication</h3>
-              <p>Control access to your business workspace.</p>
+              <h3>Developer workspace</h3>
+              <p>Technical controls have been grouped here so everyday settings stay approachable.</p>
             </div>
             <div className="setting-row">
               <span className="setting-row__icon">
                 <Icon name="shield" size={18} />
               </span>
               <div>
-                <strong>Email and password</strong>
-                <p>Protected by the live lancee server session</p>
+                <strong>API keys</strong>
+                <p>Create and revoke scoped keys for server integrations.</p>
               </div>
-              <span className="configured-label">Configured</span>
+              <button className="button button--secondary button--small" onClick={() => onNavigate('api')}>
+                Manage keys
+              </button>
+            </div>
+            <div className="setting-row">
+              <span className="setting-row__icon">
+                <Icon name="activity" size={18} />
+              </span>
+              <div>
+                <strong>Activity logs</strong>
+                <p>Inspect workflow runs, status changes, and failures.</p>
+              </div>
+              <button className="button button--secondary button--small" onClick={() => onNavigate('runs')}>
+                View logs
+              </button>
             </div>
           </section>
+          </>
+          )}
         </div>
       </div>
     </div>
   )
 }
-
-const GREEN = '#7fb944'
 
 function TermsPage({ onBack }: { onBack: () => void }) {
   return (
@@ -2465,7 +2604,7 @@ function TermsPage({ onBack }: { onBack: () => void }) {
         <small>© 2026 lancee All Rights Reserved</small>
         <small>
           Engineered by{" "}
-          <a href="https://hookitupservices.com" target="_blank" rel="noopener noreferrer" style={{ color: GREEN }}>
+          <a className="landing-footer__credit" href="https://hookitupservices.com" target="_blank" rel="noopener noreferrer">
             Hookitup Solutions
           </a>
         </small>
@@ -2510,7 +2649,7 @@ function PrivacyPage({ onBack }: { onBack: () => void }) {
         <small>© 2026 lancee All Rights Reserved</small>
         <small>
           Engineered by{" "}
-          <a href="https://hookitupservices.com" target="_blank" rel="noopener noreferrer" style={{ color: GREEN }}>
+          <a className="landing-footer__credit" href="https://hookitupservices.com" target="_blank" rel="noopener noreferrer">
             Hookitup Solutions
           </a>
         </small>
@@ -2551,7 +2690,7 @@ function RefundPage({ onBack }: { onBack: () => void }) {
         <small>© 2026 lancee All Rights Reserved</small>
         <small>
           Engineered by{" "}
-          <a href="https://hookitupservices.com" target="_blank" rel="noopener noreferrer" style={{ color: GREEN }}>
+          <a className="landing-footer__credit" href="https://hookitupservices.com" target="_blank" rel="noopener noreferrer">
             Hookitup Solutions
           </a>
         </small>
@@ -2658,14 +2797,13 @@ if (policyView !== 'landing') {
           <a href="#platform">What it does</a>
           <a href="#workflow">How it works</a>
           <a href="#integrations">Connections</a>
-          <a href="#security">Security</a>
         </nav>
         <div>
           <button className="landing-sign-in" onClick={onSignIn}>
             Sign in
           </button>
           <button className="button button--primary" onClick={onSignIn}>
-            Open lancee <Icon name="arrow-up-right" size={14} />
+            Sign Up <BrandMark compact />
           </button>
         </div>
       </header>
@@ -2779,12 +2917,23 @@ if (policyView !== 'landing') {
 
       <section className="landing-proof">
         <span>One workspace for</span>
-        <div>
-          <strong>Clients</strong>
-          <strong>Projects</strong>
-          <strong>Ideas</strong>
-          <strong>Automations</strong>
-          <strong>Invoices</strong>
+        <div className="landing-proof__viewport">
+          <div className="landing-proof__track">
+            {[0, 1].map((set) => (
+              <div className="landing-proof__set" key={set} aria-hidden={set === 1}>
+                <strong>Clients</strong>
+                <Icon name="briefcase" size={15} />
+                <strong>Projects</strong>
+                <Icon name="lightbulb" size={15} />
+                <strong>Ideas</strong>
+                <Icon name="activity" size={15} />
+                <strong>Automations</strong>
+                <Icon name="wallet" size={15} />
+                <strong>Invoices</strong>
+                <Icon name="check-circle" size={15} />
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -2934,8 +3083,10 @@ if (policyView !== 'landing') {
         </div>
         <div className="landing-integration-row">
           <article>
-            <span className="landing-stack-logo">
-              <Icon name="wallet" size={20} />
+            <span className="landing-integration-logos" aria-hidden="true">
+              <LandingToolLogo name="stripe" />
+              <LandingToolLogo name="paypal" />
+              <LandingToolLogo name="paystack" />
             </span>
             <div>
               <small>GET PAID</small>
@@ -2945,29 +3096,30 @@ if (policyView !== 'landing') {
             <Icon name="arrow-up-right" size={17} />
           </article>
           <article>
-            <span className="integration-logo">
-              <span className="logo-mcp">
-                <i />
-                <i />
-                <i />
-                <i />
-              </span>
+            <span className="landing-process-logos" aria-hidden="true">
+              <span><Icon name="activity" size={17} /></span>
+              <span><Icon name="check-circle" size={17} /></span>
+              <span><Icon name="wallet" size={17} /></span>
             </span>
             <div>
               <small>USEFUL AUTOMATION</small>
-              <h3>n8n + service connector</h3>
-              <p>Run repeatable tasks across approved tools when you need them.</p>
+              <h3>Workflows · Approvals · Invoices</h3>
+              <p>Move routine work forward while every important decision stays yours.</p>
             </div>
             <Icon name="arrow-up-right" size={17} />
           </article>
           <article>
-            <span className="landing-stack-logo">
-              <Icon name="layers" size={20} />
+            <span className="landing-integration-logos" aria-hidden="true">
+              <LandingToolLogo name="gmail" />
+              <LandingToolLogo name="calendar" />
+              <LandingToolLogo name="drive" />
+              <LandingToolLogo name="slack" />
+              <LandingToolLogo name="zoom" />
             </span>
             <div>
               <small>YOUR EVERYDAY TOOLS</small>
-              <h3>Design, files, calendar, email</h3>
-              <p>Keep using the specialist apps that make your work better.</p>
+              <h3>Gmail · Calendar · Drive · Slack · Zoom</h3>
+              <p>Bring communication, meetings, schedules, and files into the same flow.</p>
             </div>
             <Icon name="arrow-up-right" size={17} />
           </article>
@@ -2976,28 +3128,28 @@ if (policyView !== 'landing') {
 
       <section className="landing-security" id="security">
         <div className="landing-security__mark">
-          <Icon name="shield" size={29} />
+          <Icon name="briefcase" size={29} />
         </div>
         <div>
-          <span className="landing-eyebrow">Security by design</span>
+          <span className="landing-eyebrow">Built around real business</span>
           <h2>Your business. Your way.</h2>
           <p>
-            Credentials stay server-side, connections are explicitly activated, and
-            automated actions remain visible and under your control.
+            Set up the way you like to work, keep every client moving, and always know
+            what needs your attention next.
           </p>
         </div>
         <div className="landing-security__points">
           <span>
-            <Icon name="check" size={13} /> HTTP-only sessions
+            <Icon name="check" size={13} /> Your work stays organised
           </span>
           <span>
-            <Icon name="check" size={13} /> Server-side secrets
+            <Icon name="check" size={13} /> You choose what connects
           </span>
           <span>
-            <Icon name="check" size={13} /> Scoped capabilities
+            <Icon name="check" size={13} /> Important steps need your say
           </span>
           <span>
-            <Icon name="check" size={13} /> Review before sending
+            <Icon name="check" size={13} /> Clear progress at a glance
           </span>
         </div>
       </section>
@@ -3007,7 +3159,7 @@ if (policyView !== 'landing') {
         <span className="landing-eyebrow">A lighter way to run your business</span>
         <h2>Carry the whole studio. Not the whole workload.</h2>
         <button className="button button--primary" onClick={onSignIn}>
-          Enter lancee <Icon name="arrow-right" size={15} />
+          Sign Up <BrandMark compact />
         </button>
       </section>
 
@@ -3020,7 +3172,7 @@ if (policyView !== 'landing') {
         </div>
         <small>
           Engineered by{" "}
-          <a href="https://hookitupservices.com" target="_blank" rel="noopener noreferrer" style={{ color: GREEN }}>
+          <a className="landing-footer__credit" href="https://hookitupservices.com" target="_blank" rel="noopener noreferrer">
             Hookitup Solutions
           </a>
         </small>
@@ -4560,6 +4712,9 @@ function App() {
   const [commandOpen, setCommandOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [settingsSection, setSettingsSection] =
+    useState<'profile' | 'general' | 'dev'>('general')
 
   useEffect(() => {
     let active = true
@@ -5153,6 +5308,18 @@ function App() {
           />
         )
         break
+      case 'workflows':
+        page = (
+          <Suspense fallback={<EmptySkeleton />}>
+            <WorkflowsPage
+              onUseTemplate={(template) => {
+                setToast(`${template.title} selected — create it as an n8n automation.`)
+                setActivePage('automations')
+              }}
+            />
+          </Suspense>
+        )
+        break
       case 'runs':
         page = <RunsPage runs={runs} />
         break
@@ -5226,6 +5393,7 @@ function App() {
                 current ? { ...current, workspace: settings.name } : current,
               )
             }
+            initialSection={settingsSection}
           />
         )
         break
@@ -5238,7 +5406,10 @@ function App() {
         activePage={activePage}
         user={user}
         mobileOpen={mobileOpen}
-        onNavigate={setActivePage}
+        onNavigate={(nextPage) => {
+          if (nextPage === 'settings') setSettingsSection('general')
+          setActivePage(nextPage)
+        }}
         onClose={() => setMobileOpen(false)}
         onSignOut={() => void signOut()}
         projectCount={analytics?.openProjects ?? 0}
@@ -5304,9 +5475,48 @@ function App() {
                 </div>
               )}
             </div>
-            <button className="topbar-avatar" onClick={() => setActivePage('settings')}>
-              {user.initials}
-            </button>
+            <div className="profile-menu-wrap">
+              <button
+                className="topbar-avatar"
+                onClick={() => setProfileOpen((open) => !open)}
+                aria-expanded={profileOpen}
+                aria-label="Open profile menu"
+              >
+                {user.initials}
+              </button>
+              {profileOpen && (
+                <div className="profile-popover">
+                  <header>
+                    <span>{user.initials}</span>
+                    <div><strong>{user.name}</strong><small>{user.email}</small></div>
+                  </header>
+                  <button onClick={() => {
+                    setSettingsSection('profile')
+                    setActivePage('settings')
+                    setProfileOpen(false)
+                  }}>
+                    <Icon name="user" size={16} /><span><strong>Profile</strong><small>Personal details and account</small></span>
+                  </button>
+                  <button onClick={() => {
+                    setSettingsSection('general')
+                    setActivePage('settings')
+                    setProfileOpen(false)
+                  }}>
+                    <Icon name="settings" size={16} /><span><strong>Settings</strong><small>Workspace preferences</small></span>
+                  </button>
+                  <button onClick={() => {
+                    setSettingsSection('dev')
+                    setActivePage('settings')
+                    setProfileOpen(false)
+                  }}>
+                    <Icon name="code" size={16} /><span><strong>Dev Tools</strong><small>Database, API keys, and logs</small></span>
+                  </button>
+                  <button className="profile-popover__signout" onClick={() => void signOut()}>
+                    <Icon name="logout" size={16} /><span><strong>Sign out</strong></span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
         <main className="content">{page}</main>

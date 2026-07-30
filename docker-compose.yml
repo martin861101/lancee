@@ -28,6 +28,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-lancee}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-lancee_app}
+    ports:
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

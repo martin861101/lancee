@@ -101,6 +101,17 @@
   font-weight: 400;
 }
 
+.ideas-export-pdf {
+  min-height: 38px;
+  padding: 0 13px;
+  color: #cbd6e7;
+  font-size: .68rem;
+  font-weight: 700;
+  background: #172131;
+  border: 1px solid #3a4962;
+  border-radius: 9px;
+}
+
 .ideas-boardbar {
   min-height: 54px;
   margin-bottom: 14px;

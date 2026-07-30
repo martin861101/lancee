@@ -473,6 +473,9 @@ export default function FilesPage({
   }
 
   const handleRemoveDocument = async (document: WorkspaceDocument) => {
+    if (!window.confirm(`Remove “${document.name}” from lancee? This cannot be undone.`)) {
+      return
+    }
     try {
       await api.documents.remove(document.id)
       setDocuments((current) => current.filter((item) => item.id !== document.id))
@@ -537,24 +540,18 @@ export default function FilesPage({
                 Linked {linkedCount}
               </span>
             )}
-            <button
-              type="button"
-              className="button button--ghost button--small"
-              onClick={() => setSelectedDriveResource(file)}
-            >
-              Link
-            </button>
-            {!folder && driveWorkspaceMode(file) !== 'unsupported' && (
-              <button
-                type="button"
-                className="button button--secondary button--small"
-                onClick={() => setSelectedDriveFile(file)}
-              >
-                {file.canEdit && !['pdf', 'image'].includes(driveWorkspaceMode(file))
-                  ? 'Edit'
-                  : 'View'}
-              </button>
-            )}
+            <details className="file-item-menu">
+              <summary aria-label={`Actions for ${file.name}`}>⋮</summary>
+              <div>
+                <button type="button" onClick={() => setSelectedDriveResource(file)}>Link to client or project</button>
+                {!folder && driveWorkspaceMode(file) !== 'unsupported' && (
+                  <button type="button" onClick={() => setSelectedDriveFile(file)}>
+                    {file.canEdit && !['pdf', 'image'].includes(driveWorkspaceMode(file)) ? 'Edit' : 'View'}
+                  </button>
+                )}
+                {file.webViewLink && <a href={file.webViewLink} target="_blank" rel="noreferrer">Open in Drive ↗</a>}
+              </div>
+            </details>
           </div>
           {folder && expanded && (
             <div className="drive-tree__children">
@@ -592,7 +589,7 @@ export default function FilesPage({
     <div className="content-container animate-fade-in dashboard-page">
       <header className="dashboard-page__header">
         <div>
-          <h2 className="dashboard-page__title">Files & Cloud Storage</h2>
+          <h2 className="dashboard-page__title">File <em>explorer</em></h2>
           <p className="dashboard-page__description">
             Connect Google Drive, or pin a secure link from any storage provider, so your team can open client deliverables from one place.
           </p>
@@ -768,7 +765,9 @@ export default function FilesPage({
                 <span className={document.syncedAt ? 'badge badge--success' : 'badge'}>
                   {document.syncedAt ? 'Synced to Drive' : 'lancee only'}
                 </span>
-                <div className="dashboard-row-actions">
+                <details className="file-item-menu">
+                  <summary aria-label={`Actions for ${document.name}`}>⋮</summary>
+                  <div>
                   {driveWorkspaceMode({
                     id: document.id,
                     name: document.name,
@@ -782,7 +781,6 @@ export default function FilesPage({
                   }) !== 'unsupported' && (
                     <button
                       type="button"
-                      className="button button--primary button--small"
                       onClick={() => setSelectedLocalDocument(document)}
                     >
                       {document.mimeType === 'application/pdf' ||
@@ -792,14 +790,12 @@ export default function FilesPage({
                     </button>
                   )}
                   <a
-                    className="button button--secondary button--small"
                     href={api.documents.downloadUrl(document.id)}
                   >
                     Download
                   </a>
                   {document.driveWebViewLink ? (
                     <a
-                      className="button button--ghost button--small"
                       href={document.driveWebViewLink}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -809,7 +805,6 @@ export default function FilesPage({
                   ) : (
                     <button
                       type="button"
-                      className="button button--ghost button--small"
                       disabled={!driveConnected}
                       onClick={() => void handleSyncDocument(document)}
                     >
@@ -818,12 +813,12 @@ export default function FilesPage({
                   )}
                   <button
                     type="button"
-                    className="button button--ghost button--small"
                     onClick={() => void handleRemoveDocument(document)}
                   >
-                    Remove
+                    Remove from platform
                   </button>
-                </div>
+                  </div>
+                </details>
               </div>
             ))}
           </div>

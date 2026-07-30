@@ -65,17 +65,23 @@ export default function WorkPanel({
   const [page, setPage] = useState(1)
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null)
   const [dropLaneId, setDropLaneId] = useState<string | null>(null)
+  const [activeProjectTab, setActiveProjectTab] =
+    useState<'board' | 'details' | 'files' | 'links'>('board')
+  const [teamMembers, setTeamMembers] = useState<Array<{ id: string; name: string }>>([])
+  const [customBuckets, setCustomBuckets] = useState<Array<{ id: string; label: string }>>([])
+  const [bucketAssignees, setBucketAssignees] = useState<Record<string, string>>({})
 
   useEffect(() => {
     let active = true
-    Promise.all([api.projects.list(), api.clients.list()])
-      .then(([data, clientList]) => {
+    Promise.all([api.projects.list(), api.clients.list(), api.team.list().catch(() => [])])
+      .then(([data, clientList, members]) => {
         if (active) {
           setProjects(data)
           setClients(clientList)
           const firstClient = clientList.find((client) => client.status === 'active')
           setSelectedClientId((current) => current || firstClient?.id || '')
           setNewProjectClientId((current) => current || firstClient?.id || '')
+          setTeamMembers(members.filter((member) => member.status === 'active'))
         }
       })
       .catch(() => setError('Unable to load clients and projects'))
@@ -174,6 +180,14 @@ export default function WorkPanel({
   const openProjectWorkspace = async (project: Project) => {
     setSelectedProject(project)
     setWorkspaceLoading(true)
+    setActiveProjectTab('board')
+    try {
+      setCustomBuckets(JSON.parse(localStorage.getItem(`lancee:project-buckets:${project.id}`) || '[]'))
+      setBucketAssignees(JSON.parse(localStorage.getItem(`lancee:bucket-assignees:${project.id}`) || '{}'))
+    } catch {
+      setCustomBuckets([])
+      setBucketAssignees({})
+    }
     setLinks([])
     setFiles([])
     setProjectDriveLinks([])
@@ -194,6 +208,37 @@ export default function WorkPanel({
     } finally {
       setWorkspaceLoading(false)
     }
+  }
+
+  const addCustomBucket = () => {
+    if (!selectedProject) return
+    const label = window.prompt('Name this bucket')
+    if (!label?.trim()) return
+    const next = [...customBuckets, { id: `custom-${crypto.randomUUID()}`, label: label.trim().slice(0, 60) }]
+    setCustomBuckets(next)
+    localStorage.setItem(`lancee:project-buckets:${selectedProject.id}`, JSON.stringify(next))
+  }
+
+  const manageBucket = (bucket: { id: string; label: string }) => {
+    if (!selectedProject) return
+    if (!bucket.id.startsWith('custom-')) {
+      onToast(`${bucket.label} is a built-in project stage. Assign a teammate with the selector below.`)
+      return
+    }
+    const label = window.prompt('Rename this bucket. Leave blank to delete it.', bucket.label)
+    const next = label?.trim()
+      ? customBuckets.map((item) => item.id === bucket.id ? { ...item, label: label.trim().slice(0, 60) } : item)
+      : customBuckets.filter((item) => item.id !== bucket.id)
+    setCustomBuckets(next)
+    localStorage.setItem(`lancee:project-buckets:${selectedProject.id}`, JSON.stringify(next))
+  }
+
+  const assignBucket = (bucketId: string, memberId: string) => {
+    if (!selectedProject) return
+    const next = { ...bucketAssignees, [bucketId]: memberId }
+    if (!memberId) delete next[bucketId]
+    setBucketAssignees(next)
+    localStorage.setItem(`lancee:bucket-assignees:${selectedProject.id}`, JSON.stringify(next))
   }
 
   const moveProject = async (
@@ -414,6 +459,11 @@ export default function WorkPanel({
     { id: 'waiting', label: 'Waiting on client', status: 'Waiting on client', tone: 'amber' },
     { id: 'review', label: 'Review', status: 'In review', tone: 'pink' },
     { id: 'completed', label: 'Completed', status: 'Ready', tone: 'green' },
+    ...customBuckets.map((bucket, index) => ({
+      ...bucket,
+      status: null,
+      tone: ['blue', 'amber', 'pink', 'green'][index % 4],
+    })),
   ]
 
   return (
@@ -495,21 +545,68 @@ export default function WorkPanel({
 
             <div className="project-workspace__toolbar">
               <div>
-                <button type="button" className="is-active">▦ Board</button>
-                <button type="button" onClick={() => void beginEdit(selectedProject)}>
+                <button type="button" className={activeProjectTab === 'board' ? 'is-active' : ''} onClick={() => setActiveProjectTab('board')}>▦ Board</button>
+                <button type="button" className={activeProjectTab === 'details' ? 'is-active' : ''} onClick={() => setActiveProjectTab('details')}>
                   ≡ Details
                 </button>
-                <button type="button" onClick={() => void beginEdit(selectedProject)}>
+                <button type="button" className={activeProjectTab === 'files' ? 'is-active' : ''} onClick={() => setActiveProjectTab('files')}>
                   ◫ Files <span>{files.length}</span>
                 </button>
-                <button type="button" onClick={() => void beginEdit(selectedProject)}>
+                <button type="button" className={activeProjectTab === 'links' ? 'is-active' : ''} onClick={() => setActiveProjectTab('links')}>
                   ↗ Links <span>{links.length + projectDriveLinks.length}</span>
                 </button>
               </div>
-              <span>Drag the active project card into a stage, or use the lane actions.</span>
+              {activeProjectTab === 'board' ? (
+                <button type="button" className="button button--secondary button--small" onClick={addCustomBucket}>＋ Add bucket</button>
+              ) : (
+                <span>Each section keeps its own focused project tools.</span>
+              )}
             </div>
 
-            {workspaceLoading ? (
+            {activeProjectTab === 'details' ? (
+              <section className="project-section-panel">
+                <header><div><span>Project details</span><h2>{selectedProject.name}</h2></div><button className="button button--secondary" onClick={() => void beginEdit(selectedProject)}>Edit details</button></header>
+                <dl>
+                  <div><dt>Client</dt><dd>{selectedProject.client}</dd></div>
+                  <div><dt>Scope</dt><dd>{selectedProject.scope || 'No project scope added yet.'}</dd></div>
+                  <div><dt>Status</dt><dd>{statusLabels[selectedProject.status]}</dd></div>
+                  <div><dt>Due date</dt><dd>{formatDate(selectedProject.due)}</dd></div>
+                  <div><dt>Owner</dt><dd>{ownerName}</dd></div>
+                  <div><dt>Idea board</dt><dd>{selectedProject.boardId ? 'Connected' : 'Not connected'}</dd></div>
+                </dl>
+              </section>
+            ) : activeProjectTab === 'files' ? (
+              <section className="project-section-panel">
+                <header>
+                  <div><span>Project files</span><h2>Files and deliverables</h2></div>
+                  <label className="button button--secondary">＋ Upload files<input hidden multiple type="file" onChange={(event) => void attachFiles(event)} /></label>
+                </header>
+                <div className="project-section-list">
+                  {files.map((file) => (
+                    <article key={file.id}><span>◫</span><div><strong>{file.name}</strong><small>{(file.size / 1024).toFixed(1)} KB · {file.mimeType}</small></div><a href={api.projects.files.downloadUrl(file.id)}>Download</a><button onClick={() => void removeFile(file.id)}>Remove</button></article>
+                  ))}
+                  {projectDriveLinks.map((link) => (
+                    <article key={link.id}><span>▰</span><div><strong>{link.name}</strong><small>Google Drive · {link.resourceKind}</small></div>{link.webViewLink && <a href={link.webViewLink} target="_blank" rel="noreferrer">Open ↗</a>}</article>
+                  ))}
+                  {!files.length && !projectDriveLinks.length && <p>No project files yet.</p>}
+                </div>
+              </section>
+            ) : activeProjectTab === 'links' ? (
+              <section className="project-section-panel">
+                <header><div><span>Project links</span><h2>References and shared URLs</h2></div></header>
+                <div className="project-link-composer">
+                  <input value={newLinkLabel} onChange={(event) => setNewLinkLabel(event.target.value)} placeholder="Label" />
+                  <input value={newLinkUrl} onChange={(event) => setNewLinkUrl(event.target.value)} placeholder="https://…" />
+                  <button className="button button--primary" onClick={() => void addLink()}>Add link</button>
+                </div>
+                <div className="project-section-list">
+                  {links.map((link) => (
+                    <article key={link.id}><span>↗</span><div><strong>{link.label || 'Shared reference'}</strong><small>{link.url}</small></div><a href={link.url} target="_blank" rel="noreferrer">Open ↗</a><button onClick={() => void removeLink(link.id)}>Remove</button></article>
+                  ))}
+                  {!links.length && <p>No project links yet.</p>}
+                </div>
+              </section>
+            ) : workspaceLoading ? (
               <div className="project-workspace__loading">Loading the project workspace…</div>
             ) : (
               <div className="project-kanban-scroll">
@@ -544,12 +641,19 @@ export default function WorkPanel({
                             <strong>{lane.label}</strong>
                             <span>{laneAssetCount}</span>
                           </div>
-                          <button type="button" aria-label={`${lane.label} actions`}>⋮</button>
+                          <button type="button" aria-label={`${lane.label} actions`} onClick={() => manageBucket(lane)}>⋮</button>
                         </header>
+                        <label className="project-lane__assignee">
+                          <span>Assigned to</span>
+                          <select value={bucketAssignees[lane.id] || ''} onChange={(event) => assignBucket(lane.id, event.target.value)}>
+                            <option value="">Unassigned</option>
+                            {teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+                          </select>
+                        </label>
                         <div className="project-lane__body">
                           {lane.id === 'backlog' && (
                             <>
-                              <article className="project-kanban-card project-kanban-card--brief">
+                              <article className="project-kanban-card project-kanban-card--brief" role="button" tabIndex={0} onClick={() => setActiveProjectTab('details')}>
                                 <span>Project brief</span>
                                 <h3>{selectedProject.scope || 'Define the project deliverables'}</h3>
                                 <p>
@@ -570,6 +674,12 @@ export default function WorkPanel({
                                 </article>
                               )}
                             </>
+                          )}
+
+                          {lane.id.startsWith('custom-') && (
+                            <div className="project-lane__empty">
+                              <span>Custom bucket ready for assigned work</span>
+                            </div>
                           )}
 
                           {isCurrent && (

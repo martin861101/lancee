@@ -9,6 +9,20 @@ import './money-page.css'
 
 const providers = [
   {
+    id: 'stripe',
+    name: 'Stripe',
+    mark: 'S',
+    note: 'Connect Stripe to add its hosted checkout button',
+    tone: 'stripe',
+  },
+  {
+    id: 'paypal',
+    name: 'PayPal',
+    mark: 'PP',
+    note: 'Connect PayPal to offer a familiar payment option',
+    tone: 'paypal',
+  },
+  {
     id: 'paystack',
     name: 'Paystack',
     mark: 'P',
@@ -100,12 +114,52 @@ function statusLabel(status: MoneyInvoice['status']) {
 }
 
 const emptyForm = {
+  documentType: 'invoice',
+  template: 'modern',
   clientName: '',
   clientEmail: '',
   projectName: '',
   description: '',
   amount: '',
+  currency: 'ZAR',
   dueDate: '',
+  payEnabled: true,
+  paymentProvider: 'paystack',
+}
+
+type BillingDraft = {
+  id: string
+  documentType: string
+  template: string
+  clientName: string
+  clientEmail: string
+  projectName: string
+  description: string
+  amount: number
+  currency: string
+  dueDate: string
+  customFields: Array<{ label: string; value: string }>
+  createdAt: string
+}
+
+const billingDraftStorageKey = 'lancee:billing-drafts'
+
+function readBillingDrafts(): BillingDraft[] {
+  try {
+    return JSON.parse(localStorage.getItem(billingDraftStorageKey) || '[]')
+  } catch {
+    return []
+  }
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;',
+  })[character] || character)
 }
 
 export default function MoneyPage() {
@@ -118,6 +172,8 @@ export default function MoneyPage() {
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
   const [form, setForm] = useState(emptyForm)
+  const [customFields, setCustomFields] = useState<Array<{ label: string; value: string }>>([])
+  const [drafts, setDrafts] = useState<BillingDraft[]>(readBillingDrafts)
 
   const loadMoney = async () => {
     setLoading(true)
@@ -157,7 +213,7 @@ export default function MoneyPage() {
     .filter((invoice) => invoice.status === 'pending')
     .slice(0, 2)
 
-  const updateForm = (field: keyof typeof emptyForm, value: string) => {
+  const updateForm = (field: keyof typeof emptyForm, value: string | boolean) => {
     setForm((current) => ({ ...current, [field]: value }))
   }
 
@@ -167,6 +223,38 @@ export default function MoneyPage() {
     const amount = Number(form.amount)
     if (!Number.isFinite(amount) || amount < 1) {
       setFormError('Enter an amount of at least R 1.00.')
+      return
+    }
+    if (!form.payEnabled) {
+      const draft: BillingDraft = {
+        id: crypto.randomUUID(),
+        documentType: form.documentType,
+        template: form.template,
+        clientName: form.clientName,
+        clientEmail: form.clientEmail,
+        projectName: form.projectName,
+        description: form.description,
+        amount,
+        currency: form.currency,
+        dueDate: form.dueDate,
+        customFields: customFields.filter((field) => field.label.trim() || field.value.trim()),
+        createdAt: new Date().toISOString(),
+      }
+      const nextDrafts = [draft, ...drafts]
+      setDrafts(nextDrafts)
+      localStorage.setItem(billingDraftStorageKey, JSON.stringify(nextDrafts))
+      setForm(emptyForm)
+      setCustomFields([])
+      setNotice(`${form.documentType} draft saved with the ${form.template} template.`)
+      setShowInvoice(false)
+      return
+    }
+    if (form.paymentProvider !== 'paystack') {
+      setFormError(`Connect ${form.paymentProvider === 'stripe' ? 'Stripe' : 'PayPal'} in Connections before adding its Pay me button.`)
+      return
+    }
+    if (form.currency !== 'ZAR') {
+      setFormError('Automatic currency conversion will activate when CURRENCYLAYER_API_KEY is added. Paystack links currently use ZAR.')
       return
     }
     const input: CreatePaystackPaymentLinkInput = {
@@ -188,6 +276,7 @@ export default function MoneyPage() {
       ])
       setShowInvoice(false)
       setForm(emptyForm)
+      setCustomFields([])
       setPaymentUrl(result.paymentLink.authorizationUrl)
       setNotice(
         `${result.invoice.invoiceNumber} is ready. The payment link has not been sent.`,
@@ -203,28 +292,43 @@ export default function MoneyPage() {
     }
   }
 
+  const downloadDraft = (draft: BillingDraft) => {
+    const accent = draft.template === 'studio' ? '#b44885' : draft.template === 'classic' ? '#222831' : '#31569d'
+    const fields = draft.customFields
+      .map((field) => `<div><span>${escapeHtml(field.label)}</span><strong>${escapeHtml(field.value)}</strong></div>`)
+      .join('')
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(draft.documentType)} · ${escapeHtml(draft.clientName)}</title><style>
+body{font-family:Arial,sans-serif;margin:0;color:#20242c;background:#eef1f5}.sheet{width:760px;min-height:980px;margin:30px auto;padding:60px;background:#fff;box-sizing:border-box;border-top:12px solid ${accent}}header{display:flex;justify-content:space-between;align-items:start}h1{margin:0;text-transform:uppercase;letter-spacing:.12em;color:${accent}}small,span{color:#737b88}.meta{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:55px 0}.amount{margin:40px 0;padding:25px;background:#f4f6f9;text-align:right}.amount strong{display:block;font-size:34px;color:${accent}}.fields>div{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #e4e7ec}footer{margin-top:90px;color:#737b88}</style></head><body><main class="sheet"><header><div><small>${escapeHtml(draft.template)} template</small><h1>${escapeHtml(draft.documentType)}</h1></div><strong>${new Date(draft.createdAt).toLocaleDateString()}</strong></header><section class="meta"><div><span>Prepared for</span><h2>${escapeHtml(draft.clientName)}</h2><p>${escapeHtml(draft.clientEmail)}</p></div><div><span>Project</span><h2>${escapeHtml(draft.projectName)}</h2><p>Due ${escapeHtml(draft.dueDate || 'on receipt')}</p></div></section><p>${escapeHtml(draft.description || draft.projectName)}</p><div class="amount"><span>Total</span><strong>${escapeHtml(new Intl.NumberFormat('en', { style: 'currency', currency: draft.currency }).format(draft.amount))}</strong></div><section class="fields">${fields}</section><footer>Created with lancee</footer></main></body></html>`
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${draft.documentType}-${draft.clientName.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.html`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const removeDraft = (id: string) => {
+    const nextDrafts = drafts.filter((draft) => draft.id !== id)
+    setDrafts(nextDrafts)
+    localStorage.setItem(billingDraftStorageKey, JSON.stringify(nextDrafts))
+  }
+
   return (
     <div className="money-page">
       <header className="money-header">
         <div>
-          <p className="money-eyebrow">Money · live workspace records</p>
-          <h1>A clear view of what’s coming in.</h1>
+          <p className="money-eyebrow">Invoices · estimates · receipts</p>
+          <h1>Professional <em>invoicing</em>, your way.</h1>
           <p>
-            Create a Paystack link, review it, and choose how to send it to your client.
+            Choose a polished style, add the fields your business needs, and offer the right way to pay.
           </p>
         </div>
         <button
           className="money-primary"
           type="button"
           onClick={() => setShowInvoice(true)}
-          disabled={!connection?.configured}
-          title={
-            connection?.configured
-              ? undefined
-              : 'Configure PAYSTACK_SECRET_KEY on the server first'
-          }
         >
-          <Icon name="plus" /> Create payment link
+          <Icon name="plus" /> Create document
         </button>
       </header>
 
@@ -403,7 +507,6 @@ export default function MoneyPage() {
             <button
               type="button"
               onClick={() => setShowInvoice(true)}
-              disabled={!connection?.configured}
             >
               Create a payment link <Icon name="arrow" />
             </button>
@@ -420,7 +523,7 @@ export default function MoneyPage() {
         </div>
         <div className="provider-grid">
           {providers.map((provider) => {
-            const configured = connection?.configured
+            const configured = provider.id === 'paystack' && connection?.configured
             return (
               <article key={provider.name}>
                 <div className={`provider-mark provider-mark--${provider.tone}`}>
@@ -441,7 +544,9 @@ export default function MoneyPage() {
                     setNotice(
                       configured
                         ? `Paystack ${connection.mode} mode is configured server-side.`
-                        : 'Set PAYSTACK_SECRET_KEY on the server, then restart lancee.',
+                        : provider.id === 'paystack'
+                          ? 'Set PAYSTACK_SECRET_KEY on the server, then restart lancee.'
+                          : `Open Connections to configure ${provider.name}.`,
                     )
                   }
                 >
@@ -453,6 +558,26 @@ export default function MoneyPage() {
           })}
         </div>
       </section>
+
+      {drafts.length > 0 && (
+        <section className="money-card billing-drafts">
+          <div className="money-card__head">
+            <div><h2>Document drafts</h2><p>Estimates, receipts, and invoices without hosted payment links.</p></div>
+          </div>
+          <div className="billing-draft-grid">
+            {drafts.map((draft) => (
+              <article className={`billing-draft billing-draft--${draft.template}`} key={draft.id}>
+                <span>{draft.documentType}</span>
+                <h3>{draft.clientName}</h3>
+                <p>{draft.projectName}</p>
+                <strong>{new Intl.NumberFormat('en', { style: 'currency', currency: draft.currency }).format(draft.amount)}</strong>
+                <small>{draft.template} · {draft.customFields.length} custom fields</small>
+                <div><button type="button" onClick={() => downloadDraft(draft)}>Download</button><button type="button" onClick={() => removeDraft(draft.id)}>Remove</button></div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
       {showInvoice && (
         <div
@@ -475,13 +600,42 @@ export default function MoneyPage() {
             >
               <Icon name="close" />
             </button>
-            <span className="workflow-kicker">Paystack · ZAR</span>
-            <h2 id="invoice-modal-title">Create a client payment link</h2>
+            <span className="workflow-kicker">Professional billing document</span>
+            <h2 id="invoice-modal-title">Create an invoice, estimate, or receipt</h2>
             <p>
               This initializes a hosted Paystack checkout. It does not email or message
               the client.
             </p>
             <form onSubmit={(event) => void createPaymentLink(event)}>
+              <div className="invoice-type-row">
+                {(['invoice', 'estimate', 'receipt'] as const).map((type) => (
+                  <button
+                    type="button"
+                    className={form.documentType === type ? 'is-active' : ''}
+                    key={type}
+                    onClick={() => updateForm('documentType', type)}
+                  >
+                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </button>
+                ))}
+              </div>
+              <div className="invoice-template-picker" aria-label="Invoice template">
+                {[
+                  ['modern', 'Modern', 'Bold total, clean grid'],
+                  ['classic', 'Classic', 'Formal and timeless'],
+                  ['studio', 'Studio', 'Editorial and creative'],
+                ].map(([id, name, note]) => (
+                  <button
+                    type="button"
+                    className={`invoice-template invoice-template--${id}${form.template === id ? ' is-active' : ''}`}
+                    key={id}
+                    onClick={() => updateForm('template', id)}
+                  >
+                    <i><b /><span /><span /></i>
+                    <strong>{name}</strong><small>{note}</small>
+                  </button>
+                ))}
+              </div>
               <div className="money-form-grid">
                 <label>
                   Client name
@@ -512,18 +666,26 @@ export default function MoneyPage() {
                     required
                   />
                 </label>
-                <label>
-                  Amount (ZAR)
-                  <input
-                    type="number"
-                    min="1"
-                    step="0.01"
-                    value={form.amount}
-                    onChange={(event) => updateForm('amount', event.target.value)}
-                    placeholder="28400.00"
-                    required
-                  />
-                </label>
+                <div className="money-amount-fields">
+                  <label>
+                    Amount
+                    <input
+                      type="number"
+                      min="1"
+                      step="0.01"
+                      value={form.amount}
+                      onChange={(event) => updateForm('amount', event.target.value)}
+                      placeholder="28400.00"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Currency
+                    <select value={form.currency} onChange={(event) => updateForm('currency', event.target.value)}>
+                      {['ZAR', 'USD', 'EUR', 'GBP', 'NGN', 'KES', 'AUD', 'CAD'].map((currency) => <option key={currency}>{currency}</option>)}
+                    </select>
+                  </label>
+                </div>
                 <label className="money-form-grid__wide">
                   Description
                   <input
@@ -541,6 +703,57 @@ export default function MoneyPage() {
                   />
                 </label>
               </div>
+              <div className="invoice-custom-fields">
+                <div>
+                  <strong>Custom fields</strong>
+                  <button type="button" onClick={() => setCustomFields((fields) => [...fields, { label: '', value: '' }])}>
+                    + Add field
+                  </button>
+                </div>
+                {customFields.map((field, index) => (
+                  <div key={index}>
+                    <input
+                      aria-label={`Custom field ${index + 1} label`}
+                      placeholder="Field label"
+                      value={field.label}
+                      onChange={(event) => setCustomFields((fields) => fields.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))}
+                    />
+                    <input
+                      aria-label={`Custom field ${index + 1} value`}
+                      placeholder="Value"
+                      value={field.value}
+                      onChange={(event) => setCustomFields((fields) => fields.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item))}
+                    />
+                    <button type="button" aria-label="Remove custom field" onClick={() => setCustomFields((fields) => fields.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+                  </div>
+                ))}
+              </div>
+              <section className="invoice-pay-option">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={form.payEnabled}
+                    onChange={(event) => updateForm('payEnabled', event.target.checked)}
+                  />
+                  <span><strong>Add a “Pay me” button</strong><small>Give the client a direct hosted payment option.</small></span>
+                </label>
+                {form.payEnabled && (
+                  <div>
+                    {(['stripe', 'paypal', 'paystack'] as const).map((provider) => (
+                      <label key={provider} className={form.paymentProvider === provider ? 'is-active' : ''}>
+                        <input
+                          type="radio"
+                          name="payment-provider"
+                          value={provider}
+                          checked={form.paymentProvider === provider}
+                          onChange={(event) => updateForm('paymentProvider', event.target.value)}
+                        />
+                        {provider === 'paystack' ? 'Paystack' : provider === 'paypal' ? 'PayPal' : 'Stripe'}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </section>
               {formError && <p className="money-form-error">{formError}</p>}
               <div className="money-confirmation">
                 <Icon name="check" />
@@ -554,7 +767,7 @@ export default function MoneyPage() {
                   Cancel
                 </button>
                 <button type="submit" className="money-primary" disabled={submitting}>
-                  {submitting ? 'Creating…' : 'Create Paystack link'}{' '}
+                  {submitting ? 'Creating…' : form.payEnabled ? 'Create document & payment link' : 'Create draft'}{' '}
                   {!submitting && <Icon name="arrow" />}
                 </button>
               </div>

@@ -17,14 +17,17 @@ export default function TeamPage({ canInvite }: { canInvite: boolean }) {
   const [inviteOpen, setInviteOpen] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteName, setInviteName] = useState('')
-  const [inviteRole, setInviteRole] = useState<'owner' | 'collaborator'>('collaborator')
+  const [inviteRole, setInviteRole] = useState<'owner' | 'collaborator' | 'viewer'>('collaborator')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [inviteLink, setInviteLink] = useState('')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'invited' | 'disabled'>('all')
-  const [roleFilter, setRoleFilter] = useState<'all' | 'owner' | 'collaborator'>('all')
+  const [roleFilter, setRoleFilter] = useState<'all' | 'owner' | 'collaborator' | 'viewer'>('all')
+  const [editing, setEditing] = useState<TeamMember | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editRole, setEditRole] = useState<'owner' | 'collaborator' | 'viewer'>('collaborator')
 
   const loadMembers = useCallback(async () => {
     setError('')
@@ -133,11 +136,43 @@ export default function TeamPage({ canInvite }: { canInvite: boolean }) {
     }
   }
 
+  const saveMember = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!editing) return
+    setSubmitting(true)
+    setError('')
+    try {
+      const member = await api.team.update(editing.id, {
+        name: editName.trim(),
+        role: editRole,
+      })
+      setMembers((items) => items.map((item) => item.id === member.id ? member : item))
+      setEditing(null)
+      setNotice(`${member.name} was updated.`)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to update this member.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const removeMember = async (member: TeamMember) => {
+    if (!window.confirm(`Remove ${member.name || member.email} from this workspace?`)) return
+    setError('')
+    try {
+      await api.team.remove(member.id)
+      setMembers((items) => items.filter((item) => item.id !== member.id))
+      setNotice(`${member.name || member.email} was removed.`)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to remove this member.')
+    }
+  }
+
   return (
     <div className="content-container animate-fade-in dashboard-page">
       <header className="dashboard-page__header">
         <div>
-          <h2 className="dashboard-page__title">Team & Permissions</h2>
+          <h2 className="dashboard-page__title">Team <em>permissions</em></h2>
           <p className="dashboard-page__description">
             Manage workspace members, role assignments, and collaborator access control.
           </p>
@@ -224,9 +259,10 @@ export default function TeamPage({ canInvite }: { canInvite: boolean }) {
             </label>
             <label>
               Role
-              <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as 'owner' | 'collaborator')}>
+              <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as typeof inviteRole)}>
                 <option value="collaborator">Collaborator</option>
-                <option value="owner">Owner / Admin</option>
+                <option value="viewer">Viewer</option>
+                <option value="owner">Admin</option>
               </select>
             </label>
           </div>
@@ -258,6 +294,7 @@ export default function TeamPage({ canInvite }: { canInvite: boolean }) {
           <option value="all">All roles</option>
           <option value="owner">Owners</option>
           <option value="collaborator">Collaborators</option>
+          <option value="viewer">Viewers</option>
         </select>
       </div>
 
@@ -337,9 +374,25 @@ export default function TeamPage({ canInvite }: { canInvite: boolean }) {
                     {new Date(member.joinedAt).toLocaleDateString()}
                   </td>
                   <td>
-                    <button type="button" className="button button--ghost button--small" onClick={() => void copyValue(member.email, `Copied ${member.email}`)}>
-                      Copy email
-                    </button>
+                    <div className="team-row-actions">
+                      <button type="button" className="button button--ghost button--small" onClick={() => void copyValue(member.email, `Copied ${member.email}`)}>
+                        Copy
+                      </button>
+                      {canInvite && (
+                        <>
+                          <button type="button" className="button button--secondary button--small" onClick={() => {
+                            setEditing(member)
+                            setEditName(member.name)
+                            setEditRole(member.role as typeof editRole)
+                          }}>
+                            Edit
+                          </button>
+                          <button type="button" className="button button--danger button--small" onClick={() => void removeMember(member)}>
+                            Remove
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -354,6 +407,32 @@ export default function TeamPage({ canInvite }: { canInvite: boolean }) {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {editing && (
+        <div className="team-edit-backdrop" onMouseDown={() => setEditing(null)}>
+          <form className="team-edit-dialog" onSubmit={(event) => void saveMember(event)} onMouseDown={(event) => event.stopPropagation()}>
+            <h3>Edit team member</h3>
+            <p>{editing.email}</p>
+            <label>
+              Name
+              <input value={editName} onChange={(event) => setEditName(event.target.value)} required />
+            </label>
+            <label>
+              Role
+              <select value={editRole} onChange={(event) => setEditRole(event.target.value as typeof editRole)}>
+                <option value="owner">Admin</option>
+                <option value="collaborator">Collaborator</option>
+                <option value="viewer">Viewer</option>
+              </select>
+            </label>
+            <small>Admins manage workspace settings. Collaborators edit work. Viewers have read-only access.</small>
+            <div>
+              <button type="button" className="button button--ghost" onClick={() => setEditing(null)}>Cancel</button>
+              <button className="button button--primary" disabled={submitting}>{submitting ? 'Saving…' : 'Save member'}</button>
+            </div>
+          </form>
         </div>
       )}
     </div>

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Excalidraw } from '@excalidraw/excalidraw'
+import {
+  Excalidraw,
+  exportToBlob,
+  loadLibraryFromBlob,
+} from '@excalidraw/excalidraw'
 import type {
   ExcalidrawInitialDataState,
   ExcalidrawProps,
@@ -17,6 +21,35 @@ type Board = {
 
 const SCENE_DATABASE = 'lancee-excalidraw'
 const SCENE_STORE = 'scenes'
+const bundledLibrarySources = import.meta.glob(
+  './canvasui/library/*.excalidrawlib',
+  { eager: true, query: '?raw', import: 'default' },
+) as Record<string, string>
+let bundledLibraryPromise: Promise<LibraryItems> | null = null
+
+function loadBundledLibrary(): Promise<LibraryItems> {
+  if (!bundledLibraryPromise) {
+    bundledLibraryPromise = Promise.all(
+      Object.entries(bundledLibrarySources).map(async ([name, source]) =>
+        loadLibraryFromBlob(
+          new Blob([source], { type: 'application/json' }),
+          'published',
+        ).catch(() => {
+          console.warn(`Unable to load bundled canvas library: ${name}`)
+          return []
+        }),
+      ),
+    ).then((libraries) => libraries.flat() as LibraryItems)
+  }
+  return bundledLibraryPromise
+}
+
+async function availableLibrary(workspaceId: string): Promise<LibraryItems> {
+  const bundled = await loadBundledLibrary()
+  const custom = readLibrary(workspaceId)
+  const byId = new Map([...bundled, ...custom].map((item) => [item.id, item]))
+  return [...byId.values()] as LibraryItems
+}
 
 function boardCacheKey(workspaceId: string) {
   return `lancee:excalidraw:boards:${workspaceId}`
@@ -92,7 +125,7 @@ async function loadScene(
           ...scene.appState,
           theme: 'dark',
         },
-        libraryItems: readLibrary(workspaceId),
+        libraryItems: await availableLibrary(workspaceId),
       }
     }
   } catch {
@@ -103,7 +136,7 @@ async function loadScene(
       theme: 'dark',
       viewBackgroundColor: '#0f151f',
     },
-    libraryItems: readLibrary(workspaceId),
+    libraryItems: await availableLibrary(workspaceId),
   }
 }
 
@@ -140,10 +173,12 @@ function ExcalidrawBoard({
   board,
   persistenceKey,
   workspaceId,
+  onSceneChange,
 }: {
   board: Board
   persistenceKey: string
   workspaceId: string
+  onSceneChange: (scene: ExcalidrawInitialDataState) => void
 }) {
   const saveTimer = useRef<number | null>(null)
   const pendingScene = useRef<ExcalidrawInitialDataState | null>(null)
@@ -180,10 +215,11 @@ function ExcalidrawBoard({
           objectsSnapModeEnabled: appState.objectsSnapModeEnabled,
         },
       }
+      onSceneChange(pendingScene.current)
       if (saveTimer.current !== null) window.clearTimeout(saveTimer.current)
       saveTimer.current = window.setTimeout(flushScene, 450)
     },
-    [flushScene],
+    [flushScene, onSceneChange],
   )
 
   return (
@@ -211,6 +247,8 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
   const [showNewBoard, setShowNewBoard] = useState(false)
   const [newBoardLabel, setNewBoardLabel] = useState('')
   const [saving, setSaving] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const latestScene = useRef<ExcalidrawInitialDataState | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -292,6 +330,106 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
     }
   }
 
+  async function exportPdf() {
+    if (!activeBoard || !latestScene.current || exporting) return
+    setExporting(true)
+    setError('')
+    try {
+      const scene = latestScene.current
+      const image = await exportToBlob({
+        elements: scene.elements || [],
+        appState: {
+          ...(scene.appState || {}),
+          exportBackground: true,
+          viewBackgroundColor: scene.appState?.viewBackgroundColor || '#ffffff',
+        },
+        files: scene.files || {},
+        mimeType: 'image/png',
+      })
+      const bitmap = await createImageBitmap(image)
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('Canvas export is unavailable in this browser.')
+      context.fillStyle = '#ffffff'
+      context.fillRect(0, 0, canvas.width, canvas.height)
+      context.drawImage(bitmap, 0, 0)
+      bitmap.close()
+      const jpeg = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob(
+          (blob) => blob ? resolve(blob) : reject(new Error('Unable to render PDF image.')),
+          'image/jpeg',
+          .92,
+        ),
+      )
+      const jpegBytes = new Uint8Array(await jpeg.arrayBuffer())
+      const encoder = new TextEncoder()
+      const pageWidth = 842
+      const pageHeight = Math.max(595, Math.round(pageWidth * canvas.height / canvas.width))
+      const content = `q\n${pageWidth} 0 0 ${pageHeight} 0 0 cm\n/Im0 Do\nQ\n`
+      const objects: Array<Uint8Array> = [
+        encoder.encode('<< /Type /Catalog /Pages 2 0 R >>'),
+        encoder.encode('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'),
+        encoder.encode(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`),
+        new Uint8Array([
+          ...encoder.encode(`<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`),
+          ...jpegBytes,
+          ...encoder.encode('\nendstream'),
+        ]),
+        encoder.encode(`<< /Length ${encoder.encode(content).length} >>\nstream\n${content}endstream`),
+      ]
+      const chunks: Uint8Array[] = [encoder.encode('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n')]
+      const offsets = [0]
+      let length = chunks[0].length
+      objects.forEach((object, index) => {
+        offsets.push(length)
+        const chunk = new Uint8Array([
+          ...encoder.encode(`${index + 1} 0 obj\n`),
+          ...object,
+          ...encoder.encode('\nendobj\n'),
+        ])
+        chunks.push(chunk)
+        length += chunk.length
+      })
+      const xrefOffset = length
+      const xref = [
+        `xref\n0 ${objects.length + 1}\n`,
+        '0000000000 65535 f \n',
+        ...offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`),
+        `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`,
+      ].join('')
+      chunks.push(encoder.encode(xref))
+      const pdfBytes = new Uint8Array(
+        chunks.reduce((total, chunk) => total + chunk.byteLength, 0),
+      )
+      let pdfOffset = 0
+      chunks.forEach((chunk) => {
+        pdfBytes.set(chunk, pdfOffset)
+        pdfOffset += chunk.byteLength
+      })
+      const pdf = new Blob([pdfBytes.buffer], { type: 'application/pdf' })
+      const safeName = activeBoard.label.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'idea-board'
+      const pdfFile = new File([pdf], `${safeName}.pdf`, { type: 'application/pdf' })
+      const linkedProjects = (await api.projects.list())
+        .filter((project) => project.boardId === activeBoard.id)
+      await Promise.all([
+        api.documents.upload(pdfFile, 'local'),
+        ...linkedProjects.map((project) => api.projects.files.add(project.id, pdfFile)),
+      ])
+      const url = URL.createObjectURL(pdf)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `${safeName}.pdf`
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to export this board.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const activeBoard = boards.find((board) => board.id === activeBoardId) ?? null
   const persistenceKey = activeBoard
     ? `lancee:excalidraw:${workspaceId}:${activeBoard.id}`
@@ -312,6 +450,14 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
           </span>
           <button className="ideas-new-board" onClick={() => setShowNewBoard(true)}>
             <span aria-hidden="true">+</span> New board
+          </button>
+          <button
+            className="ideas-export-pdf"
+            type="button"
+            disabled={!activeBoard || !latestScene.current || exporting}
+            onClick={() => void exportPdf()}
+          >
+            {exporting ? 'Creating PDF…' : 'Export PDF to Files'}
           </button>
         </div>
       </header>
@@ -377,6 +523,9 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
               key={activeBoard.id}
               persistenceKey={persistenceKey}
               workspaceId={workspaceId}
+              onSceneChange={(scene) => {
+                latestScene.current = scene
+              }}
             />
           </div>
         ) : (

@@ -1315,7 +1315,38 @@ export const api = {
         joinedAt: string
       }>
     },
-    async invite(input: { email: string; name?: string; role: 'owner' | 'collaborator' }) {
+    async update(id: string, input: { name: string; role: 'owner' | 'collaborator' | 'viewer' }) {
+      const response = await fetch(`/api/workspace/team/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify(input),
+      })
+      const payload = await response.json()
+      if (!response.ok || !payload.member) {
+        throw new Error(payload.error || 'Unable to update this team member.')
+      }
+      return payload.member as {
+        id: string
+        name: string
+        email: string
+        role: string
+        status: string
+        joinedAt: string
+      }
+    },
+    async remove(id: string) {
+      const response = await fetch(`/api/workspace/team/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: mutationHeaders(),
+      })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}))
+        throw new Error(payload.error || 'Unable to remove this team member.')
+      }
+    },
+    async invite(input: { email: string; name?: string; role: 'owner' | 'collaborator' | 'viewer' }) {
       const response = await fetch('/api/workspace/team/invite', {
         method: 'POST',
         credentials: 'same-origin',

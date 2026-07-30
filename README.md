@@ -73,9 +73,13 @@ the navigation sidebar so navigation stays clear while page content retains
 depth and contrast.
 
 The landing page uses native document scrolling so its hero and calls to action
-remain reliable across desktop and mobile browsers. Hero lines and section
-headings use one-time GSAP reveals, with all motion disabled when the visitor
-requests reduced motion. See
+remain reliable across desktop and mobile browsers. Its desktop navigation
+stays visible as a translucent glass bar while scrolling. Hero lines and
+section headings use one-time GSAP reveals; the product summary, workspace
+marquee, progress display, and footer credit use lightweight ambient CSS
+motion. The connection showcase includes locally rendered brand marks for
+popular email, calendar, storage, communication, meeting, and payment tools.
+All motion is disabled when the visitor requests reduced motion. See
 [`docs/LANDING_MOTION.md`](docs/LANDING_MOTION.md) for configuration and
 maintenance notes.
 
@@ -237,6 +241,20 @@ security, and conflict boundaries.
 
 See [`docs/IDEAS_CANVAS.md`](docs/IDEAS_CANVAS.md) for the editor feature set,
 persistence boundary, licensing, and extension points.
+
+## Dashboard update 31
+
+The dashboard now separates everyday settings from technical Dev Tools, adds a
+profile menu, a workflow-template directory, professional invoicing choices,
+an n8n-focused automation experience, modern file action menus, and editable
+team roles. Project workspaces have focused Board, Details, Files, and Links
+sections plus assignable custom buckets. Bundled Excalidraw libraries load into
+every idea canvas, and canvas PDFs can be downloaded and saved directly into
+the workspace Files library.
+
+Implementation details, persistence boundaries, and current provider behavior
+are documented in
+[`docs/DASHBOARD_UPDATE_31.md`](docs/DASHBOARD_UPDATE_31.md).
 
 ## Backend status
 

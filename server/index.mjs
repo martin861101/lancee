@@ -3273,6 +3273,52 @@ app.get('/api/workspace/team', requireAuth, async (request, response) => {
   })
 })
 
+app.patch('/api/workspace/team/:memberId', secureMutations, requireAuth, requireOwner, async (request, response) => {
+  const memberId = String(request.params.memberId || '').trim()
+  const name = String(request.body?.name || '').trim()
+  const role = String(request.body?.role || '').trim()
+  if (!memberId || memberId.length > 160) throw new HttpError(400, 'A valid member id is required.')
+  if (!name || name.length > 120) throw new HttpError(400, 'Member name must be between 1 and 120 characters.')
+  if (!['owner', 'collaborator', 'viewer'].includes(role)) {
+    throw new HttpError(400, 'Role must be admin, collaborator, or viewer.')
+  }
+  const members = await database.listTeamMembers(request.auth.context.workspace.id)
+  const current = members.find((member) => member.id === memberId)
+  if (!current) throw new HttpError(404, 'Team member not found.')
+  if (
+    current.role === 'owner' &&
+    role !== 'owner' &&
+    members.filter((member) => member.role === 'owner' && member.status === 'active').length <= 1
+  ) {
+    throw new HttpError(409, 'Add another admin before changing the last admin role.')
+  }
+  const member = await database.updateTeamMember(
+    request.auth.context.workspace.id,
+    memberId,
+    { name, role },
+  )
+  response.json({ member })
+})
+
+app.delete('/api/workspace/team/:memberId', secureMutations, requireAuth, requireOwner, async (request, response) => {
+  const memberId = String(request.params.memberId || '').trim()
+  if (!memberId || memberId.length > 160) throw new HttpError(400, 'A valid member id is required.')
+  if (memberId === request.auth.context.user.id) {
+    throw new HttpError(409, 'You cannot remove yourself from the workspace.')
+  }
+  const members = await database.listTeamMembers(request.auth.context.workspace.id)
+  const current = members.find((member) => member.id === memberId)
+  if (!current) throw new HttpError(404, 'Team member not found.')
+  if (
+    current.role === 'owner' &&
+    members.filter((member) => member.role === 'owner' && member.status === 'active').length <= 1
+  ) {
+    throw new HttpError(409, 'The last workspace admin cannot be removed.')
+  }
+  await database.removeTeamMember(request.auth.context.workspace.id, memberId)
+  response.status(204).end()
+})
+
 const cloudStorageProviders = new Set(['drive', 'dropbox', 'onedrive', 'box', 'other'])
 
 function validateCloudFolderUrl(value) {
@@ -3346,8 +3392,8 @@ app.post('/api/workspace/team/invite', secureMutations, requireAuth, requireOwne
   if (name.length > 120) {
     throw new HttpError(400, 'Member name must be 120 characters or fewer.')
   }
-  if (!['owner', 'collaborator'].includes(role)) {
-    throw new HttpError(400, 'Role must be owner or collaborator.')
+  if (!['owner', 'collaborator', 'viewer'].includes(role)) {
+    throw new HttpError(400, 'Role must be admin, collaborator, or viewer.')
   }
   const existingMembership = await database.getWorkspaceMembershipByEmail(
     request.auth.context.workspace.id,

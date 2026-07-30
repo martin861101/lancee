@@ -1236,3 +1236,28 @@
     min-width: 720px;
   }
 }
+.team-row-actions { display: flex; gap: 6px; }
+.team-edit-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(3, 6, 11, .72);
+}
+.team-edit-dialog {
+  display: grid;
+  width: min(440px, 100%);
+  gap: 14px;
+  padding: 24px;
+  background: #151e2b;
+  border: 1px solid #3a465b;
+  border-radius: 16px;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, .5);
+}
+.team-edit-dialog h3,
+.team-edit-dialog p { margin: 0; }
+.team-edit-dialog > label { display: grid; gap: 6px; color: var(--muted); font-size: .72rem; }
+.team-edit-dialog > small { color: var(--muted); line-height: 1.5; }
+.team-edit-dialog > div { display: flex; justify-content: end; gap: 8px; }
