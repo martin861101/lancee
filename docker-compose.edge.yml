@@ -1,0 +1,84 @@
+x-n8n-common-env: &n8n-common-env
+  DB_TYPE: postgresdb
+  DB_POSTGRESDB_HOST: db
+  DB_POSTGRESDB_PORT: 5432
+  DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-lancee_app}
+  DB_POSTGRESDB_USER: ${POSTGRES_USER:-lancee}
+  DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+  DB_POSTGRESDB_SCHEMA: n8n
+  N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY in .env}
+  EXECUTIONS_MODE: queue
+  QUEUE_BULL_REDIS_HOST: redis
+  QUEUE_BULL_REDIS_PORT: 6379
+  QUEUE_BULL_REDIS_PASSWORD: ${N8N_REDIS_PASSWORD:?Set N8N_REDIS_PASSWORD in .env}
+  N8N_LOG_LEVEL: warn
+  EXECUTIONS_DATA_SAVE_ON_ERROR: none
+  EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
+  EXECUTIONS_DATA_SAVE_ON_PROGRESS: "false"
+
+services:
+  app:
+    environment:
+      N8N_BASE_URL: http://n8n:5678
+      N8N_ALLOW_PRIVATE: "true"
+      N8N_PRIVATE_NETWORK: "true"
+      REDIS_URL: redis://:${N8N_REDIS_PASSWORD}@redis:6379
+    depends_on:
+      n8n:
+        condition: service_started
+
+  redis:
+    image: redis:7.4-alpine
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${N8N_REDIS_PASSWORD:?Set N8N_REDIS_PASSWORD in .env}
+    volumes:
+      - n8n_redis:/data
+    networks:
+      - edge_internal
+    restart: unless-stopped
+
+  n8n:
+    image: ${N8N_IMAGE:?Set N8N_IMAGE to a pinned n8nio/n8n image in .env}
+    environment:
+      <<: *n8n-common-env
+      N8N_HOST: n8n
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://n8n:5678/
+      N8N_SECURE_COOKIE: "false"
+    expose:
+      - "5678"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - default
+      - edge_internal
+    restart: unless-stopped
+
+  n8n-worker:
+    image: ${N8N_IMAGE:?Set N8N_IMAGE to a pinned n8nio/n8n image in .env}
+    command: worker --concurrency=10
+    environment:
+      <<: *n8n-common-env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - edge_internal
+    restart: unless-stopped
+
+networks:
+  edge_internal:
+    internal: true
+
+volumes:
+  n8n_redis:

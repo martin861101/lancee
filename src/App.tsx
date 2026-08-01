@@ -33,7 +33,9 @@ import {
   type N8nTestResult,
   type PaystackConnection,
   type Run,
+  type RunEvent,
   type User,
+  type WorkspaceNotification,
 } from './lib/api'
 import { syncIdeaMutations } from './lib/ideasRepository'
 import { IDEA_SYNC_REQUEST_EVENT } from './pwa'
@@ -45,7 +47,10 @@ const ClientsPage = lazy(() => import('./components/dashboard/ClientsPage'))
 const AnalyticsPage = lazy(() => import('./components/dashboard/AnalyticsPage'))
 const TeamPage = lazy(() => import('./components/dashboard/TeamPage'))
 const FilesPage = lazy(() => import('./components/dashboard/FilesPage'))
+const ServicesPage = lazy(() => import('./components/dashboard/ServicesPage'))
+const WorkspaceChat = lazy(() => import('./components/dashboard/WorkspaceChat'))
 const WorkflowsPage = lazy(() => import('./components/WorkflowsPage'))
+const ReviewPage = lazy(() => import('./components/annotations/ReviewPage'))
 
 type Page =
   | 'overview'
@@ -56,6 +61,7 @@ type Page =
   | 'workflows'
   | 'runs'
   | 'integrations'
+  | 'services'
   | 'money'
   | 'analytics'
   | 'files'
@@ -71,6 +77,7 @@ const pageIds = new Set<Page>([
   'workflows',
   'runs',
   'integrations',
+  'services',
   'money',
   'analytics',
   'files',
@@ -137,6 +144,7 @@ const navItems: { id: Page; label: string; icon: IconName; section: string }[] =
   { id: 'automations', label: 'Automations', icon: 'activity', section: 'Business' },
   { id: 'workflows', label: 'Workflows', icon: 'layers', section: 'Business' },
   { id: 'integrations', label: 'Connections', icon: 'plug', section: 'Business' },
+  { id: 'services', label: 'Services', icon: 'plug', section: 'Business' },
   { id: 'money', label: 'Invoicing', icon: 'wallet', section: 'Business' },
   { id: 'analytics', label: 'Analytics', icon: 'target', section: 'Business' },
   { id: 'team', label: 'Team', icon: 'user', section: 'Platform' },
@@ -750,7 +758,7 @@ function OverviewPage({
   )
 }
 
-function RunsTable({ runs }: { runs: Run[] }) {
+function RunsTable({ runs, onSelect }: { runs: Run[]; onSelect?: (run: Run) => void }) {
   return (
     <div className="data-table-wrap">
       <table className="data-table">
@@ -772,7 +780,7 @@ function RunsTable({ runs }: { runs: Run[] }) {
                     <Icon name={run.status === 'running' ? 'activity' : 'play'} size={14} />
                   </span>
                   <span>
-                    <strong>{run.instruction}</strong>
+                    {onSelect ? <button className="run-log-link" type="button" onClick={() => onSelect(run)}><strong>{run.instruction}</strong></button> : <strong>{run.instruction}</strong>}
                     <small>{run.id}</small>
                   </span>
                 </div>
@@ -822,9 +830,9 @@ function AutomationsPage({
   return (
     <div className="page">
       <PageHeader
-        eyebrow="Powered by n8n"
+        eyebrow="Runs in the Core"
         title="Automations"
-        description="This space is dedicated to the n8n workflows that run your connected business processes."
+        description="Standard workflows execute inside lancee; custom n8n workflows run on the Edge only when you opt in."
         action={
           <button className="button button--primary" onClick={onCreate}>
             <Icon name="plus" size={16} /> New automation
@@ -833,17 +841,17 @@ function AutomationsPage({
       />
 
       <section className="n8n-showcase">
-        <div className="n8n-showcase__logo" aria-label="n8n">
-          <span>n8n</span>
+        <div className="n8n-showcase__logo" aria-label="lancee Core">
+          <span>Core</span>
           <i /><i /><i />
         </div>
         <div>
-          <span className="micro-label">Visual workflow automation</span>
-          <h2>Connect a trigger to the work that follows.</h2>
-          <p>n8n lets you join apps, approvals, schedules, and data in a visual flow while lancee keeps the business context close.</p>
+          <span className="micro-label">In-app workflow execution</span>
+          <h2>Most automations never leave lancee.</h2>
+          <p>Standard business flows run directly in the Core with your data and context. n8n is reserved for customised, specific workflows that need an external connector.</p>
         </div>
         <div className="n8n-showcase__diagram" aria-hidden="true">
-          <span>Trigger</span><i /><span>Review</span><i /><span>Action</span>
+          <span>Core</span><i /><span>Edge</span><i /><span>Action</span>
         </div>
       </section>
 
@@ -990,6 +998,16 @@ function RunsPage({ runs }: { runs: Run[] }) {
     0,
   )
   const uniqueAutomations = new Set(runsThisMonth.map((run) => run.automationId)).size
+  const [selectedRun, setSelectedRun] = useState<Run | null>(null)
+  const [selectedEvents, setSelectedEvents] = useState<RunEvent[]>([])
+  const [loadingEvents, setLoadingEvents] = useState(false)
+
+  const openRun = async (run: Run) => {
+    setSelectedRun(run)
+    setSelectedEvents(run.events || [])
+    setLoadingEvents(true)
+    try { setSelectedEvents(await api.runs.logs(run.id)) } catch { setSelectedEvents([]) } finally { setLoadingEvents(false) }
+  }
 
   return (
     <div className="page">
@@ -1037,8 +1055,9 @@ function RunsPage({ runs }: { runs: Run[] }) {
             ))}
           </div>
         </div>
-        <RunsTable runs={filtered} />
+        <RunsTable runs={filtered} onSelect={(run) => void openRun(run)} />
       </section>
+      {selectedRun && <section className="panel automation-log-panel"><div className="panel-heading"><div><span className="micro-label">Execution log</span><h2>{selectedRun.automationName}</h2></div><button className="text-button" onClick={() => setSelectedRun(null)}>Close</button></div><p className="panel-copy">{selectedRun.instruction}</p>{loadingEvents ? <p className="empty-copy">Loading events…</p> : selectedEvents.length === 0 ? <p className="empty-copy">No persisted events.</p> : <div className="automation-log-list">{selectedEvents.map((event) => <article key={event.id} className={`automation-log-entry automation-log-entry--${event.level}`}><div><strong>{event.message}</strong><small>{event.eventType} · {new Date(event.createdAt).toLocaleString()}</small></div>{event.durationMs !== null && <span>{event.durationMs}ms</span>}</article>)}</div>}</section>}
     </div>
   )
 }
@@ -2699,7 +2718,13 @@ function RefundPage({ onBack }: { onBack: () => void }) {
   )
 }
 
-function LandingPage({ onSignIn }: { onSignIn: () => void }) {
+function LandingPage({
+  onSignIn,
+  onSignUp,
+}: {
+  onSignIn: () => void
+  onSignUp: () => void
+}) {
   const landingRef = useRef<HTMLElement>(null)
   const [policyView, setPolicyView] = useState<'landing' | 'terms' | 'privacy' | 'refund'>('landing')
 
@@ -2802,7 +2827,7 @@ if (policyView !== 'landing') {
           <button className="landing-sign-in" onClick={onSignIn}>
             Sign in
           </button>
-          <button className="button button--primary" onClick={onSignIn}>
+          <button className="button button--primary" onClick={onSignUp}>
             Sign Up <BrandMark compact />
           </button>
         </div>
@@ -2829,7 +2854,7 @@ if (policyView !== 'landing') {
             invoices, and payments, wherever you happen to be working.
           </p>
           <div className="landing-hero__actions">
-            <button className="button button--primary" onClick={onSignIn}>
+            <button className="button button--primary" onClick={onSignUp}>
               Start your workspace <Icon name="arrow-right" size={15} />
             </button>
             <a href="#platform">
@@ -3158,7 +3183,7 @@ if (policyView !== 'landing') {
         <BrandMark />
         <span className="landing-eyebrow">A lighter way to run your business</span>
         <h2>Carry the whole studio. Not the whole workload.</h2>
-        <button className="button button--primary" onClick={onSignIn}>
+        <button className="button button--primary" onClick={onSignUp}>
           Sign Up <BrandMark compact />
         </button>
       </section>
@@ -3166,6 +3191,7 @@ if (policyView !== 'landing') {
       <footer className="landing-footer">
         <small>© 2026 lancee All Rights Reserved</small>
         <div className="landing-footer__links">
+          <a href="lancee.html" target="_blank" rel="noopener noreferrer">Documentation</a>
           <button onClick={() => setPolicyView('terms')}>Terms &amp; Conditions</button>
           <button onClick={() => setPolicyView('privacy')}>Privacy Policy</button>
           <button onClick={() => setPolicyView('refund')}>Refund Policy</button>
@@ -3181,10 +3207,72 @@ if (policyView !== 'landing') {
   )
 }
 
+function AuthStory({ onBack }: { onBack: () => void }) {
+  return (
+    <section className="auth-story">
+      <div className="auth-story__top">
+        <button className="auth-logo" onClick={onBack}>
+          <BrandMark />
+          <span>lancee</span>
+        </button>
+        <span className="demo-badge">
+          <span /> Secure workspace
+        </span>
+      </div>
+      <div className="auth-story__content">
+        <span className="auth-kicker">Your business, carried lightly</span>
+        <h1>
+          Keep the work.
+          <br />
+          Lose the <em>busywork.</em>
+        </h1>
+        <p>
+          Clients, projects, ideas, useful routines, invoices, and payments&mdash;ready
+          wherever your work takes you.
+        </p>
+        <div className="auth-proof">
+          <div>
+            <strong>One</strong>
+            <span>Clear view of current projects</span>
+          </div>
+          <div>
+            <strong>Live</strong>
+            <span>Invoices and payment status</span>
+          </div>
+        </div>
+      </div>
+      <div className="auth-story__visual" aria-hidden="true">
+        <div className="orbit orbit--one" />
+        <div className="orbit orbit--two" />
+        <div className="orbit-center">
+          <BrandMark compact />
+        </div>
+        <span className="orbit-node orbit-node--one">
+          <Icon name="messages" size={17} />
+        </span>
+        <span className="orbit-node orbit-node--two">
+          <Icon name="file" size={17} />
+        </span>
+        <span className="orbit-node orbit-node--three">
+          <Icon name="target" size={17} />
+        </span>
+      </div>
+      <p className="auth-quote">
+        &ldquo;I can land in a new city and know exactly what needs me, what can wait, and
+        what has been paid.&rdquo;
+        <span>&mdash; Amara, independent packaging designer</span>
+      </p>
+    </section>
+  )
+}
+
 function AuthScreen({
   onSignIn,
   onRegister,
+  onRegisterStart,
   onBack,
+  onNavigate,
+  initialMode,
 }: {
   onSignIn: (email: string, password: string) => Promise<void>
   onRegister: (
@@ -3194,13 +3282,16 @@ function AuthScreen({
     workspace?: string,
     invitationToken?: string,
   ) => Promise<void>
+  onRegisterStart: (email: string, name?: string, workspace?: string) => Promise<void>
   onBack: () => void
+  onNavigate: (view: 'login' | 'register') => void
+  initialMode: 'login' | 'register'
 }) {
   const [invitationToken] = useState(
     () => new URLSearchParams(window.location.search).get('invite') || '',
   )
   const [mode, setMode] = useState<'login' | 'register'>(
-    invitationToken ? 'register' : 'login',
+    invitationToken ? 'register' : initialMode,
   )
   const [registrationEnabled, setRegistrationEnabled] = useState(false)
   const [existingInvitedAccount, setExistingInvitedAccount] = useState(false)
@@ -3211,6 +3302,11 @@ function AuthScreen({
   const [workspace, setWorkspace] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [confirmationSent, setConfirmationSent] = useState(false)
+
+  useEffect(() => {
+    if (!invitationToken) setMode(initialMode)
+  }, [initialMode, invitationToken])
 
   useEffect(() => {
     let active = true
@@ -3254,7 +3350,7 @@ function AuthScreen({
     try {
       if (mode === 'login') {
         await onSignIn(email, password)
-      } else {
+      } else if (invitationToken) {
         await onRegister(
           email,
           password,
@@ -3262,6 +3358,9 @@ function AuthScreen({
           workspace || undefined,
           invitationToken || undefined,
         )
+      } else {
+        await onRegisterStart(email, name || undefined, workspace || undefined)
+        setConfirmationSent(true)
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : `Unable to ${mode}.`)
@@ -3272,62 +3371,35 @@ function AuthScreen({
 
   return (
     <main className="auth-shell">
-      <section className="auth-story">
-        <div className="auth-story__top">
-          <button className="auth-logo" onClick={onBack}>
-            <BrandMark />
-            <span>lancee</span>
-          </button>
-          <span className="demo-badge">
-            <span /> Secure workspace
-          </span>
-        </div>
-        <div className="auth-story__content">
-          <span className="auth-kicker">Your business, carried lightly</span>
-          <h1>
-            Keep the work.
-            <br />
-            Lose the <em>busywork.</em>
-          </h1>
-          <p>
-            Clients, projects, ideas, useful routines, invoices, and payments&mdash;ready
-            wherever your work takes you.
-          </p>
-          <div className="auth-proof">
-            <div>
-              <strong>One</strong>
-              <span>Clear view of current projects</span>
-            </div>
-            <div>
-              <strong>Live</strong>
-              <span>Invoices and payment status</span>
-            </div>
-          </div>
-        </div>
-        <div className="auth-story__visual" aria-hidden="true">
-          <div className="orbit orbit--one" />
-          <div className="orbit orbit--two" />
-          <div className="orbit-center">
-            <BrandMark compact />
-          </div>
-          <span className="orbit-node orbit-node--one">
-            <Icon name="messages" size={17} />
-          </span>
-          <span className="orbit-node orbit-node--two">
-            <Icon name="file" size={17} />
-          </span>
-          <span className="orbit-node orbit-node--three">
-            <Icon name="target" size={17} />
-          </span>
-        </div>
-        <p className="auth-quote">
-          &ldquo;I can land in a new city and know exactly what needs me, what can wait, and
-          what has been paid.&rdquo;
-          <span>&mdash; Amara, independent packaging designer</span>
-        </p>
-      </section>
+      <AuthStory onBack={onBack} />
       <section className="auth-form-panel">
-        <form className="auth-form" onSubmit={submit}>
+        {confirmationSent ? (
+          <div className="auth-form auth-confirmation" role="status">
+            <img className="auth-form__wordmark" src="/img/logo_with_name.png" alt="lancee" />
+            <span className="auth-form__eyebrow">Check your inbox</span>
+            <h2>Confirm your email</h2>
+            <p>
+              We sent a confirmation link to <strong>{email}</strong>. Follow it to return to
+              lancee and choose your password.
+            </p>
+            <button
+              className="button button--primary auth-submit"
+              type="button"
+              onClick={() => {
+                setConfirmationSent(false)
+                setEmail('')
+                setError('')
+              }}
+            >
+              Use a different email
+            </button>
+            <p className="auth-signup">
+              <button type="button" onClick={() => onNavigate('login')}>
+                <Icon name="arrow-right" size={12} /> Back to sign in
+              </button>
+            </p>
+          </div>
+        ) : <form className="auth-form" onSubmit={submit}>
           <div>
             <img
               className="auth-form__wordmark"
@@ -3392,39 +3464,41 @@ function AuthScreen({
               required
             />
           </label>
-          <label className="form-field">
-            <span>
-              {invitationToken
-                ? existingInvitedAccount
-                  ? 'Current password'
-                  : 'Choose password'
-                : 'Password'}
-            </span>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete={
-                mode === 'login' || existingInvitedAccount
-                  ? 'current-password'
-                  : 'new-password'
-              }
-              required
-              minLength={8}
-            />
-          </label>
+          {(mode === 'login' || invitationToken) && (
+            <label className="form-field">
+              <span>
+                {invitationToken
+                  ? existingInvitedAccount
+                    ? 'Current password'
+                    : 'Choose password'
+                  : 'Password'}
+              </span>
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete={
+                  mode === 'login' || existingInvitedAccount
+                    ? 'current-password'
+                    : 'new-password'
+                }
+                required
+                minLength={8}
+              />
+            </label>
+          )}
           {error && <p className="form-error">{error}</p>}
           <button className="button button--primary auth-submit" type="submit" disabled={busy || invitationLoading}>
-            {busy || invitationLoading ? <span className="spinner spinner--dark" /> : invitationToken ? 'Accept invitation' : mode === 'login' ? 'Sign in' : 'Create workspace'}
+            {busy || invitationLoading ? <span className="spinner spinner--dark" /> : invitationToken ? 'Accept invitation' : mode === 'login' ? 'Sign in' : 'Send confirmation link'}
             {!busy && !invitationLoading && <Icon name="arrow-right" size={16} />}
           </button>
           {!invitationToken && <p className="auth-signup">
             {mode === 'login' && registrationEnabled ? (
-              <button type="button" onClick={() => { setMode('register'); setError('') }}>
+              <button type="button" onClick={() => { setMode('register'); setError(''); onNavigate('register') }}>
                 <Icon name="arrow-right" size={12} /> Don&rsquo;t have an account? Create one
               </button>
             ) : mode === 'register' ? (
-              <button type="button" onClick={() => { setMode('login'); setError('') }}>
+              <button type="button" onClick={() => { setMode('login'); setError(''); onNavigate('login') }}>
                 <Icon name="arrow-right" size={12} /> Already have an account? Sign in
               </button>
             ) : null}
@@ -3432,6 +3506,90 @@ function AuthScreen({
           <small className="auth-terms">
             By continuing, you agree to the Terms of Service and Privacy Policy.
           </small>
+        </form>}
+      </section>
+    </main>
+  )
+}
+
+function SetPasswordScreen({
+  token,
+  onConfirm,
+  onBack,
+}: {
+  token: string
+  onConfirm: (token: string, password: string) => Promise<void>
+  onBack: () => void
+}) {
+  const [password, setPassword] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(token ? '' : 'This confirmation link is missing.')
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!token) return
+    if (password !== confirmation) {
+      setError('Passwords do not match.')
+      return
+    }
+    setError('')
+    setBusy(true)
+    try {
+      await onConfirm(token, password)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to finish account setup.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <main className="auth-shell">
+      <AuthStory onBack={onBack} />
+      <section className="auth-form-panel">
+        <form className="auth-form" onSubmit={submit}>
+          <img className="auth-form__wordmark" src="/img/logo_with_name.png" alt="lancee" />
+          <span className="auth-form__eyebrow">Email confirmed</span>
+          <h2>Set your password</h2>
+          <p>Choose a password for your new lancee workspace, then you&rsquo;ll go straight into the app.</p>
+          <div className="auth-security-note">
+            <Icon name="shield" size={17} />
+            Use at least 8 characters. Your password is stored securely.
+          </div>
+          <label className="form-field">
+            <span>Password</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              minLength={8}
+              required
+              autoFocus
+            />
+          </label>
+          <label className="form-field">
+            <span>Confirm password</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value)}
+              minLength={8}
+              required
+            />
+          </label>
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <button className="button button--primary auth-submit" type="submit" disabled={busy || !token}>
+            {busy ? <span className="spinner spinner--dark" /> : 'Create workspace'}
+            {!busy && <Icon name="arrow-right" size={16} />}
+          </button>
+          <p className="auth-signup">
+            <button type="button" onClick={onBack}>
+              <Icon name="arrow-right" size={12} /> Back to sign in
+            </button>
+          </p>
         </form>
       </section>
     </main>
@@ -3479,18 +3637,23 @@ function CreateAutomationForm({
   onSubmit,
   onCancel,
 }: {
-  onSubmit: (input: Pick<Automation, 'name' | 'description' | 'model'>) => Promise<void>
+  onSubmit: (input: Pick<Automation, 'name' | 'description' | 'model'> & {
+    execution?: Automation['execution']
+    tools?: string[]
+  }) => Promise<void>
   onCancel: () => void
 }) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [model, setModel] = useState('Rules + connected tools')
+  const [execution, setExecution] = useState<Automation['execution']>('core')
+  const [tools, setTools] = useState<string[]>(['workspace.summary', 'projects.list'])
   const [busy, setBusy] = useState(false)
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setBusy(true)
-    await onSubmit({ name, description, model })
+    await onSubmit({ name, description, model, execution, tools })
     setBusy(false)
   }
 
@@ -3506,6 +3669,22 @@ function CreateAutomationForm({
           required
         />
       </label>
+      <fieldset className="form-fieldset">
+        <legend>Core permissions</legend>
+        <small className="form-field__hint">Only selected tools can change workspace data. Read-only tools are safe by default.</small>
+        <div className="form-checkbox-grid">
+          {[
+            ['workspace.summary', 'Read workspace summary'],
+            ['projects.list', 'Read projects'],
+            ['clients.list', 'Read clients'],
+            ['invoices.list', 'Read invoices'],
+            ['projects.update_status', 'Update project status'],
+            ['projects.create_draft_invoice', 'Create draft invoices'],
+          ].map(([id, label]) => (
+            <label key={id}><input type="checkbox" checked={tools.includes(id)} onChange={() => setTools((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} disabled={execution === 'edge'} /><span>{label}</span></label>
+          ))}
+        </div>
+      </fieldset>
       <label className="form-field">
         <span>What should happen?</span>
         <textarea
@@ -3523,6 +3702,20 @@ function CreateAutomationForm({
           <option>Scheduled workflow</option>
           <option>AI-assisted, with review</option>
         </select>
+      </label>
+      <label className="form-field">
+        <span>Where it runs</span>
+        <select
+          value={execution}
+          onChange={(event) => setExecution(event.target.value as Automation['execution'])}
+        >
+          <option value="core">In lancee (Core) — standard automations</option>
+          <option value="edge">Custom n8n workflow (Edge)</option>
+        </select>
+        <small className="form-field__hint">
+          Custom n8n workflows need a connected n8n integration. Everything else runs
+          inside lancee.
+        </small>
       </label>
       <div className="modal-form__footer">
         <button className="button button--secondary" type="button" onClick={onCancel}>
@@ -4667,17 +4860,49 @@ function CodexRuntimePanel({
   )
 }
 
+type AuthView = 'landing' | 'login' | 'register' | 'confirm'
+
+function authViewFromLocation(): AuthView {
+  const pathname = window.location.pathname.replace(/\/+$/, '') || '/'
+  if (pathname === '/signup/confirm') return 'confirm'
+  if (pathname === '/signup') return 'register'
+  if (pathname === '/signin') return 'login'
+  const params = new URLSearchParams(window.location.search)
+  return params.has('invite') || params.has('device') ? 'login' : 'landing'
+}
+
+function authPath(view: AuthView) {
+  if (view === 'login') return '/signin'
+  if (view === 'register') return '/signup'
+  if (view === 'confirm') return '/signup/confirm'
+  return '/'
+}
+
+function publicReviewRequest() {
+  const match = window.location.pathname.match(/^\/review\/([^/]+)\/?$/)
+  if (!match) return null
+  const token = new URLSearchParams(window.location.search).get('token') || ''
+  return token ? { reviewId: decodeURIComponent(match[1]), token } : null
+}
+
 function App() {
+  const review = publicReviewRequest()
+  if (review) {
+    return (
+      <Suspense fallback={<main className="review-page review-page--state"><p>Loading review…</p></main>}>
+        <ReviewPage reviewId={review.reviewId} token={review.token} />
+      </Suspense>
+    )
+  }
+  return <WorkspaceApp />
+}
+
+function WorkspaceApp() {
   const deviceUserCode =
     new URLSearchParams(window.location.search).get('device') || ''
   const [user, setUser] = useState<User | null>(null)
   const [sessionLoading, setSessionLoading] = useState(true)
-  const [authView, setAuthView] = useState<'landing' | 'login'>(() =>
-    new URLSearchParams(window.location.search).has('invite') ||
-    new URLSearchParams(window.location.search).has('device')
-      ? 'login'
-      : 'landing',
-  )
+  const [authView, setAuthView] = useState<AuthView>(authViewFromLocation)
   const [activePage, setActivePage] = useState<Page>(() => {
     const requestedPage = new URLSearchParams(window.location.search).get('page')
     return requestedPage && pageIds.has(requestedPage as Page)
@@ -4686,6 +4911,7 @@ function App() {
   })
   const [automations, setAutomations] = useState<Automation[]>([])
   const [runs, setRuns] = useState<Run[]>([])
+  const [workspaceNotifications, setWorkspaceNotifications] = useState<WorkspaceNotification[]>([])
   const [integrations, setIntegrations] = useState<Integration[]>([])
   const [n8nConfig, setN8nConfig] = useState<N8nConfig | null>(null)
   const [paystackConnection, setPaystackConnection] =
@@ -4735,6 +4961,12 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const handlePopState = () => setAuthView(authViewFromLocation())
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  useEffect(() => {
     if (!user) return
     setLoading(true)
     void Promise.all([
@@ -4749,6 +4981,7 @@ function App() {
       api.codexRuntime.getStatus(),
       user.role === 'owner' ? api.apiKeys.list() : Promise.resolve([]),
       api.analytics.get(),
+      api.notifications.list(),
     ])
       .then(
         ([
@@ -4763,6 +4996,7 @@ function App() {
           codexRuntimeData,
           keyData,
           analyticsData,
+          notificationData,
         ]) => {
           setAutomations(automationData)
           setRuns(runData)
@@ -4787,6 +5021,7 @@ function App() {
             ),
           )
           setKeys(keyData)
+          setWorkspaceNotifications(notificationData)
           setAnalytics({
             openProjects: analyticsData.metrics.openProjects,
             dueSoonProjects: analyticsData.metrics.dueSoonProjects,
@@ -4804,6 +5039,15 @@ function App() {
       .finally(() => {
         setLoading(false)
       })
+  }, [user])
+
+  useEffect(() => {
+    if (!user) return
+    const refreshNotifications = () => {
+      void api.notifications.list().then(setWorkspaceNotifications).catch(() => undefined)
+    }
+    const interval = window.setInterval(refreshNotifications, 30_000)
+    return () => window.clearInterval(interval)
   }, [user])
 
   useEffect(() => {
@@ -4872,12 +5116,44 @@ function App() {
     [activePage],
   )
 
+  const navigateAuth = (view: AuthView, replace = false) => {
+    setAuthView(view)
+    const method = replace ? 'replaceState' : 'pushState'
+    window.history[method]({}, '', authPath(view))
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   const signIn = async (email: string, password: string) => {
     const session = await api.auth.signIn(email, password)
     setUser(session)
-    setAuthView('landing')
+    if (deviceUserCode) {
+      setAuthView('landing')
+      window.history.replaceState(
+        {},
+        '',
+        `/?device=${encodeURIComponent(deviceUserCode)}`,
+      )
+    } else {
+      navigateAuth('landing', true)
+    }
     setActivePage('overview')
     setToast('Welcome back to lancee')
+  }
+
+  const startRegistration = async (
+    email: string,
+    name?: string,
+    workspace?: string,
+  ) => {
+    await api.auth.startRegistration(email, name, workspace)
+  }
+
+  const confirmRegistration = async (token: string, password: string) => {
+    const session = await api.auth.confirmRegistration(token, password)
+    setUser(session)
+    navigateAuth('landing', true)
+    setActivePage('overview')
+    setToast('Your workspace is ready')
   }
 
   const register = async (
@@ -4895,7 +5171,7 @@ function App() {
       invitationToken,
     )
     setUser(session)
-    setAuthView('landing')
+    navigateAuth('landing', true)
     setActivePage('overview')
     if (invitationToken) {
       window.history.replaceState({}, '', window.location.pathname)
@@ -4908,7 +5184,7 @@ function App() {
   const signOut = async () => {
     await api.auth.signOut()
     setUser(null)
-    setAuthView('landing')
+    navigateAuth('landing', true)
     setNotificationsOpen(false)
   }
 
@@ -4963,7 +5239,12 @@ function App() {
     }
   }
 
-  const createAutomation = async (input: Pick<Automation, 'name' | 'description' | 'model'>) => {
+  const createAutomation = async (
+    input: Pick<Automation, 'name' | 'description' | 'model'> & {
+      execution?: Automation['execution']
+      tools?: string[]
+    },
+  ) => {
     const automation = await api.automations.create(input)
     setAutomations((current) => [automation, ...current])
     setModal(null)
@@ -5228,16 +5509,31 @@ function App() {
   }
 
   if (!user) {
-    return authView === 'landing' ? (
-      <LandingPage onSignIn={() => setAuthView('login')} />
-    ) : (
+    if (authView === 'landing') {
+      return (
+        <LandingPage
+          onSignIn={() => navigateAuth('login')}
+          onSignUp={() => navigateAuth('register')}
+        />
+      )
+    }
+    if (authView === 'confirm') {
+      return (
+        <SetPasswordScreen
+          token={new URLSearchParams(window.location.search).get('token') || ''}
+          onConfirm={confirmRegistration}
+          onBack={() => navigateAuth('login')}
+        />
+      )
+    }
+    return (
       <AuthScreen
         onSignIn={signIn}
         onRegister={register}
-        onBack={() => {
-          setAuthView('landing')
-          window.scrollTo({ top: 0, behavior: 'smooth' })
-        }}
+        onRegisterStart={startRegistration}
+        onNavigate={(view) => navigateAuth(view)}
+        initialMode={authView}
+        onBack={() => navigateAuth('landing')}
       />
     )
   }
@@ -5313,8 +5609,7 @@ function App() {
           <Suspense fallback={<EmptySkeleton />}>
             <WorkflowsPage
               onUseTemplate={(template) => {
-                setToast(`${template.title} selected — create it as an n8n automation.`)
-                setActivePage('automations')
+                setToast(`${template.title} workflow selected. Workflows stay separate from automations.`)
               }}
             />
           </Suspense>
@@ -5338,6 +5633,34 @@ function App() {
             onRequestConnection={() => setModal('integration-request')}
             onToast={setToast}
           />
+        )
+        break
+      case 'services':
+        page = (
+          <Suspense fallback={<EmptySkeleton />}>
+            <ServicesPage
+              connection={mcpConnection}
+              services={mcpServices}
+              onRequestAccess={async () => {
+                const result = await api.mcp.requestAccess()
+                setMcpConnection(result.connection)
+                setMcpServices(result.services)
+                setToast('MCP service access updated.')
+              }}
+              onSync={async () => {
+                const result = await api.mcp.sync()
+                setMcpConnection(result.connection)
+                setMcpServices(result.services)
+                setToast('Services synced.')
+              }}
+              onToggle={async (service) => {
+                const updated = await api.mcp.toggleService(service.id)
+                setMcpServices((current) => current.map((item) => item.id === updated.id ? updated : item))
+              }}
+              onInvoke={async (service, toolId, args) => api.mcp.invoke(service.id, toolId, args)}
+              onToast={setToast}
+            />
+          </Suspense>
         )
         break
       case 'money':
@@ -5446,7 +5769,7 @@ function App() {
                 onClick={() => setNotificationsOpen((open) => !open)}
               >
                 <Icon name="bell" size={18} />
-                {runs.length > 0 && <span className="notification-dot" />}
+                {(runs.length > 0 || workspaceNotifications.length > 0) && <span className="notification-dot" />}
               </button>
               {notificationsOpen && (
                 <div className="notification-popover">
@@ -5454,6 +5777,23 @@ function App() {
                     <strong>Notifications</strong>
                     <button onClick={() => setNotificationsOpen(false)}>Close</button>
                   </div>
+                  {workspaceNotifications.slice(0, 5).map((notification) => (
+                    <button
+                      key={notification.id}
+                      onClick={() => {
+                        setActivePage(notification.entityType === 'project' ? 'work' : 'overview')
+                        setNotificationsOpen(false)
+                      }}
+                    >
+                      <span className={`notification-icon notification-icon--${notification.kind.includes('comment') ? 'coral' : 'lime'}`}>
+                        <Icon name={notification.kind.includes('comment') ? 'messages' : 'check'} size={14} />
+                      </span>
+                      <span>
+                        <strong>{notification.title}</strong>
+                        <small>{new Date(notification.createdAt).toLocaleString()}</small>
+                      </span>
+                    </button>
+                  ))}
                   {runs.slice(0, 5).map((run) => (
                     <button
                       key={run.id}
@@ -5471,7 +5811,7 @@ function App() {
                       </span>
                     </button>
                   ))}
-                  {runs.length === 0 && <p className="empty-copy">No recent activity.</p>}
+                  {runs.length === 0 && workspaceNotifications.length === 0 && <p className="empty-copy">No recent activity.</p>}
                 </div>
               )}
             </div>
@@ -5645,6 +5985,7 @@ function App() {
         onNavigate={setActivePage}
         onCreateAutomation={() => setModal('automation')}
       />
+      <Suspense fallback={null}><WorkspaceChat /></Suspense>
       {toast && (
         <div className="toast" role="status">
           <span>

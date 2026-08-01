@@ -39,7 +39,9 @@ SMTP, production deployment, and troubleshooting, follow
 - **Files** — an expandable Google Drive folder tree with persistent links to
   clients and projects, plus a lancee document library. Upload PDF, DOC/DOCX,
   Markdown, text, and image files to lancee, Drive, or both; edit supported
-  documents in-app and sync local files to Drive later.
+  documents in-app, sync local files to Drive later, and remove local workspace
+  copies with a visible, confirmation-protected action. The page uses its own
+  vertical scroll region so long file lists remain usable on desktop and mobile.
 - **Automations** — plain-language routines for repetitive work, schedules,
   connected tools, activity history, and confirmed deletion.
 - **Connections** — independent backend-managed Google Drive OAuth with
@@ -92,9 +94,18 @@ Firebase:
 - Passwords are verified with Node.js `scrypt`; only the salt and hash are kept.
 - The browser receives a signed `HttpOnly`, `Secure`, `SameSite=Lax` cookie.
 - Session bootstrap, login, and logout use `/api/auth/*`.
+- Public authentication has dedicated `/signin` and `/signup` routes. Signup
+  collects the account details first, sends a 24-hour email confirmation link,
+  and only creates the workspace after the link is used at
+  `/signup/confirm?token=…` to choose a password.
 - Login is rate-limited to five failed attempts per 15-minute window.
 - Mutating requests validate the request origin.
-- Production registration is controlled by `ALLOW_REGISTRATION`.
+- Production registration is controlled by `ALLOW_REGISTRATION` and is enabled
+  by default. Set `ALLOW_REGISTRATION=false` to disable signup; the base Docker
+  Compose service explicitly enables it.
+- Email confirmation requires the existing SMTP notification settings to be
+  enabled and configured (`SMTP_ENABLED=true`, `SMTP_HOST`, `SMTP_PORT`, and
+  `SMTP_FROM_EMAIL`).
 - Owners can issue seven-day invitation links. Tokens are stored as hashes,
   can be delivered through SMTP, and create membership only after acceptance.
 
@@ -166,6 +177,21 @@ Linux `bubblewrap` sandbox; Compose mounts `CODEX_WORKSPACE_PATH` at
 [`docs/CODEX_APP_SERVER.md`](docs/CODEX_APP_SERVER.md) for connection steps,
 architecture, endpoints, security boundaries, Docker setup, and verification.
 
+## Setup Agent and workspace operations
+
+The conversational Setup Agent described in the onboarding documents is planned
+as one workspace-scoped agent with setup and steady-state operations modes. The
+implementation design covers the backend state machine, connector OAuth and
+consent boundaries, asynchronous imports, knowledge ingestion, frontend
+conversation/progress UI, approval gates, worker deployment, and verification:
+
+[`docs/ONBOARDING_AGENT_IMPLEMENTATION.md`](docs/ONBOARDING_AGENT_IMPLEMENTATION.md)
+
+The current platform foundation is ready for this work, but Gmail, Stripe,
+GitHub, Slack, durable onboarding jobs, and the knowledge-base index still need
+to be implemented. Existing Drive, Paystack, n8n, MCP, AI, authentication, and
+workspace data boundaries should be reused as described in the design.
+
 ## lancee AI for Codex
 
 The repo-local [`plugins/lancee-ai`](plugins/lancee-ai) plugin lets Codex use
@@ -207,8 +233,65 @@ https://n8n.hygridtech.co.za
 The shared secret is AES-256-GCM encrypted at rest. Attempts persist success,
 failure, response status, duration, correlation ID, and retry lineage.
 Dispatching a saved automation creates a durable run, sends a signed
-`lancee.automation.run` event to n8n, and records completion or failure. See
+`lancee.automation.run` event to n8n, and completes it only after a signed
+`lancee.automation.result` callback. Provider tokens are rehydrated only in
+memory for the outbound request and are never written to the delivery ledger.
+See
 [`docs/N8N.md`](docs/N8N.md).
+
+For a private queue-mode Edge deployment, pin `N8N_IMAGE`, set
+`N8N_REDIS_PASSWORD` and `N8N_ENCRYPTION_KEY` in `.env`, then start the optional
+Redis/n8n main/n8n worker overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.edge.yml up -d --build
+```
+
+The overlay exposes n8n only to the app's private Compose network and keeps the
+worker/Redis network internal. Its n8n execution history is disabled by
+default; workflows must still avoid logging the `auth` object.
+
+## Core automations, Redis, and Phase 3 workflow
+
+Built-in automations run through the platform's Core execution layer. A Core
+run is persisted in `automation_runs`, queued in Redis at
+`REDIS_QUEUE_PREFIX:core:automation:jobs`, executed by a permission-checked
+tool runner, and written to `automation_run_events`. The Automations page reads
+the execution log from `GET /api/automations/runs/:runId/logs`; it is not a
+simulated completion indicator.
+
+Core tools are bounded to workspace-scoped reads and explicit project actions:
+`workspace.summary`, `projects.list`, `clients.list`, `invoices.list`,
+`projects.update_status`, and `projects.create_draft_invoice`. Mutating tools
+must be enabled on the saved automation before they can run. Edge automations
+remain n8n-backed and are rejected until a valid n8n connection is active. If
+Redis is temporarily unavailable, Core uses a visible in-process fallback so a
+local development instance remains usable; `/api/health` reports the Redis
+connection state.
+
+Redis is installed as a system service for the current host and is also defined
+in the base Compose file. The application uses `REDIS_URL` and
+`REDIS_QUEUE_PREFIX`; the Edge overlay shares an authenticated Redis instance
+with n8n. The production image includes `redis-tools`, which provides the
+small server-side Redis bridge used by the Core worker.
+
+Phase 3 also adds a project review workflow. Creating a project immediately
+creates a job card and draft invoice. **Send to client** creates a signed,
+expiring tokenized review URL (`/review/:reviewId?token=…`) and emails only the
+link when SMTP is configured; artwork is fetched from PostgreSQL only after the
+client presents the token. Image attachments in the Projects workspace open in
+Annotorious for rectangle/polygon feedback, comments, priority, category, and
+client submission. The designer can filter annotations and mark them open,
+in-progress, resolved, or rejected. Approval still changes the draft invoice to
+`ready_for_review`. See [`docs/ANNOTATION_REVIEW.md`](docs/ANNOTATION_REVIEW.md)
+and [`docs/PHASE_3.md`](docs/PHASE_3.md) for the routes and operational details.
+
+The **Services** page manages live, server-side MCP services. The floating
+workspace assistant receives a server-built, workspace-scoped data snapshot;
+provider credentials and unrestricted SQL never reach the browser. Read-only
+AI data actions include `describe_table`, `list_tables`, `list_schemas`,
+`query`, and `connect_db`. `execute` returns an approval-required response and
+does not run.
 
 ## Paystack payments
 
@@ -337,9 +420,12 @@ PostgreSQL data. It does not remove source files or the optional local SQLite
 fallback under `.runtime/`. Restore a custom-format backup with `pg_restore`
 only after stopping the app so it cannot write during recovery.
 
-See [`docs/SCALABILITY_AND_POSTGRESQL.md`](docs/SCALABILITY_AND_POSTGRESQL.md)
-for connection-pool, transaction, migration, and rollout details. SQLite
-remains a durable single-process development fallback through `DATABASE_PATH`.
+Review sessions and annotations are persisted in PostgreSQL tables
+`review_sessions` and `review_annotations`; the same schema also works with the
+existing SQLite development fallback. See
+[`docs/SCALABILITY_AND_POSTGRESQL.md`](docs/SCALABILITY_AND_POSTGRESQL.md) for
+connection-pool, transaction, migration, and rollout details. SQLite remains a
+durable single-process development fallback through `DATABASE_PATH`.
 
 ## Development and verification
 

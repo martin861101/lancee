@@ -13,6 +13,7 @@
     "verify:durability": "node scripts/verify-durable-foundation.mjs",
     "verify:paystack": "node scripts/verify-paystack-flow.mjs",
     "verify:n8n": "node scripts/verify-n8n-bridge.mjs",
+    "verify:core-edge": "node scripts/verify-core-edge.mjs",
     "verify:offline": "node scripts/verify-offline-sync.mjs",
     "verify:postgres": "node scripts/verify-postgresql.mjs",
     "verify:ai": "node scripts/verify-ai-providers.mjs",
@@ -24,6 +25,7 @@
     "migrate:postgres": "node scripts/migrate-sqlite-to-postgres.mjs"
   },
   "dependencies": {
+    "@annotorious/react": "^3.8.8",
     "@dnd-kit/helpers": "^0.5.0",
     "@dnd-kit/react": "^0.5.0",
     "@excalidraw/excalidraw": "^0.18.1",
@@ -35,6 +37,7 @@
     "marked": "^18.0.7",
     "motion": "^12.42.2",
     "nodemailer": "^9.0.3",
+    "openseadragon": "^6.0.2",
     "pg": "^8.22.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

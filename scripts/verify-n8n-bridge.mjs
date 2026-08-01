@@ -15,6 +15,7 @@ import {
   validateN8nWebhookUrl,
   verifyN8nRequest,
 } from '../server/n8n.mjs'
+import { generateMasterKey } from '../server/vault.mjs'
 
 const projectDirectory = new URL('..', import.meta.url).pathname
 const temporaryDirectory = await mkdtemp(join(tmpdir(), 'lancee-n8n-'))
@@ -24,8 +25,10 @@ const passwordSalt = 'n8n-test-salt'
 const passwordHash = scryptSync(password, passwordSalt, 64).toString('hex')
 const adminEmail = 'n8n-test@example.com'
 const signingSecret = 'n8n-test-shared-secret-with-at-least-32-characters'
+const encryptionMasterKey = generateMasterKey()
+process.env.ENCRYPTION_MASTER_KEY = encryptionMasterKey
 let requestCount = 0
-let failNext = false
+let failNext = 0
 const received = []
 
 await assert.rejects(
@@ -82,13 +85,45 @@ async function startN8nStub() {
     assert(request.headers['x-lancee-correlation-id'])
     assert(request.headers['x-lancee-delivery-id'])
     requestCount += 1
+    const parsedBody = body.length ? JSON.parse(body.toString('utf8')) : null
     received.push({
       method: request.method,
       url: request.url,
-      body: body.length ? JSON.parse(body.toString('utf8')) : null,
+      body: parsedBody,
     })
-    if (failNext) {
-      failNext = false
+    if (parsedBody?.type === 'lancee.automation.run' && parsedBody.callbackUrl) {
+      const callback = new URL(parsedBody.callbackUrl)
+      const callbackEvent = {
+        type: 'lancee.automation.result',
+        runId: parsedBody.runId,
+        status: 'completed',
+        steps: 3,
+      }
+      const callbackBody = Buffer.from(JSON.stringify(callbackEvent))
+      const callbackTimestamp = String(Date.now())
+      const callbackNonce = `nonce_automation_${parsedBody.runId}`
+      const callbackPath = `${callback.pathname}${callback.search}`
+      void fetch(callback, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Lancee-Timestamp': callbackTimestamp,
+          'X-Lancee-Nonce': callbackNonce,
+          'X-Lancee-Signature': signN8nRequest({
+            secret: signingSecret,
+            timestamp: callbackTimestamp,
+            nonce: callbackNonce,
+            method: 'POST',
+            path: callbackPath,
+            bodyHash: hashBody(callbackBody),
+          }),
+          'X-Lancee-Correlation-Id': `cor_callback_${parsedBody.runId}`,
+        },
+        body: callbackBody,
+      }).catch(() => undefined)
+    }
+    if (failNext > 0) {
+      failNext -= 1
       response.writeHead(503)
       response.end()
       return
@@ -131,6 +166,7 @@ async function startApplication(n8nBaseUrl) {
       N8N_BASE_URL: n8nBaseUrl,
       N8N_ALLOW_PRIVATE: 'true',
       N8N_TIMEOUT_MS: '500',
+      ENCRYPTION_MASTER_KEY: encryptionMasterKey,
       SMTP_ENABLED: 'false',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -271,6 +307,24 @@ try {
   assert.equal(configured.signingSecretConfigured, true)
   assert.equal('signingSecret' in configured, false)
 
+  const tokenSave = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/integrations/tokens/stripe',
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'n8n-token-save-0001',
+      },
+      body: JSON.stringify({
+        accessToken: 'edge-provider-access-token',
+        refreshToken: 'edge-provider-refresh-token',
+      }),
+    },
+  )
+  assert.equal(tokenSave.status, 200)
+
   const postDeliveryOptions = {
     method: 'POST',
     headers: {
@@ -279,7 +333,11 @@ try {
     },
     body: JSON.stringify({
       method: 'POST',
-      event: { type: 'lancee.connection_test', value: 'post' },
+      event: {
+        type: 'lancee.connection_test',
+        value: 'post',
+        auth: { access_token: 'should-never-be-persisted-or-sent' },
+      },
     }),
   }
   const postDelivery = await sessionRequest(
@@ -293,6 +351,7 @@ try {
   assert.equal(postPayload.delivery.status, 'succeeded')
   assert.equal(postPayload.delivery.responseStatus, 204)
   assert.equal(received[0].body.value, 'post')
+  assert.equal(received[0].body.auth, undefined)
 
   const replay = await sessionRequest(
     application.origin,
@@ -337,6 +396,7 @@ try {
       body: JSON.stringify({
         name: 'Verifier workflow',
         description: 'Confirms a saved automation executes through n8n.',
+        execution: 'edge',
       }),
     },
   )
@@ -365,6 +425,7 @@ try {
       body: JSON.stringify({
         automationId: automation.id,
         instruction: 'Run the signed verifier workflow.',
+        provider: 'stripe',
       }),
     },
   )
@@ -382,6 +443,7 @@ try {
   assert.equal(automationRun.status, 'completed')
   assert.equal(received[2].body.type, 'lancee.automation.run')
   assert.equal(received[2].body.runId, automationRun.id)
+  assert.equal(received[2].body.auth.access_token, 'edge-provider-access-token')
 
   const inboundEvent = { type: 'n8n.external_test', value: 7 }
   const inboundNonce = 'nonce_external_post_0001'
@@ -427,7 +489,7 @@ try {
   )
   assert.equal(inboundGet.status, 202)
 
-  failNext = true
+  failNext = 3
   const failed = await sessionRequest(
     application.origin,
     cookie,
@@ -478,6 +540,9 @@ try {
 
   const databaseBytes = await readFile(databasePath)
   assert.equal(databaseBytes.includes(Buffer.from(signingSecret)), false)
+  assert.equal(databaseBytes.includes(Buffer.from('edge-provider-access-token')), false)
+  assert.equal(databaseBytes.includes(Buffer.from('edge-provider-refresh-token')), false)
+  assert.equal(databaseBytes.includes(Buffer.from('should-never-be-persisted-or-sent')), false)
   const persisted = new DatabaseSync(databasePath, { readOnly: true })
   const connection = persisted
     .prepare(

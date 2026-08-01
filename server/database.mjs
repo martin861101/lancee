@@ -6,6 +6,22 @@ import { DatabaseSync } from 'node:sqlite'
 import pg from 'pg'
 
 const ACTIVE_MCP_STATUSES = new Set(['available', 'pending', 'approved'])
+const SENSITIVE_EVENT_KEYS = new Set([
+  'access_token',
+  'accesstoken',
+  'refresh_token',
+  'refreshtoken',
+  'api_key',
+  'apikey',
+  'client_secret',
+  'clientsecret',
+  'token',
+  'bearertoken',
+  'password',
+  'secret',
+  'auth',
+  'authorization',
+])
 
 function stableId(prefix, value) {
   return `${prefix}_${createHash('sha256').update(value).digest('hex').slice(0, 20)}`
@@ -24,6 +40,16 @@ function parsePermissions(value) {
   } catch {
     return []
   }
+}
+
+function sanitizeStoredEvent(value) {
+  if (Array.isArray(value)) return value.map(sanitizeStoredEvent)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !SENSITIVE_EVENT_KEYS.has(key.toLowerCase()))
+      .map(([key, child]) => [key, sanitizeStoredEvent(child)]),
+  )
 }
 
 function mapContext(row) {
@@ -141,6 +167,7 @@ function mapAutomation(row) {
     accent: row.accent,
     status: row.status,
     model: row.model,
+    execution: row.execution || 'core',
     runs: row.runs,
     successRate: row.success_rate,
     lastRun: row.last_run_at || 'Not run yet',
@@ -162,6 +189,136 @@ function mapAutomationRun(row) {
     steps: row.steps,
     errorCode: row.error_code,
     completedAt: row.completed_at,
+  }
+}
+
+function mapDraftInvoice(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    projectId: row.project_id,
+    clientId: row.client_id,
+    invoiceNumber: row.invoice_number,
+    clientName: row.client_name,
+    clientEmail: row.client_email,
+    projectName: row.project_name,
+    description: row.description,
+    amountMinor: Number(row.amount_minor || 0),
+    currency: row.currency,
+    dueDate: row.due_date,
+    status: row.status,
+    paymentUrl: row.payment_url,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    sentAt: row.sent_at,
+  }
+}
+
+function mapApproval(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    projectId: row.project_id,
+    jobCardId: row.job_card_id,
+    clientId: row.client_id,
+    clientName: row.client_name,
+    clientEmail: row.client_email,
+    projectName: row.project_name,
+    status: row.status,
+    title: row.title,
+    body: row.body,
+    comment: row.comment,
+    expiresAt: row.expires_at,
+    createdAt: row.created_at,
+    respondedAt: row.responded_at,
+    reviewUrl: row.review_url,
+  }
+}
+
+function parseAnnotationJson(value) {
+  if (typeof value !== 'string') return value || null
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
+  }
+}
+
+function mapReviewAnnotation(row) {
+  if (!row) return null
+  const annotation = parseAnnotationJson(row.annotation_json)
+  return {
+    id: row.id,
+    artworkId: row.artwork_file_id,
+    reviewId: row.review_id,
+    annotation,
+    geometry: annotation?.target?.selector || null,
+    comment: row.comment || '',
+    priority: row.priority,
+    category: row.category,
+    status: row.status,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function mapReview(row, annotations = []) {
+  if (!row) return null
+  const artwork = row.artwork_file_id
+    ? {
+        id: row.artwork_file_id,
+        name: row.artwork_name,
+        mimeType: row.artwork_mime_type,
+        size: Number(row.artwork_size || 0),
+        imageUrl: '',
+      }
+    : null
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    projectName: row.project_name,
+    clientName: row.client_name,
+    artworkId: row.artwork_file_id,
+    artworkVersionId: row.artwork_file_id,
+    artwork,
+    status: row.status,
+    expiresAt: row.expires_at,
+    createdAt: row.created_at,
+    submittedAt: row.submitted_at,
+    closedAt: row.closed_at,
+    annotations,
+  }
+}
+
+function mapProjectComment(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    projectId: row.project_id,
+    approvalId: row.approval_id,
+    authorType: row.author_type,
+    authorName: row.author_name,
+    body: row.body,
+    createdAt: row.created_at,
+  }
+}
+
+function mapNotification(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    kind: row.kind,
+    title: row.title,
+    body: row.body,
+    entityType: row.entity_type,
+    entityId: row.entity_id,
+    readAt: row.read_at,
+    createdAt: row.created_at,
   }
 }
 
@@ -302,6 +459,16 @@ export async function openDatabase({
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       disabled_at TEXT
+    )`,
+    `CREATE TABLE IF NOT EXISTS registration_confirmations (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      workspace_name TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS workspace_members (
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -564,6 +731,14 @@ export async function openDatabase({
       updated_at TEXT NOT NULL,
       PRIMARY KEY (workspace_id, id)
     )`,
+    `CREATE TABLE IF NOT EXISTS idea_canvas_scenes (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      board_id TEXT NOT NULL,
+      scene_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, board_id)
+    )`,
     `CREATE TABLE IF NOT EXISTS google_drive_tokens (
       workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
       access_token TEXT NOT NULL,
@@ -574,6 +749,23 @@ export async function openDatabase({
       connected_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS tenant_integration_tokens (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      provider VARCHAR(50) NOT NULL,
+      encrypted_access_token TEXT NOT NULL,
+      encrypted_refresh_token TEXT,
+      token_type VARCHAR(20) DEFAULT 'Bearer',
+      expires_at TEXT,
+      iv VARCHAR(64) NOT NULL,
+      auth_tag VARCHAR(64) NOT NULL,
+      refresh_iv VARCHAR(64),
+      refresh_auth_tag VARCHAR(64),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, provider)
+    )`,
+    `ALTER TABLE tenant_integration_tokens ADD COLUMN IF NOT EXISTS refresh_iv TEXT`,
+    `ALTER TABLE tenant_integration_tokens ADD COLUMN IF NOT EXISTS refresh_auth_tag TEXT`,
     `CREATE TABLE IF NOT EXISTS ai_conversations (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -595,6 +787,7 @@ export async function openDatabase({
       icon TEXT NOT NULL DEFAULT 'sparkles',
       accent TEXT NOT NULL DEFAULT 'lime',
       model TEXT NOT NULL DEFAULT 'Rules + connected tools',
+      execution TEXT NOT NULL DEFAULT 'core' CHECK (execution IN ('core', 'edge')),
       status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('active', 'paused', 'draft')),
       tools_json TEXT NOT NULL DEFAULT '[]',
       runs INTEGER NOT NULL DEFAULT 0,
@@ -603,6 +796,7 @@ export async function openDatabase({
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
+    `ALTER TABLE automations ADD COLUMN IF NOT EXISTS execution TEXT NOT NULL DEFAULT 'core'`,
     `CREATE TABLE IF NOT EXISTS automation_runs (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -615,6 +809,21 @@ export async function openDatabase({
       steps INTEGER DEFAULT 1,
       error_code TEXT,
       completed_at TEXT
+    )`,
+    `CREATE TABLE IF NOT EXISTS automation_run_events (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      run_id TEXT NOT NULL REFERENCES automation_runs(id) ON DELETE CASCADE,
+      sequence INTEGER NOT NULL,
+      level TEXT NOT NULL DEFAULT 'info' CHECK (level IN ('info', 'warning', 'error')),
+      event_type TEXT NOT NULL,
+      message TEXT NOT NULL,
+      tool_id TEXT,
+      input_json TEXT,
+      output_json TEXT,
+      duration_ms INTEGER,
+      created_at TEXT NOT NULL,
+      UNIQUE (run_id, sequence)
     )`,
     `CREATE TABLE IF NOT EXISTS clients (
       id TEXT PRIMARY KEY,
@@ -644,6 +853,77 @@ export async function openDatabase({
     )`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS client_id TEXT REFERENCES clients(id) ON DELETE SET NULL`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS board_id TEXT`,
+    `CREATE TABLE IF NOT EXISTS job_cards (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'client_review', 'approved', 'done')),
+      created_by TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, project_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS draft_invoices (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      client_id TEXT REFERENCES clients(id) ON DELETE SET NULL,
+      invoice_number TEXT NOT NULL,
+      client_name TEXT NOT NULL,
+      client_email TEXT NOT NULL DEFAULT '',
+      project_name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      amount_minor INTEGER NOT NULL DEFAULT 0 CHECK (amount_minor >= 0),
+      currency TEXT NOT NULL DEFAULT 'ZAR',
+      due_date TEXT,
+      status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'ready_for_review', 'sent')),
+      payment_url TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      sent_at TEXT,
+      UNIQUE (workspace_id, project_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS client_approvals (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      job_card_id TEXT NOT NULL REFERENCES job_cards(id) ON DELETE CASCADE,
+      client_id TEXT REFERENCES clients(id) ON DELETE SET NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      client_name TEXT NOT NULL,
+      client_email TEXT NOT NULL,
+      project_name TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'commented', 'approved')),
+      comment TEXT,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      responded_at TEXT
+    )`,
+    `CREATE TABLE IF NOT EXISTS project_comments (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      approval_id TEXT REFERENCES client_approvals(id) ON DELETE SET NULL,
+      author_type TEXT NOT NULL CHECK (author_type IN ('workspace', 'client')),
+      author_name TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS workspace_notifications (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id TEXT,
+      read_at TEXT,
+      created_at TEXT NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS project_links (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -666,6 +946,32 @@ export async function openDatabase({
     )`,
     `ALTER TABLE project_files ADD COLUMN IF NOT EXISTS content_base64 TEXT`,
     `ALTER TABLE project_files ADD COLUMN IF NOT EXISTS content_sha256 TEXT`,
+    `CREATE TABLE IF NOT EXISTS review_sessions (
+      id TEXT PRIMARY KEY,
+      approval_id TEXT NOT NULL UNIQUE REFERENCES client_approvals(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      artwork_file_id TEXT REFERENCES project_files(id) ON DELETE SET NULL,
+      client_token_hash TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'submitted', 'closed')),
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      submitted_at TEXT,
+      closed_at TEXT
+    )`,
+    `CREATE TABLE IF NOT EXISTS review_annotations (
+      id TEXT PRIMARY KEY,
+      review_id TEXT NOT NULL REFERENCES review_sessions(id) ON DELETE CASCADE,
+      artwork_file_id TEXT REFERENCES project_files(id) ON DELETE SET NULL,
+      annotation_json TEXT NOT NULL,
+      comment TEXT NOT NULL DEFAULT '',
+      priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high')),
+      category TEXT NOT NULL DEFAULT 'other' CHECK (category IN ('design', 'typography', 'spacing', 'color', 'content', 'other')),
+      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'in_progress', 'resolved', 'rejected')),
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS google_drive_resource_links (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -714,6 +1020,12 @@ export async function openDatabase({
     )`,
     `CREATE INDEX IF NOT EXISTS idx_automation_runs_workspace_started
       ON automation_runs (workspace_id, started_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_automation_run_events_run_sequence
+      ON automation_run_events (run_id, sequence)`,
+    `CREATE INDEX IF NOT EXISTS idx_project_comments_workspace_project
+      ON project_comments (workspace_id, project_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_workspace_notifications_unread
+      ON workspace_notifications (workspace_id, read_at, created_at)`,
     `CREATE INDEX IF NOT EXISTS idx_projects_workspace_status
       ON projects (workspace_id, status)`,
     `CREATE INDEX IF NOT EXISTS idx_clients_workspace_name
@@ -749,6 +1061,24 @@ export async function openDatabase({
         if (!/duplicate column name/i.test(String(migrationError))) throw migrationError
       }
     }
+  }
+
+  if (!isInMemory && !isSqlite) {
+    await query(
+      `ALTER TABLE tenant_integration_tokens ENABLE ROW LEVEL SECURITY`,
+    )
+    await query(
+      `ALTER TABLE tenant_integration_tokens FORCE ROW LEVEL SECURITY`,
+    )
+    await query(
+      `DROP POLICY IF EXISTS tenant_isolation_policy ON tenant_integration_tokens`,
+    )
+    await query(
+      `CREATE POLICY tenant_isolation_policy ON tenant_integration_tokens
+         FOR ALL
+         USING (workspace_id = current_setting('app.current_tenant_id', true))
+         WITH CHECK (workspace_id = current_setting('app.current_tenant_id', true))`,
+    )
   }
 
   if (isSqlite) {
@@ -1146,6 +1476,46 @@ export async function openDatabase({
       const client = await pgInstance.connect()
       try {
         await client.query('BEGIN')
+        const result = await transactionStorage.run(client, operation)
+        await client.query('COMMIT')
+        return result
+      } catch (error) {
+        await client.query('ROLLBACK')
+        throw error
+      } finally {
+        client.release()
+      }
+    },
+
+    async runAsTenant(workspaceId, operation) {
+      if (isSqlite || isInMemory) return await operation()
+
+      const existingClient = transactionStorage.getStore()
+      if (existingClient) {
+        const previousResult = await existingClient.query(
+          `SELECT current_setting('app.current_tenant_id', true) AS tenant_id`,
+        )
+        const previousTenantId = previousResult.rows[0]?.tenant_id || ''
+        await existingClient.query(
+          `SELECT set_config('app.current_tenant_id', $1, true)`,
+          [workspaceId],
+        )
+        try {
+          return await operation()
+        } finally {
+          await existingClient.query(
+            `SELECT set_config('app.current_tenant_id', $1, true)`,
+            [previousTenantId],
+          )
+        }
+      }
+
+      const client = await pgInstance.connect()
+      try {
+        await client.query('BEGIN')
+        await client.query(`SELECT set_config('app.current_tenant_id', $1, true)`, [
+          workspaceId,
+        ])
         const result = await transactionStorage.run(client, operation)
         await client.query('COMMIT')
         return result
@@ -1967,7 +2337,7 @@ export async function openDatabase({
           requestHash,
           bodyHash,
           eventType,
-          JSON.stringify(event),
+          JSON.stringify(sanitizeStoredEvent(event)),
           status,
           attemptNumber,
           retryOf,
@@ -1977,6 +2347,27 @@ export async function openDatabase({
       )
       const rows = await query(`SELECT * FROM n8n_deliveries WHERE id = $1`, [id])
       return mapN8nDelivery(rows[0])
+    },
+
+    async scrubN8nDeliveryEvents() {
+      const rows = await query(`SELECT id, event_json FROM n8n_deliveries`)
+      for (const row of rows) {
+        let parsed
+        try {
+          parsed = typeof row.event_json === 'string'
+            ? JSON.parse(row.event_json)
+            : row.event_json
+        } catch {
+          continue
+        }
+        const sanitized = sanitizeStoredEvent(parsed)
+        if (JSON.stringify(parsed) !== JSON.stringify(sanitized)) {
+          await query(
+            `UPDATE n8n_deliveries SET event_json = $1 WHERE id = $2`,
+            [JSON.stringify(sanitized), row.id],
+          )
+        }
+      }
     },
 
     async updateN8nDelivery({
@@ -2181,7 +2572,7 @@ export async function openDatabase({
 
     async listAutomations(selectedWorkspaceId) {
       const rows = await query(
-        `SELECT id, workspace_id, created_by, name, description, icon, accent, status, model, tools_json, runs, success_rate, last_run_at, created_at, updated_at
+        `SELECT id, workspace_id, created_by, name, description, icon, accent, status, model, execution, tools_json, runs, success_rate, last_run_at, created_at, updated_at
          FROM automations
          WHERE workspace_id = $1
          ORDER BY created_at DESC`,
@@ -2192,7 +2583,7 @@ export async function openDatabase({
 
     async getAutomation(selectedWorkspaceId, id) {
       const rows = await query(
-        `SELECT id, workspace_id, created_by, name, description, icon, accent, status, model, tools_json, runs, success_rate, last_run_at, created_at, updated_at
+        `SELECT id, workspace_id, created_by, name, description, icon, accent, status, model, execution, tools_json, runs, success_rate, last_run_at, created_at, updated_at
          FROM automations
          WHERE workspace_id = $1 AND id = $2`,
         [selectedWorkspaceId, id],
@@ -2200,18 +2591,19 @@ export async function openDatabase({
       return mapAutomation(rows[0])
     },
 
-    async createAutomation({ workspaceId, createdBy, name, description, model }) {
+    async createAutomation({ workspaceId, createdBy, name, description, model, execution, tools = [] }) {
       const id = `aut_${createHash('sha256')
         .update(`${workspaceId}:${name}:${nowIso()}`)
         .digest('hex')
         .slice(0, 12)}`
       const createdAt = nowIso()
+      const executionMode = execution === 'edge' ? 'edge' : 'core'
       await query(
         `INSERT INTO automations (
-           id, workspace_id, created_by, name, description, model,
+           id, workspace_id, created_by, name, description, model, execution, tools_json,
            created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [id, workspaceId, createdBy, name, description, model, createdAt, createdAt],
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [id, workspaceId, createdBy, name, description, model, executionMode, JSON.stringify(tools), createdAt, createdAt],
       )
       return await this.getAutomation(workspaceId, id)
     },
@@ -2264,7 +2656,93 @@ export async function openDatabase({
          WHERE automation_runs.workspace_id = $1 AND automation_runs.id = $2`,
         [selectedWorkspaceId, id],
       )
-      return mapAutomationRun(rows[0])
+      const run = mapAutomationRun(rows[0])
+      if (!run) return null
+      run.events = await this.listAutomationRunEvents(selectedWorkspaceId, id)
+      return run
+    },
+
+    async listAutomationRunEvents(selectedWorkspaceId, runId) {
+      const rows = await query(
+        `SELECT id, run_id, sequence, level, event_type, message, tool_id,
+                input_json, output_json, duration_ms, created_at
+         FROM automation_run_events
+         WHERE workspace_id = $1 AND run_id = $2
+         ORDER BY sequence ASC`,
+        [selectedWorkspaceId, runId],
+      )
+      return rows.map((row) => ({
+        id: row.id,
+        runId: row.run_id,
+        sequence: Number(row.sequence),
+        level: row.level,
+        eventType: row.event_type,
+        message: row.message,
+        toolId: row.tool_id,
+        input: row.input_json ? JSON.parse(row.input_json) : null,
+        output: row.output_json ? JSON.parse(row.output_json) : null,
+        durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
+        createdAt: row.created_at,
+      }))
+    },
+
+    async appendAutomationRunEvent({
+      workspaceId,
+      runId,
+      level = 'info',
+      eventType,
+      message,
+      toolId = null,
+      input = null,
+      output = null,
+      durationMs = null,
+    }) {
+      const sequenceRows = await query(
+        `SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
+         FROM automation_run_events
+         WHERE workspace_id = $1 AND run_id = $2`,
+        [workspaceId, runId],
+      )
+      const sequence = Number(sequenceRows[0]?.next_sequence || 1)
+      const id = `evt_${createHash('sha256')
+        .update(`${workspaceId}:${runId}:${sequence}:${nowIso()}`)
+        .digest('hex')
+        .slice(0, 20)}`
+      const json = (value) => value === null || value === undefined
+        ? null
+        : JSON.stringify(sanitizeStoredEvent(value)).slice(0, 12_000)
+      await query(
+        `INSERT INTO automation_run_events (
+           id, workspace_id, run_id, sequence, level, event_type, message,
+           tool_id, input_json, output_json, duration_ms, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          id,
+          workspaceId,
+          runId,
+          sequence,
+          level,
+          String(eventType || 'log').slice(0, 80),
+          String(message || '').slice(0, 1_000),
+          toolId ? String(toolId).slice(0, 160) : null,
+          json(input),
+          json(output),
+          Number.isFinite(durationMs) ? Math.max(0, Math.round(durationMs)) : null,
+          nowIso(),
+        ],
+      )
+      return {
+        id,
+        runId,
+        sequence,
+        level,
+        eventType,
+        message,
+        toolId,
+        input,
+        output,
+        durationMs,
+      }
     },
 
     async createAutomationRun({ workspaceId, automationId, triggeredBy, instruction }) {
@@ -2553,6 +3031,115 @@ export async function openDatabase({
       return true
     },
 
+    async saveTenantIntegrationToken({
+      workspaceId,
+      provider,
+      encryptedAccessToken,
+      encryptedRefreshToken = null,
+      tokenType = 'Bearer',
+      expiresAt = null,
+      iv,
+      authTag,
+      refreshIv = null,
+      refreshAuthTag = null,
+    }) {
+      return await this.runAsTenant(workspaceId, async () => {
+        const timestamp = nowIso()
+        await query(
+          `INSERT INTO tenant_integration_tokens (
+             workspace_id, provider, encrypted_access_token, encrypted_refresh_token,
+             token_type, expires_at, iv, auth_tag, refresh_iv, refresh_auth_tag,
+             created_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+           ON CONFLICT (workspace_id, provider) DO UPDATE SET
+             encrypted_access_token = EXCLUDED.encrypted_access_token,
+             encrypted_refresh_token = EXCLUDED.encrypted_refresh_token,
+             token_type = EXCLUDED.token_type,
+             expires_at = EXCLUDED.expires_at,
+             iv = EXCLUDED.iv,
+             auth_tag = EXCLUDED.auth_tag,
+             refresh_iv = EXCLUDED.refresh_iv,
+             refresh_auth_tag = EXCLUDED.refresh_auth_tag,
+             updated_at = EXCLUDED.updated_at`,
+          [
+            workspaceId,
+            provider,
+            encryptedAccessToken,
+            encryptedRefreshToken,
+            tokenType,
+            expiresAt,
+            iv,
+            authTag,
+            refreshIv,
+            refreshAuthTag,
+            timestamp,
+            timestamp,
+          ],
+        )
+        return await this.getTenantIntegrationToken(workspaceId, provider)
+      })
+    },
+
+    async getTenantIntegrationToken(selectedWorkspaceId, provider) {
+      return await this.runAsTenant(selectedWorkspaceId, async () => {
+        const rows = await query(
+          `SELECT workspace_id, provider, encrypted_access_token, encrypted_refresh_token,
+                  token_type, expires_at, iv, auth_tag, refresh_iv, refresh_auth_tag,
+                  created_at, updated_at
+           FROM tenant_integration_tokens
+           WHERE workspace_id = $1 AND provider = $2`,
+          [selectedWorkspaceId, provider],
+        )
+        const row = rows[0]
+        if (!row) return null
+        return {
+          workspaceId: row.workspace_id,
+          provider: row.provider,
+          encryptedAccessToken: row.encrypted_access_token,
+          encryptedRefreshToken: row.encrypted_refresh_token,
+          tokenType: row.token_type,
+          expiresAt: row.expires_at,
+          iv: row.iv,
+          authTag: row.auth_tag,
+          refreshIv: row.refresh_iv,
+          refreshAuthTag: row.refresh_auth_tag,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        }
+      })
+    },
+
+    async listTenantIntegrationTokens(selectedWorkspaceId) {
+      return await this.runAsTenant(selectedWorkspaceId, async () => {
+        const rows = await query(
+          `SELECT provider, token_type, expires_at, created_at, updated_at
+           FROM tenant_integration_tokens
+           WHERE workspace_id = $1
+           ORDER BY provider ASC`,
+          [selectedWorkspaceId],
+        )
+        return rows.map((row) => ({
+          provider: row.provider,
+          tokenType: row.token_type,
+          expiresAt: row.expires_at,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        }))
+      })
+    },
+
+    async deleteTenantIntegrationToken(selectedWorkspaceId, provider) {
+      return await this.runAsTenant(selectedWorkspaceId, async () => {
+        const rows = await query(
+          `DELETE FROM tenant_integration_tokens
+           WHERE workspace_id = $1 AND provider = $2
+           RETURNING provider`,
+          [selectedWorkspaceId, provider],
+        )
+        return rows.length > 0
+      })
+    },
+
     async saveAiConversation({ workspaceId, userId, threadId = null, title = null, model, messages, tokensUsed = 0 }) {
       const id = `conv_${createHash('sha256')
         .update(`${workspaceId}:${userId}:${nowIso()}`)
@@ -2766,12 +3353,508 @@ export async function openDatabase({
       }
     },
 
+    async ensureJobCard({ workspaceId, projectId, createdBy }) {
+      const existingRows = await query(
+        `SELECT * FROM job_cards WHERE workspace_id = $1 AND project_id = $2`,
+        [workspaceId, projectId],
+      )
+      if (existingRows[0]) return existingRows[0]
+      const projectRows = await query(
+        `SELECT name, scope FROM projects WHERE workspace_id = $1 AND id = $2`,
+        [workspaceId, projectId],
+      )
+      if (!projectRows[0]) return null
+      const id = `job_${createHash('sha256')
+        .update(`${workspaceId}:${projectId}`)
+        .digest('hex')
+        .slice(0, 16)}`
+      const timestamp = nowIso()
+      await query(
+        `INSERT INTO job_cards (
+           id, workspace_id, project_id, title, description, created_by, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (workspace_id, project_id) DO NOTHING`,
+        [id, workspaceId, projectId, projectRows[0].name, projectRows[0].scope || '', createdBy, timestamp, timestamp],
+      )
+      const rows = await query(
+        `SELECT * FROM job_cards WHERE workspace_id = $1 AND project_id = $2`,
+        [workspaceId, projectId],
+      )
+      return rows[0] || null
+    },
+
+    async createDraftInvoiceForProject({ workspaceId, projectId }) {
+      const existing = await this.getDraftInvoiceByProject(workspaceId, projectId)
+      if (existing) return existing
+      const rows = await query(
+        `SELECT projects.id, projects.name, projects.scope, projects.due,
+                projects.client_id, clients.name AS client_name, clients.email AS client_email
+         FROM projects
+         LEFT JOIN clients ON clients.id = projects.client_id
+         WHERE projects.workspace_id = $1 AND projects.id = $2`,
+        [workspaceId, projectId],
+      )
+      const project = rows[0]
+      if (!project) return null
+      const timestamp = nowIso()
+      const identity = createHash('sha256')
+        .update(`${workspaceId}:${projectId}`)
+        .digest('hex')
+      const draft = {
+        id: `draft_${identity.slice(0, 16)}`,
+        workspaceId,
+        projectId,
+        clientId: project.client_id,
+        invoiceNumber: `DRAFT-${identity.slice(0, 8).toUpperCase()}`,
+        clientName: project.client_name || 'Client',
+        clientEmail: project.client_email || '',
+        projectName: project.name,
+        description: project.scope || project.name,
+        amountMinor: 0,
+        currency: 'ZAR',
+        dueDate: /^\d{4}-\d{2}-\d{2}$/.test(project.due || '') ? project.due : null,
+        status: 'draft',
+        paymentUrl: null,
+      }
+      await query(
+        `INSERT INTO draft_invoices (
+           id, workspace_id, project_id, client_id, invoice_number, client_name,
+           client_email, project_name, description, amount_minor, currency, due_date,
+           status, payment_url, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         ON CONFLICT (workspace_id, project_id) DO NOTHING`,
+        [draft.id, workspaceId, projectId, draft.clientId, draft.invoiceNumber, draft.clientName, draft.clientEmail, draft.projectName, draft.description, draft.amountMinor, draft.currency, draft.dueDate, draft.status, draft.paymentUrl, timestamp, timestamp],
+      )
+      return await this.getDraftInvoiceByProject(workspaceId, projectId)
+    },
+
+    async getDraftInvoiceByProject(selectedWorkspaceId, projectId) {
+      const rows = await query(
+        `SELECT * FROM draft_invoices WHERE workspace_id = $1 AND project_id = $2`,
+        [selectedWorkspaceId, projectId],
+      )
+      return mapDraftInvoice(rows[0])
+    },
+
+    async getDraftInvoice(selectedWorkspaceId, id) {
+      const rows = await query(
+        `SELECT * FROM draft_invoices WHERE workspace_id = $1 AND id = $2`,
+        [selectedWorkspaceId, id],
+      )
+      return mapDraftInvoice(rows[0])
+    },
+
+    async listDraftInvoices(selectedWorkspaceId) {
+      const rows = await query(
+        `SELECT * FROM draft_invoices WHERE workspace_id = $1 ORDER BY created_at DESC`,
+        [selectedWorkspaceId],
+      )
+      return rows.map(mapDraftInvoice)
+    },
+
+    async updateDraftInvoice(selectedWorkspaceId, id, fields) {
+      const sets = []
+      const params = []
+      let index = 1
+      for (const [field, column] of [
+        ['description', 'description'],
+        ['amountMinor', 'amount_minor'],
+        ['dueDate', 'due_date'],
+        ['status', 'status'],
+        ['paymentUrl', 'payment_url'],
+      ]) {
+        if (Object.hasOwn(fields, field)) {
+          sets.push(`${column} = $${index++}`)
+          params.push(fields[field])
+        }
+      }
+      if (!sets.length) return await this.getDraftInvoice(selectedWorkspaceId, id)
+      sets.push(`updated_at = $${index++}`)
+      params.push(nowIso(), selectedWorkspaceId, id)
+      await query(
+        `UPDATE draft_invoices SET ${sets.join(', ')}
+         WHERE workspace_id = $${index++} AND id = $${index}`,
+        params,
+      )
+      return await this.getDraftInvoice(selectedWorkspaceId, id)
+    },
+
+    async createClientApproval({
+      workspaceId,
+      projectId,
+      jobCardId,
+      clientId,
+      tokenHash,
+      clientName,
+      clientEmail,
+      projectName,
+      title,
+      body,
+      expiresAt,
+    }) {
+      const id = `apr_${createHash('sha256')
+        .update(`${workspaceId}:${projectId}:${tokenHash}`)
+        .digest('hex')
+        .slice(0, 16)}`
+      const timestamp = nowIso()
+      await query(
+        `INSERT INTO client_approvals (
+           id, workspace_id, project_id, job_card_id, client_id, token_hash,
+           client_name, client_email, project_name, title, body, expires_at, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [id, workspaceId, projectId, jobCardId, clientId, tokenHash, clientName, clientEmail, projectName, title, body, expiresAt, timestamp],
+      )
+      return await this.getClientApproval(workspaceId, id)
+    },
+
+    async getClientApproval(selectedWorkspaceId, id) {
+      const rows = await query(
+        `SELECT * FROM client_approvals WHERE workspace_id = $1 AND id = $2`,
+        [selectedWorkspaceId, id],
+      )
+      return mapApproval(rows[0])
+    },
+
+    async getClientApprovalByTokenHash(tokenHash) {
+      const rows = await query(
+        `SELECT * FROM client_approvals WHERE token_hash = $1`,
+        [tokenHash],
+      )
+      return mapApproval(rows[0])
+    },
+
+    async listProjectApprovals(selectedWorkspaceId, projectId) {
+      const rows = await query(
+        `SELECT * FROM client_approvals
+         WHERE workspace_id = $1 AND project_id = $2
+         ORDER BY created_at DESC`,
+        [selectedWorkspaceId, projectId],
+      )
+      return rows.map(mapApproval)
+    },
+
+    async createReviewSession({ approvalId, workspaceId, projectId, artworkFileId = null, tokenHash, expiresAt }) {
+      const id = `rev_${createHash('sha256')
+        .update(`${approvalId}:${tokenHash}`)
+        .digest('hex')
+        .slice(0, 20)}`
+      const timestamp = nowIso()
+      await query(
+        `INSERT INTO review_sessions (
+           id, approval_id, workspace_id, project_id, artwork_file_id,
+           client_token_hash, expires_at, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [id, approvalId, workspaceId, projectId, artworkFileId, tokenHash, expiresAt, timestamp],
+      )
+      return await this.getReviewSession(workspaceId, id)
+    },
+
+    async getReviewSession(selectedWorkspaceId, reviewId) {
+      const rows = await query(
+        `SELECT reviews.*, approvals.project_name, approvals.client_name,
+                files.name AS artwork_name, files.mime_type AS artwork_mime_type,
+                files.size AS artwork_size
+         FROM review_sessions reviews
+         JOIN client_approvals approvals ON approvals.id = reviews.approval_id
+         LEFT JOIN project_files files ON files.id = reviews.artwork_file_id
+         WHERE reviews.workspace_id = $1 AND reviews.id = $2`,
+        [selectedWorkspaceId, reviewId],
+      )
+      const row = rows[0]
+      return mapReview(row, row ? await this.listReviewAnnotations(row.id) : [])
+    },
+
+    async getLatestReviewForProject(selectedWorkspaceId, projectId) {
+      const rows = await query(
+        `SELECT reviews.*, approvals.project_name, approvals.client_name,
+                files.name AS artwork_name, files.mime_type AS artwork_mime_type,
+                files.size AS artwork_size
+         FROM review_sessions reviews
+         JOIN client_approvals approvals ON approvals.id = reviews.approval_id
+         LEFT JOIN project_files files ON files.id = reviews.artwork_file_id
+         WHERE reviews.workspace_id = $1 AND reviews.project_id = $2
+         ORDER BY reviews.created_at DESC LIMIT 1`,
+        [selectedWorkspaceId, projectId],
+      )
+      const row = rows[0]
+      return mapReview(row, row ? await this.listReviewAnnotations(row.id) : [])
+    },
+
+    async getPublicReview(reviewId, tokenHash) {
+      const rows = await query(
+        `SELECT reviews.*, approvals.project_name, approvals.client_name,
+                files.name AS artwork_name, files.mime_type AS artwork_mime_type,
+                files.size AS artwork_size
+         FROM review_sessions reviews
+         JOIN client_approvals approvals ON approvals.id = reviews.approval_id
+         LEFT JOIN project_files files ON files.id = reviews.artwork_file_id
+         WHERE reviews.id = $1 AND reviews.client_token_hash = $2`,
+        [reviewId, tokenHash],
+      )
+      const row = rows[0]
+      if (!row || Date.parse(row.expires_at) <= Date.now()) return null
+      return mapReview(row, await this.listReviewAnnotations(row.id))
+    },
+
+    async listReviewAnnotations(reviewId) {
+      const rows = await query(
+        `SELECT * FROM review_annotations WHERE review_id = $1 ORDER BY created_at ASC`,
+        [reviewId],
+      )
+      return rows.map(mapReviewAnnotation)
+    },
+
+    async createReviewAnnotation({ reviewId, artworkFileId, annotation, comment = '', priority = 'medium', category = 'other', status = 'open', createdBy }) {
+      const timestamp = nowIso()
+      await query(
+        `INSERT INTO review_annotations (
+           id, review_id, artwork_file_id, annotation_json, comment,
+           priority, category, status, created_by, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [annotation.id, reviewId, artworkFileId, JSON.stringify(annotation), comment, priority, category, status, createdBy, timestamp, timestamp],
+      )
+      const rows = await query(`SELECT * FROM review_annotations WHERE id = $1`, [annotation.id])
+      return mapReviewAnnotation(rows[0])
+    },
+
+    async updateReviewAnnotation(reviewId, annotationId, fields) {
+      const sets = []
+      const params = []
+      let index = 1
+      for (const [field, column] of [
+        ['annotation', 'annotation_json'],
+        ['comment', 'comment'],
+        ['priority', 'priority'],
+        ['category', 'category'],
+        ['status', 'status'],
+      ]) {
+        if (!Object.hasOwn(fields, field)) continue
+        sets.push(`${column} = $${index++}`)
+        params.push(field === 'annotation' ? JSON.stringify(fields[field]) : fields[field])
+      }
+      if (!sets.length) {
+        const rows = await query(`SELECT * FROM review_annotations WHERE review_id = $1 AND id = $2`, [reviewId, annotationId])
+        return mapReviewAnnotation(rows[0])
+      }
+      sets.push(`updated_at = $${index++}`)
+      params.push(nowIso(), reviewId, annotationId)
+      await query(
+        `UPDATE review_annotations SET ${sets.join(', ')}
+         WHERE review_id = $${index++} AND id = $${index}`,
+        params,
+      )
+      const rows = await query(`SELECT * FROM review_annotations WHERE review_id = $1 AND id = $2`, [reviewId, annotationId])
+      return mapReviewAnnotation(rows[0])
+    },
+
+    async deleteReviewAnnotation(reviewId, annotationId) {
+      await query(`DELETE FROM review_annotations WHERE review_id = $1 AND id = $2`, [reviewId, annotationId])
+    },
+
+    async submitReviewSession(reviewId, tokenHash) {
+      const rows = await query(
+        `SELECT reviews.*, approvals.project_name, approvals.client_name,
+                approvals.workspace_id AS approval_workspace_id,
+                approvals.job_card_id, approvals.status AS approval_status,
+                files.name AS artwork_name, files.mime_type AS artwork_mime_type,
+                files.size AS artwork_size
+         FROM review_sessions reviews
+         JOIN client_approvals approvals ON approvals.id = reviews.approval_id
+         LEFT JOIN project_files files ON files.id = reviews.artwork_file_id
+         WHERE reviews.id = $1 AND reviews.client_token_hash = $2`,
+        [reviewId, tokenHash],
+      )
+      const review = rows[0]
+      if (!review || Date.parse(review.expires_at) <= Date.now()) return null
+      if (review.status === 'closed' || review.status === 'submitted') {
+        return mapReview(review, await this.listReviewAnnotations(reviewId))
+      }
+      const annotations = await this.listReviewAnnotations(reviewId)
+      if (annotations.some((annotation) => !annotation.comment.trim())) {
+        return { missingComment: true, review: mapReview(review, annotations) }
+      }
+      const timestamp = nowIso()
+      await query(
+        `UPDATE review_sessions SET status = 'submitted', submitted_at = $1 WHERE id = $2`,
+        [timestamp, reviewId],
+      )
+      await query(
+        `UPDATE client_approvals SET status = CASE WHEN status = 'pending' THEN 'commented' ELSE status END,
+                responded_at = COALESCE(responded_at, $1)
+         WHERE id = $2`,
+        [timestamp, review.approval_id],
+      )
+      await query(
+        `UPDATE job_cards SET status = 'client_review', updated_at = $1 WHERE id = $2 AND workspace_id = $3`,
+        [timestamp, review.job_card_id, review.approval_workspace_id],
+      )
+      await query(
+        `UPDATE projects SET status = 'In review', updated_at = $1 WHERE id = $2 AND workspace_id = $3`,
+        [timestamp, review.project_id, review.approval_workspace_id],
+      )
+      await this.createWorkspaceNotification({
+        workspaceId: review.approval_workspace_id,
+        kind: 'approval.annotation_submitted',
+        title: 'Client submitted artwork annotations',
+        body: `${review.client_name} submitted feedback on ${review.project_name}.`,
+        entityType: 'project',
+        entityId: review.project_id,
+      })
+      const updated = await this.getPublicReview(reviewId, tokenHash)
+      return { review: updated }
+    },
+
+    async closeReviewSession(selectedWorkspaceId, reviewId) {
+      const timestamp = nowIso()
+      await query(
+        `UPDATE review_sessions SET status = 'closed', closed_at = $1 WHERE workspace_id = $2 AND id = $3`,
+        [timestamp, selectedWorkspaceId, reviewId],
+      )
+      return await this.getReviewSession(selectedWorkspaceId, reviewId)
+    },
+
+    async respondToClientApproval({ tokenHash, response, comment = null }) {
+      const rows = await query(
+        `SELECT * FROM client_approvals WHERE token_hash = $1`,
+        [tokenHash],
+      )
+      const approval = rows[0]
+      if (!approval || Date.parse(approval.expires_at) <= Date.now()) return null
+      if (approval.status === 'approved') return mapApproval(approval)
+      const timestamp = nowIso()
+      const status = response === 'approved' ? 'approved' : 'commented'
+      await query(
+        `UPDATE client_approvals SET status = $1, comment = $2, responded_at = $3
+         WHERE token_hash = $4`,
+        [status, comment, timestamp, tokenHash],
+      )
+      await query(
+        `UPDATE job_cards SET status = $1, updated_at = $2 WHERE id = $3 AND workspace_id = $4`,
+        [response === 'approved' ? 'approved' : 'client_review', timestamp, approval.job_card_id, approval.workspace_id],
+      )
+      await query(
+        `UPDATE projects SET status = $1, updated_at = $2 WHERE id = $3 AND workspace_id = $4`,
+        [response === 'approved' ? 'Ready' : 'In review', timestamp, approval.project_id, approval.workspace_id],
+      )
+      if (response === 'approved') {
+        await query(
+          `UPDATE draft_invoices SET status = 'ready_for_review', updated_at = $1
+           WHERE workspace_id = $2 AND project_id = $3`,
+          [timestamp, approval.workspace_id, approval.project_id],
+        )
+      }
+      await query(
+        `UPDATE review_sessions SET status = 'closed', closed_at = $1
+         WHERE approval_id = $2`,
+        [timestamp, approval.id],
+      )
+      if (comment) {
+        const commentId = `cmt_${createHash('sha256')
+          .update(`${approval.id}:${timestamp}:${comment}`)
+          .digest('hex')
+          .slice(0, 16)}`
+        await query(
+          `INSERT INTO project_comments (
+             id, workspace_id, project_id, approval_id, author_type, author_name, body, created_at
+           ) VALUES ($1, $2, $3, $4, 'client', $5, $6, $7)`,
+          [commentId, approval.workspace_id, approval.project_id, approval.id, approval.client_name, comment, timestamp],
+        )
+      }
+      await this.createWorkspaceNotification({
+        workspaceId: approval.workspace_id,
+        kind: response === 'approved' ? 'approval.approved' : 'approval.comment',
+        title: response === 'approved' ? 'Client approved a jobcard' : 'Client comment received',
+        body: response === 'approved'
+          ? `${approval.client_name} approved ${approval.project_name}.`
+          : `${approval.client_name} commented on ${approval.project_name}.`,
+        entityType: 'project',
+        entityId: approval.project_id,
+      })
+      return await this.getClientApprovalByTokenHash(tokenHash)
+    },
+
+    async listProjectComments(selectedWorkspaceId, projectId) {
+      const rows = await query(
+        `SELECT * FROM project_comments
+         WHERE workspace_id = $1 AND project_id = $2
+         ORDER BY created_at ASC`,
+        [selectedWorkspaceId, projectId],
+      )
+      return rows.map(mapProjectComment)
+    },
+
+    async createWorkspaceNotification({ workspaceId, kind, title, body, entityType = null, entityId = null }) {
+      const timestamp = nowIso()
+      const id = `ntf_${createHash('sha256')
+        .update(`${workspaceId}:${kind}:${title}:${timestamp}`)
+        .digest('hex')
+        .slice(0, 20)}`
+      await query(
+        `INSERT INTO workspace_notifications (
+           id, workspace_id, kind, title, body, entity_type, entity_id, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [id, workspaceId, kind, title, body, entityType, entityId, timestamp],
+      )
+      return await this.getWorkspaceNotification(workspaceId, id)
+    },
+
+    async getWorkspaceNotification(selectedWorkspaceId, id) {
+      const rows = await query(
+        `SELECT * FROM workspace_notifications WHERE workspace_id = $1 AND id = $2`,
+        [selectedWorkspaceId, id],
+      )
+      return mapNotification(rows[0])
+    },
+
+    async listWorkspaceNotifications(selectedWorkspaceId) {
+      const rows = await query(
+        `SELECT * FROM workspace_notifications
+         WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 100`,
+        [selectedWorkspaceId],
+      )
+      return rows.map(mapNotification)
+    },
+
     async updateProjectStatus(selectedWorkspaceId, id, status) {
       await query(
         `UPDATE projects SET status = $1, updated_at = $2 WHERE workspace_id = $3 AND id = $4`,
         [status, nowIso(), selectedWorkspaceId, id],
       )
       const rows = await query(`SELECT * FROM projects WHERE workspace_id = $1 AND id = $2`, [selectedWorkspaceId, id])
+      const row = rows[0]
+      return row ? {
+        id: row.id,
+        workspaceId: row.workspace_id,
+        clientId: row.client_id,
+        name: row.name,
+        client: row.client,
+        scope: row.scope,
+        due: row.due,
+        status: row.status,
+        progress: row.progress,
+        accent: row.accent,
+        boardId: row.board_id,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      } : null
+    },
+
+    async completeProjectWorkflow(selectedWorkspaceId, projectId) {
+      const timestamp = nowIso()
+      await query(
+        `UPDATE job_cards SET status = 'done', updated_at = $1
+         WHERE workspace_id = $2 AND project_id = $3`,
+        [timestamp, selectedWorkspaceId, projectId],
+      )
+      await query(
+        `UPDATE projects SET status = 'Ready', progress = 100, updated_at = $1
+         WHERE workspace_id = $2 AND id = $3`,
+        [timestamp, selectedWorkspaceId, projectId],
+      )
+      const rows = await query(
+        `SELECT * FROM projects WHERE workspace_id = $1 AND id = $2`,
+        [selectedWorkspaceId, projectId],
+      )
       const row = rows[0]
       return row ? {
         id: row.id,
@@ -3187,6 +4270,35 @@ export async function openDatabase({
          FROM project_files
          WHERE workspace_id = $1 AND id = $2`,
         [selectedWorkspaceId, fileId],
+      )
+      const row = rows[0]
+      return row
+        ? {
+            id: row.id,
+            projectId: row.project_id,
+            workspaceId: row.workspace_id,
+            name: row.name,
+            mimeType: row.mime_type,
+            size: row.size,
+            storageKey: row.storage_key,
+            contentBase64: row.content_base64,
+            sha256: row.content_sha256,
+            createdAt: row.created_at,
+          }
+        : null
+    },
+
+    async getProjectFileForApproval(tokenHash, fileId) {
+      const rows = await query(
+        `SELECT files.id, files.project_id, files.workspace_id, files.name,
+                files.mime_type, files.size, files.storage_key,
+                files.content_base64, files.content_sha256, files.created_at
+         FROM project_files files
+         JOIN client_approvals approvals
+           ON approvals.project_id = files.project_id
+          AND approvals.workspace_id = files.workspace_id
+         WHERE approvals.token_hash = $1 AND files.id = $2`,
+        [tokenHash, fileId],
       )
       const row = rows[0]
       return row
@@ -3631,6 +4743,10 @@ export async function openDatabase({
           [selectedWorkspaceId, id],
         )
         await query(
+          `DELETE FROM idea_canvas_scenes WHERE workspace_id = $1 AND board_id = $2`,
+          [selectedWorkspaceId, id],
+        )
+        await query(
           `DELETE FROM idea_notes WHERE workspace_id = $1 AND board_id = $2`,
           [selectedWorkspaceId, id],
         )
@@ -3677,6 +4793,30 @@ export async function openDatabase({
       ])
     },
 
+    async getIdeaCanvasScene(selectedWorkspaceId, boardId) {
+      const rows = await query(
+        `SELECT scene_json FROM idea_canvas_scenes WHERE workspace_id = $1 AND board_id = $2`,
+        [selectedWorkspaceId, boardId],
+      )
+      if (!rows[0]) return null
+      try {
+        return JSON.parse(rows[0].scene_json)
+      } catch {
+        return null
+      }
+    },
+
+    async saveIdeaCanvasScene({ selectedWorkspaceId, boardId, sceneJson }) {
+      const timestamp = nowIso()
+      await query(
+        `INSERT INTO idea_canvas_scenes (workspace_id, board_id, scene_json, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (workspace_id, board_id) DO UPDATE SET scene_json = $3, updated_at = $5`,
+        [selectedWorkspaceId, boardId, sceneJson, timestamp, timestamp],
+      )
+      return { boardId, updatedAt: timestamp }
+    },
+
     async getUserByEmail(email) {
       const rows = await query(
         `SELECT id, email, name, password_salt, password_hash, disabled_at
@@ -3695,6 +4835,57 @@ export async function openDatabase({
         passwordHash: row.password_hash,
         disabledAt: row.disabled_at,
       }
+    },
+
+    async getRegistrationConfirmationByTokenHash(tokenHash) {
+      const rows = await query(
+        `SELECT id, email, name, workspace_name, token_hash, expires_at
+         FROM registration_confirmations
+         WHERE token_hash = $1
+         LIMIT 1`,
+        [tokenHash],
+      )
+      const row = rows[0]
+      if (!row) return null
+      return {
+        id: row.id,
+        email: row.email,
+        name: row.name,
+        workspaceName: row.workspace_name,
+        tokenHash: row.token_hash,
+        expiresAt: row.expires_at,
+      }
+    },
+
+    async saveRegistrationConfirmation({
+      email,
+      name,
+      workspaceName,
+      tokenHash,
+      expiresAt,
+    }) {
+      const timestamp = nowIso()
+      const id = stableId('reg', email)
+      await query(
+        `INSERT INTO registration_confirmations (
+           id, email, name, workspace_name, token_hash, expires_at, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (email) DO UPDATE SET
+           name = EXCLUDED.name,
+           workspace_name = EXCLUDED.workspace_name,
+           token_hash = EXCLUDED.token_hash,
+           expires_at = EXCLUDED.expires_at,
+           updated_at = EXCLUDED.updated_at`,
+        [id, email, name, workspaceName, tokenHash, expiresAt, timestamp, timestamp],
+      )
+      return { id, email, name, workspaceName, expiresAt }
+    },
+
+    async deleteRegistrationConfirmation(tokenHash) {
+      await query(
+        `DELETE FROM registration_confirmations WHERE token_hash = $1`,
+        [tokenHash],
+      )
     },
 
     async getWorkspaceMembershipByEmail(selectedWorkspaceId, email) {

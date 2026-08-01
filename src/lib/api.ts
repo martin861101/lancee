@@ -25,10 +25,44 @@ export type Automation = {
   accent: string
   status: AutomationStatus
   model: string
+  execution: 'core' | 'edge'
   runs: number
   successRate: number
   lastRun: string
   tools: string[]
+}
+
+export type RunEvent = {
+  id: string
+  runId: string
+  sequence: number
+  level: 'info' | 'warning' | 'error'
+  eventType: string
+  message: string
+  toolId: string | null
+  input: unknown
+  output: unknown
+  durationMs: number | null
+  createdAt: string
+}
+
+export type WorkspaceNotification = {
+  id: string
+  kind: string
+  title: string
+  body: string
+  entityType: string | null
+  entityId: string | null
+  readAt: string | null
+  createdAt: string
+}
+
+export type IntegrationToken = {
+  provider: string
+  tokenType: string
+  expiresAt: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export type Run = {
@@ -43,6 +77,7 @@ export type Run = {
   steps: number
   errorCode?: string | null
   completedAt?: string | null
+  events?: RunEvent[]
 }
 
 export type Integration = {
@@ -272,6 +307,53 @@ export type ProjectInput = {
   boardId?: string | null
 }
 
+export type DraftInvoice = {
+  id: string
+  projectId: string
+  clientId: string | null
+  invoiceNumber: string
+  clientName: string
+  clientEmail: string
+  projectName: string
+  description: string
+  amountMinor: number
+  currency: 'ZAR'
+  dueDate: string | null
+  status: 'draft' | 'ready_for_review' | 'sent'
+  paymentUrl: string | null
+  createdAt: string
+  updatedAt: string
+  sentAt: string | null
+}
+
+export type ProjectComment = {
+  id: string
+  projectId: string
+  authorType: 'workspace' | 'client'
+  authorName: string
+  body: string
+  createdAt: string
+}
+
+export type ClientApproval = {
+  id: string
+  projectId: string
+  jobCardId: string
+  clientName: string
+  clientEmail: string
+  projectName: string
+  status: 'pending' | 'commented' | 'approved'
+  title: string
+  body: string
+  comment: string | null
+  expiresAt: string
+  createdAt: string
+  respondedAt: string | null
+  reviewUrl?: string
+  reviewId?: string | null
+  artworkVersionId?: string | null
+}
+
 export type Client = {
   id: string
   workspaceId: string
@@ -427,6 +509,37 @@ export const api = {
         expiresAt: string
         existingAccount: boolean
       }
+    },
+    async startRegistration(email: string, name?: string, workspace?: string) {
+      const response = await fetch('/api/auth/register/start', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, name, workspace }),
+      })
+      const payload = (await response.json()) as {
+        email?: string
+        expiresAt?: string
+        error?: string
+      }
+      if (!response.ok || !payload.email) {
+        throw new Error(payload.error || 'Unable to send the confirmation email.')
+      }
+      return { email: payload.email, expiresAt: payload.expiresAt || '' }
+    },
+    async confirmRegistration(token: string, password: string) {
+      const response = await fetch('/api/auth/register/confirm', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, password }),
+      })
+      const payload = (await response.json()) as { user?: User; error?: string }
+      if (!response.ok || !payload.user) {
+        throw new Error(payload.error || 'Unable to finish account setup.')
+      }
+      void cacheSession(payload.user).catch(() => undefined)
+      return payload.user
     },
     async register(
       email: string,
@@ -693,7 +806,12 @@ export const api = {
       }
       return payload.automations
     },
-    async create(input: Pick<Automation, 'name' | 'description' | 'model'>) {
+    async create(
+      input: Pick<Automation, 'name' | 'description' | 'model'> & {
+        execution?: Automation['execution']
+        tools?: string[]
+      },
+    ) {
       const response = await fetch('/api/automations', {
         method: 'POST',
         credentials: 'same-origin',
@@ -768,6 +886,70 @@ export const api = {
       }
       return payload as Run
     },
+    async logs(runId: string) {
+      const response = await fetch(
+        `/api/automations/runs/${encodeURIComponent(runId)}/logs`,
+        { credentials: 'same-origin' },
+      )
+      const payload = (await response.json()) as { runId?: string; logs?: RunEvent[]; error?: string }
+      if (!response.ok || !payload.logs) {
+        throw new Error(payload.error || 'Unable to load automation logs.')
+      }
+      return payload.logs
+    },
+  },
+  chat: {
+    async complete(message: string, history: Array<{ role: 'user' | 'assistant'; content: string }> = []) {
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify({ message, history }),
+      })
+      const payload = (await response.json()) as { content?: string; model?: string; error?: string }
+      if (!response.ok || !payload.content) {
+        throw new Error(payload.error || 'Unable to reach the workspace assistant.')
+      }
+      return payload
+    },
+  },
+  projectsWorkflow: {
+    async approvals(projectId: string) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/approvals`, { credentials: 'same-origin' })
+      const payload = (await response.json()) as { approvals?: ClientApproval[]; comments?: ProjectComment[]; draftInvoice?: DraftInvoice | null; error?: string }
+      if (!response.ok || !payload.approvals || !payload.comments) throw new Error(payload.error || 'Unable to load project review state.')
+      return { approvals: payload.approvals, comments: payload.comments, draftInvoice: payload.draftInvoice || null }
+    },
+    async sendApproval(projectId: string, input: { title?: string; body?: string } = {}) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/approvals`, {
+        method: 'POST', credentials: 'same-origin', headers: mutationHeaders(true), body: JSON.stringify(input),
+      })
+      const payload = (await response.json()) as { approval?: ClientApproval; delivery?: string; error?: string }
+      if (!response.ok || !payload.approval) throw new Error(payload.error || 'Unable to send approval request.')
+      return payload as { approval: ClientApproval; delivery: string }
+    },
+    async listDraftInvoices() {
+      const response = await fetch('/api/draft-invoices', { credentials: 'same-origin' })
+      const payload = (await response.json()) as { invoices?: DraftInvoice[]; error?: string }
+      if (!response.ok || !payload.invoices) throw new Error(payload.error || 'Unable to load draft invoices.')
+      return payload.invoices
+    },
+    async updateDraftInvoice(id: string, input: Partial<Pick<DraftInvoice, 'description' | 'amountMinor' | 'dueDate'>>) {
+      const response = await fetch(`/api/draft-invoices/${encodeURIComponent(id)}`, {
+        method: 'PATCH', credentials: 'same-origin', headers: mutationHeaders(true), body: JSON.stringify(input),
+      })
+      const payload = (await response.json()) as DraftInvoice & { error?: string }
+      if (!response.ok || !payload.id) throw new Error(payload.error || 'Unable to update draft invoice.')
+      return payload as DraftInvoice
+    },
+    async sendDraftInvoice(id: string) {
+      const response = await fetch(`/api/draft-invoices/${encodeURIComponent(id)}/send`, {
+        method: 'POST', credentials: 'same-origin', headers: mutationHeaders(true), body: '{}',
+      })
+      const payload = (await response.json()) as { invoice?: DraftInvoice; delivery?: string; project?: Project; error?: string }
+      if (!response.ok || !payload.invoice) throw new Error(payload.error || 'Unable to send draft invoice.')
+      return payload as { invoice: DraftInvoice; delivery: string; project?: Project }
+    },
   },
   integrations: {
     async list() {
@@ -792,6 +974,72 @@ export const api = {
         throw new Error(payload.error || 'Unable to toggle integration.')
       }
       return payload as Integration
+    },
+    tokens: {
+      async list() {
+        const response = await fetch('/api/integrations/tokens', {
+          credentials: 'same-origin',
+        })
+        const payload = (await response.json()) as {
+          tokens?: IntegrationToken[]
+          error?: string
+        }
+        if (!response.ok || !payload.tokens) {
+          throw new Error(payload.error || 'Unable to load integration tokens.')
+        }
+        return payload.tokens
+      },
+      async save(
+        provider: string,
+        input: {
+          accessToken: string
+          refreshToken?: string
+          tokenType?: string
+          expiresAt?: string
+        },
+      ) {
+        const response = await fetch(
+          `/api/integrations/tokens/${encodeURIComponent(provider)}`,
+          {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: mutationHeaders(true),
+            body: JSON.stringify(input),
+          },
+        )
+        const payload = (await response.json()) as IntegrationToken & { error?: string }
+        if (!response.ok || !payload.provider) {
+          throw new Error(payload.error || 'Unable to save the integration token.')
+        }
+        return payload
+      },
+      async get(provider: string) {
+        const response = await fetch(
+          `/api/integrations/tokens/${encodeURIComponent(provider)}`,
+          { credentials: 'same-origin' },
+        )
+        const payload = (await response.json()) as { token?: IntegrationToken; error?: string }
+        if (!response.ok || !payload.token) {
+          throw new Error(payload.error || 'Unable to load the integration token.')
+        }
+        return payload.token
+      },
+      async remove(provider: string) {
+        const response = await fetch(
+          `/api/integrations/tokens/${encodeURIComponent(provider)}`,
+          {
+            method: 'DELETE',
+            credentials: 'same-origin',
+            headers: mutationHeaders(),
+          },
+        )
+        if (!response.ok && response.status !== 404) {
+          const payload = (await response.json().catch(() => ({}))) as {
+            error?: string
+          }
+          throw new Error(payload.error || 'Unable to remove the integration token.')
+        }
+      },
     },
   },
   integrationRequests: {
@@ -1791,6 +2039,14 @@ export const api = {
       }
     },
   },
+  notifications: {
+    async list() {
+      const response = await fetch('/api/notifications', { credentials: 'same-origin' })
+      const payload = (await response.json()) as { notifications?: WorkspaceNotification[]; error?: string }
+      if (!response.ok || !payload.notifications) throw new Error(payload.error || 'Unable to load notifications.')
+      return payload.notifications
+    },
+  },
   clients: {
     async list() {
       const response = await fetch('/api/clients', {
@@ -2024,6 +2280,27 @@ export const api = {
         headers: mutationHeaders(),
       })
       if (!response.ok) throw new Error('Unable to delete canvas element.')
+    },
+    async getScene(boardId: string): Promise<Record<string, unknown> | null> {
+      const response = await fetch(
+        `/api/ideas/boards/${encodeURIComponent(boardId)}/scene`,
+        { credentials: 'same-origin' },
+      )
+      const payload = (await response.json()) as { scene?: Record<string, unknown> | null; error?: string }
+      if (!response.ok) throw new Error(payload.error || 'Unable to load canvas scene.')
+      return payload.scene ?? null
+    },
+    async saveScene(boardId: string, scene: Record<string, unknown>): Promise<void> {
+      const response = await fetch(
+        `/api/ideas/boards/${encodeURIComponent(boardId)}/scene`,
+        {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: mutationHeaders(true),
+          body: JSON.stringify({ scene }),
+        },
+      )
+      if (!response.ok) throw new Error('Unable to save canvas scene.')
     },
   },
 }

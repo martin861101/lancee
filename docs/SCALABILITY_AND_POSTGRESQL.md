@@ -36,6 +36,13 @@ docker compose ps
 docker compose logs -f app
 ```
 
+To run the private n8n Queue Mode Edge as well, set pinned `N8N_IMAGE`,
+`N8N_REDIS_PASSWORD`, and `N8N_ENCRYPTION_KEY` values, then use:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.edge.yml up -d --build
+```
+
 The database port is not published to the host. The app reaches it on the
 private Compose network as `db:5432`. The `pgdata` volume survives container
 replacement.
@@ -93,10 +100,9 @@ assets are route-split and can be cached by the reverse proxy.
 
 The login limiter remains process-local. For a larger public deployment, move
 rate-limit counters to a shared store such as Redis and run scheduled cleanup
-for expired idempotency, invitation, and nonce records. n8n executes automation
-runs asynchronously after the API accepts them; a dedicated durable job queue
-is the next step when sustained run volume requires retries across process
-crashes.
+for expired idempotency, invitation, and nonce records. n8n Queue Mode executes
+Edge automations asynchronously; signed result callbacks are required before a
+run is marked complete.
 
 ## Operations
 

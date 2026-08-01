@@ -2,12 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   Excalidraw,
+  convertToExcalidrawElements,
   exportToBlob,
+  getCommonBounds,
   loadLibraryFromBlob,
+  newElementWith,
 } from '@excalidraw/excalidraw'
 import type {
+  ExcalidrawImperativeAPI,
   ExcalidrawInitialDataState,
   ExcalidrawProps,
+  LibraryItem,
   LibraryItems,
 } from '@excalidraw/excalidraw/types'
 import '@excalidraw/excalidraw/index.css'
@@ -19,29 +24,135 @@ type Board = {
   label: string
 }
 
-const SCENE_DATABASE = 'lancee-excalidraw'
-const SCENE_STORE = 'scenes'
+type LibraryGroup = {
+  id: string
+  title: string
+  items: LibraryItem[]
+}
+
 const bundledLibrarySources = import.meta.glob(
   './canvasui/library/*.excalidrawlib',
   { eager: true, query: '?raw', import: 'default' },
 ) as Record<string, string>
-let bundledLibraryPromise: Promise<LibraryItems> | null = null
+let libraryGroupsPromise: Promise<LibraryGroup[]> | null = null
 
-function loadBundledLibrary(): Promise<LibraryItems> {
-  if (!bundledLibraryPromise) {
-    bundledLibraryPromise = Promise.all(
-      Object.entries(bundledLibrarySources).map(async ([name, source]) =>
-        loadLibraryFromBlob(
-          new Blob([source], { type: 'application/json' }),
-          'published',
-        ).catch(() => {
-          console.warn(`Unable to load bundled canvas library: ${name}`)
-          return []
-        }),
-      ),
-    ).then((libraries) => libraries.flat() as LibraryItems)
+function libraryTitle(fileKey: string) {
+  const base =
+    fileKey.split('/').pop()?.replace(/\.excalidrawlib$/, '') || fileKey
+  return base
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase())
+}
+
+async function loadLibraryGroups(): Promise<LibraryGroup[]> {
+  if (!libraryGroupsPromise) {
+    libraryGroupsPromise = Promise.all(
+      Object.entries(bundledLibrarySources).map(async ([fileKey, source]) => {
+        try {
+          const items = await loadLibraryFromBlob(
+            new Blob([source], { type: 'application/json' }),
+            'published',
+          )
+          return { id: fileKey, title: libraryTitle(fileKey), items }
+        } catch {
+          console.warn(`Unable to load bundled canvas library: ${fileKey}`)
+          return { id: fileKey, title: libraryTitle(fileKey), items: [] }
+        }
+      }),
+    )
   }
-  return bundledLibraryPromise
+  return libraryGroupsPromise
+}
+
+async function loadBundledLibrary(): Promise<LibraryItems> {
+  const groups = await loadLibraryGroups()
+  return groups.flatMap((group) => group.items) as LibraryItems
+}
+
+const thumbnailCache = new Map<string, Promise<string>>()
+const thumbnailQueue: Array<() => Promise<void>> = []
+const THUMBNAIL_CONCURRENCY = 4
+let thumbnailWorkers = 0
+
+function pumpThumbnails() {
+  while (thumbnailWorkers < THUMBNAIL_CONCURRENCY && thumbnailQueue.length) {
+    const next = thumbnailQueue.shift()
+    if (!next) return
+    thumbnailWorkers += 1
+    next().finally(() => {
+      thumbnailWorkers -= 1
+      pumpThumbnails()
+    })
+  }
+}
+
+function enqueueThumbnail<T>(task: () => Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    thumbnailQueue.push(() => task().then(resolve, reject))
+    pumpThumbnails()
+  })
+}
+
+async function renderThumbnail(item: LibraryItem): Promise<string> {
+  const blob = await exportToBlob({
+    elements: item.elements,
+    appState: {
+      exportBackground: false,
+      viewBackgroundColor: '#00000000',
+      exportPadding: 6,
+    },
+    files: {},
+    mimeType: 'image/svg+xml',
+  })
+  return URL.createObjectURL(blob)
+}
+
+function thumbnailForItem(item: LibraryItem): Promise<string> {
+  const cached = thumbnailCache.get(item.id)
+  if (cached) return cached
+  const promise = enqueueThumbnail(() => renderThumbnail(item))
+  thumbnailCache.set(item.id, promise)
+  return promise
+}
+
+function libraryItemName(item: LibraryItem, index: number) {
+  if (item.name) return item.name
+  const textElement = item.elements.find((element) => {
+    if (element.type !== 'text') return false
+    const text = (element as { text?: unknown }).text
+    return typeof text === 'string' && text.trim().length > 0
+  })
+  if (textElement) {
+    const text = (textElement as { text: string }).text
+    return text.trim().replace(/\s+/g, ' ').slice(0, 42)
+  }
+  return `Item ${index + 1}`
+}
+
+async function insertLibraryItem(
+  excalidrawApi: ExcalidrawImperativeAPI,
+  item: LibraryItem,
+) {
+  const added = convertToExcalidrawElements(
+    item.elements as unknown as Parameters<typeof convertToExcalidrawElements>[0],
+    { regenerateIds: true },
+  )
+  if (!added.length) return
+  const appState = excalidrawApi.getAppState()
+  const targetX = -appState.scrollX + appState.width / (2 * appState.zoom.value)
+  const targetY = -appState.scrollY + appState.height / (2 * appState.zoom.value)
+  const bounds = getCommonBounds(added)
+  const centerX = (bounds[0] + bounds[2]) / 2
+  const centerY = (bounds[1] + bounds[3]) / 2
+  const positioned = added.map((element) =>
+    newElementWith(element, {
+      x: element.x + targetX - centerX,
+      y: element.y + targetY - centerY,
+    }),
+  )
+  excalidrawApi.updateScene({
+    elements: [...excalidrawApi.getSceneElements(), ...positioned],
+  })
 }
 
 async function availableLibrary(workspaceId: string): Promise<LibraryItems> {
@@ -89,47 +200,26 @@ function cacheLibrary(workspaceId: string, items: LibraryItems) {
   }
 }
 
-function openSceneDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(SCENE_DATABASE, 1)
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(SCENE_STORE)) {
-        request.result.createObjectStore(SCENE_STORE)
-      }
-    }
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
-  })
-}
-
 async function loadScene(
-  persistenceKey: string,
+  boardId: string,
   workspaceId: string,
 ): Promise<ExcalidrawInitialDataState> {
   try {
-    const database = await openSceneDatabase()
-    const scene = await new Promise<ExcalidrawInitialDataState | undefined>(
-      (resolve, reject) => {
-        const transaction = database.transaction(SCENE_STORE, 'readonly')
-        const request = transaction.objectStore(SCENE_STORE).get(persistenceKey)
-        request.onsuccess = () =>
-          resolve(request.result as ExcalidrawInitialDataState | undefined)
-        request.onerror = () => reject(request.error)
-      },
-    )
-    database.close()
-    if (scene) {
+    const stored = (await api.ideas.getScene(boardId)) as
+      | ExcalidrawInitialDataState
+      | null
+    if (stored) {
       return {
-        ...scene,
+        ...stored,
         appState: {
-          ...scene.appState,
+          ...(stored.appState || {}),
           theme: 'dark',
         },
         libraryItems: await availableLibrary(workspaceId),
       }
     }
   } catch {
-    // The editor can still open when private browsing blocks IndexedDB.
+    // The canvas opens fresh when the saved scene cannot be loaded.
   }
   return {
     appState: {
@@ -140,45 +230,27 @@ async function loadScene(
   }
 }
 
-async function saveScene(
-  persistenceKey: string,
-  scene: ExcalidrawInitialDataState,
-) {
-  const database = await openSceneDatabase()
-  await new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(SCENE_STORE, 'readwrite')
-    transaction.objectStore(SCENE_STORE).put(scene, persistenceKey)
-    transaction.oncomplete = () => resolve()
-    transaction.onerror = () => reject(transaction.error)
-  })
-  database.close()
-}
-
-async function deleteScene(persistenceKey: string) {
-  try {
-    const database = await openSceneDatabase()
-    await new Promise<void>((resolve, reject) => {
-      const transaction = database.transaction(SCENE_STORE, 'readwrite')
-      transaction.objectStore(SCENE_STORE).delete(persistenceKey)
-      transaction.oncomplete = () => resolve()
-      transaction.onerror = () => reject(transaction.error)
-    })
-    database.close()
-  } catch {
-    // The server board is already deleted; stale browser data is harmless.
-  }
+async function saveScene(boardId: string, scene: ExcalidrawInitialDataState) {
+  await api.ideas.saveScene(
+    boardId,
+    scene as unknown as Record<string, unknown>,
+  )
 }
 
 function ExcalidrawBoard({
   board,
-  persistenceKey,
+  boardId,
   workspaceId,
   onSceneChange,
+  onSaveError,
+  onReady,
 }: {
   board: Board
-  persistenceKey: string
+  boardId: string
   workspaceId: string
   onSceneChange: (scene: ExcalidrawInitialDataState) => void
+  onSaveError: (message: string) => void
+  onReady: (api: ExcalidrawImperativeAPI) => void
 }) {
   const saveTimer = useRef<number | null>(null)
   const pendingScene = useRef<ExcalidrawInitialDataState | null>(null)
@@ -186,9 +258,16 @@ function ExcalidrawBoard({
   const flushScene = useCallback(() => {
     if (!pendingScene.current) return
     const scene = pendingScene.current
-    pendingScene.current = null
-    void saveScene(persistenceKey, scene).catch(() => undefined)
-  }, [persistenceKey])
+    void saveScene(boardId, scene)
+      .then(() => {
+        if (pendingScene.current === scene) pendingScene.current = null
+      })
+      .catch((reason: unknown) => {
+        onSaveError(
+          reason instanceof Error ? reason.message : 'Unable to save this board.',
+        )
+      })
+  }, [boardId, onSaveError])
 
   useEffect(
     () => () => {
@@ -226,12 +305,99 @@ function ExcalidrawBoard({
     <Excalidraw
       autoFocus
       handleKeyboardGlobally
-      initialData={() => loadScene(persistenceKey, workspaceId)}
+      initialData={() => loadScene(boardId, workspaceId)}
       name={board.label}
       onChange={handleChange}
       onLibraryChange={(items) => cacheLibrary(workspaceId, items)}
+      excalidrawAPI={onReady}
       theme="dark"
     />
+  )
+}
+
+function LibraryPanel({
+  groups,
+  onInsertItem,
+}: {
+  groups: LibraryGroup[]
+  onInsertItem: (item: LibraryItem) => void
+}) {
+  return (
+    <div className="ideas-library-panel__groups">
+      {groups.map((group) => (
+        <LibraryGroupSection
+          group={group}
+          key={group.id}
+          onInsertItem={onInsertItem}
+        />
+      ))}
+    </div>
+  )
+}
+
+function LibraryGroupSection({
+  group,
+  onInsertItem,
+}: {
+  group: LibraryGroup
+  onInsertItem: (item: LibraryItem) => void
+}) {
+  const [thumbs, setThumbs] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all(
+      group.items.map(async (item) => {
+        try {
+          const url = await thumbnailForItem(item)
+          return { id: item.id, url } as const
+        } catch {
+          return null
+        }
+      }),
+    ).then((results) => {
+      if (cancelled) return
+      setThumbs(
+        Object.fromEntries(
+          results.filter((result) => result).map((result) => [result!.id, result!.url]),
+        ),
+      )
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [group])
+
+  return (
+    <details className="ideas-library-group" open>
+      <summary>
+        {group.title}
+        <span className="ideas-library-group__count">{group.items.length}</span>
+      </summary>
+      <div className="ideas-library-group__items">
+        {group.items.map((item, index) => {
+          const name = libraryItemName(item, index)
+          return (
+            <button
+              className="ideas-library-item"
+              key={item.id}
+              type="button"
+              title={name}
+              onClick={() => onInsertItem(item)}
+            >
+              <span className="ideas-library-item__preview">
+                {thumbs[item.id] ? (
+                  <img src={thumbs[item.id]} alt="" />
+                ) : (
+                  <span className="ideas-library-item__loader" />
+                )}
+              </span>
+              <span className="ideas-library-item__name">{name}</span>
+            </button>
+          )
+        })}
+      </div>
+    </details>
   )
 }
 
@@ -244,11 +410,35 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
   const [loading, setLoading] = useState(true)
   const [online, setOnline] = useState(() => navigator.onLine)
   const [error, setError] = useState('')
+  const [saveError, setSaveError] = useState('')
   const [showNewBoard, setShowNewBoard] = useState(false)
   const [newBoardLabel, setNewBoardLabel] = useState('')
   const [saving, setSaving] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const [libraryGroups, setLibraryGroups] = useState<LibraryGroup[] | null>(null)
   const latestScene = useRef<ExcalidrawInitialDataState | null>(null)
+  const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null)
+
+  const handleReady = useCallback((api: ExcalidrawImperativeAPI) => {
+    excalidrawApiRef.current = api
+  }, [])
+
+  const handleInsertLibraryItem = useCallback((item: LibraryItem) => {
+    const excalidrawApi = excalidrawApiRef.current
+    if (!excalidrawApi) return
+    void insertLibraryItem(excalidrawApi, item)
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void loadLibraryGroups().then((groups) => {
+      if (!cancelled) setLibraryGroups(groups)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -323,7 +513,6 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
       const nextBoards = boards.filter((candidate) => candidate.id !== board.id)
       setBoards(nextBoards)
       cacheBoards(workspaceId, nextBoards)
-      void deleteScene(`lancee:excalidraw:${workspaceId}:${board.id}`)
       if (activeBoardId === board.id) setActiveBoardId(nextBoards[0]?.id ?? null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to delete the board.')
@@ -431,9 +620,6 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
   }
 
   const activeBoard = boards.find((board) => board.id === activeBoardId) ?? null
-  const persistenceKey = activeBoard
-    ? `lancee:excalidraw:${workspaceId}:${activeBoard.id}`
-    : undefined
 
   return (
     <section className="ideas-page">
@@ -446,8 +632,16 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
         <div className="ideas-header__actions">
           <span className={`ideas-connection ${online ? 'is-online' : 'is-offline'}`}>
             <i />
-            {online ? 'Saved locally' : 'Offline · changes stay here'}
+            {online ? 'Saved to workspace' : 'Offline · reconnect to save'}
           </span>
+          <button
+            className={`ideas-library-toggle ${libraryOpen ? 'is-active' : ''}`}
+            type="button"
+            aria-pressed={libraryOpen}
+            onClick={() => setLibraryOpen((open) => !open)}
+          >
+            {libraryOpen ? 'Close library' : 'Libraries'}
+          </button>
           <button className="ideas-new-board" onClick={() => setShowNewBoard(true)}>
             <span aria-hidden="true">+</span> New board
           </button>
@@ -503,9 +697,9 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
         </div>
       </div>
 
-      {error && (
+      {(error || saveError) && (
         <div className="ideas-error" role="alert">
-          {error}
+          {error || saveError}
         </div>
       )}
 
@@ -516,13 +710,15 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
             <h2>Opening your canvas</h2>
             <p>Loading boards and editor tools…</p>
           </div>
-        ) : activeBoard && persistenceKey ? (
+        ) : activeBoard ? (
           <div className="ideas-excalidraw-shell" aria-label={`${activeBoard.label} canvas`}>
             <ExcalidrawBoard
               board={activeBoard}
               key={activeBoard.id}
-              persistenceKey={persistenceKey}
+              boardId={activeBoard.id}
               workspaceId={workspaceId}
+              onReady={handleReady}
+              onSaveError={setSaveError}
               onSceneChange={(scene) => {
                 latestScene.current = scene
               }}
@@ -537,6 +733,31 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
               <span aria-hidden="true">+</span> Create first board
             </button>
           </div>
+        )}
+
+        {libraryOpen && (
+          <aside className="ideas-library-panel" aria-label="Canvas libraries">
+            <header className="ideas-library-panel__header">
+              <strong>Libraries</strong>
+              <button
+                type="button"
+                aria-label="Close libraries"
+                onClick={() => setLibraryOpen(false)}
+              >
+                ×
+              </button>
+            </header>
+            {libraryGroups ? (
+              <LibraryPanel
+                groups={libraryGroups}
+                onInsertItem={handleInsertLibraryItem}
+              />
+            ) : (
+              <div className="ideas-library-panel__loading">
+                <span className="ideas-empty__loader" />
+              </div>
+            )}
+          </aside>
         )}
       </div>
 

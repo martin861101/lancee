@@ -12,6 +12,8 @@ services:
       - PGPASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       - PGDATABASE=${POSTGRES_DB:-lancee_app}
       - DATABASE_PATH=
+      - ALLOW_REGISTRATION=true
+      - REDIS_URL=redis://redis:6379
     env_file:
       - .env
     volumes:
@@ -19,6 +21,8 @@ services:
       - ${CODEX_WORKSPACE_PATH:-.}:/workspace
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 
@@ -39,5 +43,18 @@ services:
       retries: 5
     restart: unless-stopped
 
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - core_redis:/data
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  core_redis:

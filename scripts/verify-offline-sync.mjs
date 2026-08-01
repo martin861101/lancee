@@ -229,6 +229,53 @@ try {
   assert.equal(resolvedResponse.status, 200)
   assert.equal((await resolvedResponse.json()).note.version, 3)
 
+  const sceneBoardId = 'board_verify_scene'
+  const missingScene = await sessionRequest(
+    application.origin,
+    cookie,
+    `/api/ideas/boards/${sceneBoardId}/scene`,
+  )
+  assert.equal(missingScene.status, 200)
+  assert.equal((await missingScene.json()).scene, null)
+
+  const sampleScene = {
+    elements: [{ type: 'rectangle', id: 'elem_verify_1', x: 0, y: 0, width: 100 }],
+    appState: { name: 'Verifier board' },
+    files: {},
+  }
+  const savedSceneResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    `/api/ideas/boards/${sceneBoardId}/scene`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scene: sampleScene }),
+    },
+  )
+  assert.equal(savedSceneResponse.status, 200)
+  assert.equal((await savedSceneResponse.json()).scene.boardId, sceneBoardId)
+
+  const loadedScene = await sessionRequest(
+    application.origin,
+    cookie,
+    `/api/ideas/boards/${sceneBoardId}/scene`,
+  )
+  assert.equal(loadedScene.status, 200)
+  assert.deepEqual((await loadedScene.json()).scene, sampleScene)
+
+  const invalidScene = await sessionRequest(
+    application.origin,
+    cookie,
+    `/api/ideas/boards/${sceneBoardId}/scene`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scene: ['not', 'an', 'object'] }),
+    },
+  )
+  assert.equal(invalidScene.status, 400)
+
   await stopApplication(application)
   application = null
 
@@ -241,6 +288,13 @@ try {
     .get('wsp_offline_test', noteId)
   assert.equal(stored.content, 'Deliberately kept offline edit')
   assert.equal(stored.version, 3)
+  const sceneRow = persisted
+    .prepare(
+      `SELECT scene_json FROM idea_canvas_scenes
+       WHERE workspace_id = ? AND board_id = ?`,
+    )
+    .get('wsp_offline_test', sceneBoardId)
+  assert.deepEqual(JSON.parse(sceneRow.scene_json), sampleScene)
   persisted.close()
 
   application = await startApplication()
@@ -255,8 +309,16 @@ try {
   assert.equal(notes[0].content, 'Deliberately kept offline edit')
   assert.equal(notes[0].version, 3)
 
+  const afterRestartScene = await sessionRequest(
+    application.origin,
+    cookie,
+    `/api/ideas/boards/${sceneBoardId}/scene`,
+  )
+  assert.equal(afterRestartScene.status, 200)
+  assert.deepEqual((await afterRestartScene.json()).scene, sampleScene)
+
   console.log(
-    'Offline/PWA flow verified: install manifest, API cache exclusion, durable notes, idempotent replay, version conflicts, deliberate resolution, and restart persistence.',
+    'Offline/PWA flow verified: install manifest, API cache exclusion, durable notes, idempotent replay, version conflicts, deliberate resolution, workspace-scoped canvas scenes, and restart persistence.',
   )
 } finally {
   if (application) await stopApplication(application)

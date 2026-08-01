@@ -44,11 +44,19 @@ const tableOrder = [
   'idea_boards',
   'idea_notes',
   'canvas_elements',
+  'idea_canvas_scenes',
   'google_drive_tokens',
+  'tenant_integration_tokens',
   'ai_conversations',
   'automations',
   'automation_runs',
+  'automation_run_events',
   'projects',
+  'job_cards',
+  'draft_invoices',
+  'client_approvals',
+  'project_comments',
+  'workspace_notifications',
   'project_links',
   'project_files',
   'workspace_cloud_links',
@@ -112,6 +120,12 @@ try {
     const quotedColumns = columns.map((column) => `"${column}"`).join(', ')
     const placeholders = columns.map((_, index) => `$${index + 1}`).join(', ')
     for (const row of rows) {
+      if (table === 'tenant_integration_tokens') {
+        await client.query(
+          `SELECT set_config('app.current_tenant_id', $1, true)`,
+          [row.workspace_id],
+        )
+      }
       const result = await client.query(
         `INSERT INTO "${table}" (${quotedColumns})
          VALUES (${placeholders})

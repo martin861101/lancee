@@ -10,7 +10,7 @@ FROM node:22-bookworm-slim
 WORKDIR /app
 ARG CODEX_VERSION=0.145.0
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends bubblewrap ca-certificates \
+    && apt-get install --yes --no-install-recommends bubblewrap ca-certificates redis-tools \
     && rm -rf /var/lib/apt/lists/* \
     && npm install --global "@openai/codex@${CODEX_VERSION}"
 COPY --from=build /app/node_modules ./node_modules

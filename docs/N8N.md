@@ -16,15 +16,23 @@ per workspace.
 N8N_BASE_URL=https://n8n.hygridtech.co.za
 N8N_SIGNING_SECRET=
 N8N_TIMEOUT_MS=10000
+N8N_ALLOW_PRIVATE=false
+N8N_PRIVATE_NETWORK=false
 ```
 
-`N8N_BASE_URL` is the only allowed outbound origin. In production:
+`N8N_BASE_URL` is the only allowed outbound origin. In the default public mode:
 
 - the configured webhook must use HTTPS;
 - embedded credentials and URL fragments are rejected;
 - its origin must exactly match `N8N_BASE_URL`;
 - DNS must resolve only to public addresses;
 - redirects are rejected.
+
+For the private queue-mode deployment, use the repository's
+`docker-compose.edge.yml` overlay. It sets `N8N_BASE_URL=http://n8n:5678` and
+enables private addresses only when both `N8N_ALLOW_PRIVATE=true` and
+`N8N_PRIVATE_NETWORK=true` are explicitly set. The n8n and worker services have
+no published ports; Redis is on an internal-only network.
 
 `N8N_SIGNING_SECRET` is an optional bootstrap secret. The Connections UI can
 set or rotate a workspace secret over the authenticated HTTPS session. lancee
@@ -33,8 +41,8 @@ server session secret. Configuration responses never return it.
 
 `N8N_TIMEOUT_MS` is clamped between 250 and 30,000 milliseconds.
 
-`N8N_ALLOW_PRIVATE=true` exists only for development verification and is
-ignored in production.
+`N8N_ALLOW_PRIVATE=true` is accepted in production only together with
+`N8N_PRIVATE_NETWORK=true`.
 
 ## Configure in lancee
 
@@ -105,8 +113,8 @@ https://agents.hygridtech.co.za/api/hooks/n8n/<workspace-id>
 ```
 
 Signed GET and POST calls return `202` with a durable accepted delivery record.
-They currently record a verified n8n event for the workspace; dispatching that
-event into a persisted automation engine is a later milestone.
+An event with type `lancee.automation.result` and a valid running `runId`
+completes or fails that workspace-scoped automation run.
 
 Responses:
 
@@ -119,7 +127,9 @@ Responses:
 ## Outbound delivery and retry
 
 Outbound delivery creates a `pending` record before network I/O. lancee sends
-the signed request with redirects disabled and a bounded timeout, then records:
+the signed request with redirects disabled, a bounded timeout, and up to three
+exponentially delayed attempts for timeouts, connection failures, 429s, and
+5xx responses, then records:
 
 - `succeeded` with HTTP status and duration; or
 - `failed` with a normalized error code, response status where available, and
@@ -127,24 +137,25 @@ the signed request with redirects disabled and a bounded timeout, then records:
 
 An idempotency replay never resends a completed attempt. A manual retry creates
 a new attempt, retains the original correlation ID, links `retry_of`, and is
-limited to five attempts.
+limited to five attempts. Delivery history stores a secret-free event envelope;
+provider auth is decrypted and attached only immediately before the HTTP call.
 
 ## Saved automation execution
 
 `POST /api/automations/runs` requires an active saved automation and a connected
 n8n configuration. The API creates a durable `running` record, then sends a
 signed `lancee.automation.run` POST event containing the run, automation,
-instruction, workspace, and requesting user identifiers. The run transitions
-to `completed` after a successful n8n response or `failed` with a normalized
-error code. `GET /api/automations/runs/:runId` exposes the current status for UI
-polling.
+instruction, workspace, requesting user identifiers, and the Core callback URL.
+The run remains `running` after webhook acceptance and transitions to `completed`
+or `failed` only after a signed `lancee.automation.result` callback.
+`GET /api/automations/runs/:runId` exposes the current status for UI polling.
 
 ## Persistence
 
 | Table | Responsibility |
 | --- | --- |
 | `n8n_connections` | URL, callback, methods, encrypted secret, and last delivery |
-| `n8n_deliveries` | Direction, method, event, correlation, status, response, duration, and retry lineage |
+| `n8n_deliveries` | Secret-free event envelope, direction, method, correlation, status, response, duration, and retry lineage |
 | `n8n_nonces` | Workspace-scoped inbound replay protection |
 
 Disconnecting clears the outbound URL and encrypted credential while retaining

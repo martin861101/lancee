@@ -554,6 +554,11 @@
 .project-section-panel dl div { padding: 15px; background: #101722; border: 1px solid #2e394c; border-radius: 10px; }
 .project-section-panel dt { color: var(--work-muted); font-size: .65rem; }
 .project-section-panel dd { margin: 7px 0 0; color: #e8edf5; }
+.project-section-panel--review { background: #f7f8f4; border-color: #dfe5d9; }
+.project-review-link { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(0, 1.5fr) auto; align-items: center; gap: 12px; margin: 18px 0; padding: 12px 14px; color: #172016; background: #eef8e7; border: 1px solid #cfe3c2; border-radius: 12px; }
+.project-review-link div { display: grid; gap: 3px; }
+.project-review-link span { color: #697469; font-size: .72rem; }
+.project-review-link input { min-width: 0; padding: 9px 10px; color: #53604f; background: #fff; border: 1px solid #cfe3c2; border-radius: 7px; font: inherit; font-size: .75rem; }
 .project-section-list { display: grid; gap: 8px; }
 .project-section-list article { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 12px; background: #101722; border: 1px solid #2e394c; border-radius: 10px; }
 .project-section-list article div { display: grid; min-width: 0; }
@@ -564,3 +569,7 @@
 .project-lane__assignee { display: grid; gap: 4px; padding: 0 12px 10px; }
 .project-lane__assignee span { color: var(--work-muted); font-size: .55rem; font-weight: 700; text-transform: uppercase; }
 .project-lane__assignee select { width: 100%; padding: 6px 8px; color: #cdd5e1; font-size: .65rem; background: #111925; border: 1px solid #303c50; border-radius: 7px; }
+
+@media (max-width: 780px) {
+  .project-review-link { grid-template-columns: 1fr; }
+}

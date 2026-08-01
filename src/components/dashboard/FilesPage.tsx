@@ -157,6 +157,7 @@ export default function FilesPage({
   const [uploadOpen, setUploadOpen] = useState(false)
   const [driveListLoaded, setDriveListLoaded] = useState(false)
   const [driveLoading, setDriveLoading] = useState(false)
+  const [removingDocumentId, setRemovingDocumentId] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [provider, setProvider] = useState<StorageProvider>('drive')
   const [label, setLabel] = useState('')
@@ -473,15 +474,29 @@ export default function FilesPage({
   }
 
   const handleRemoveDocument = async (document: WorkspaceDocument) => {
-    if (!window.confirm(`Remove “${document.name}” from lancee? This cannot be undone.`)) {
+    const driveCopyMessage = document.driveWebViewLink
+      ? ' Its Google Drive copy will remain.'
+      : ''
+    if (
+      !window.confirm(
+        `Remove “${document.name}” from lancee? This cannot be undone.${driveCopyMessage}`,
+      )
+    ) {
       return
     }
+    setRemovingDocumentId(document.id)
+    setError('')
     try {
       await api.documents.remove(document.id)
       setDocuments((current) => current.filter((item) => item.id !== document.id))
+      setSelectedLocalDocument((current) =>
+        current?.id === document.id ? null : current,
+      )
       onToast('Document removed from lancee')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to remove this document.')
+    } finally {
+      setRemovingDocumentId(null)
     }
   }
 
@@ -573,7 +588,7 @@ export default function FilesPage({
 
   if (loading) {
     return (
-      <div className="content-container dashboard-page">
+      <div className="content-container dashboard-page files-page">
         <div className="skeleton-line" style={{ width: '220px', height: '28px', marginBottom: '24px' }} />
         <div className="dashboard-card-grid">
           {[1, 2].map((item) => (
@@ -586,7 +601,7 @@ export default function FilesPage({
   }
 
   return (
-    <div className="content-container animate-fade-in dashboard-page">
+    <div className="content-container animate-fade-in dashboard-page files-page">
       <header className="dashboard-page__header">
         <div>
           <h2 className="dashboard-page__title">File <em>explorer</em></h2>
@@ -811,14 +826,17 @@ export default function FilesPage({
                       Sync to Drive
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => void handleRemoveDocument(document)}
-                  >
-                    Remove from platform
-                  </button>
                   </div>
                 </details>
+                <button
+                  type="button"
+                  className="button button--danger button--small document-library__remove"
+                  disabled={removingDocumentId !== null}
+                  aria-label={`Remove ${document.name} from platform`}
+                  onClick={() => void handleRemoveDocument(document)}
+                >
+                  {removingDocumentId === document.id ? 'Removing…' : 'Remove'}
+                </button>
               </div>
             ))}
           </div>

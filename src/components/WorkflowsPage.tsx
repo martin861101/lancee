@@ -79,7 +79,7 @@ export default function WorkflowsPage({
         <div>
           <span className="micro-label">Ready-to-use recipes</span>
           <h1>Everyday <em>workflows</em></h1>
-          <p>Start with a familiar business process, then connect and customise it in n8n.</p>
+          <p>Start with a familiar business process and keep its review path separate from reusable automations.</p>
         </div>
         <div className="workflows-header__path" aria-label="Workflow process">
           <span>Trigger</span><i>→</i><span>Review</span><i>→</i><span>Action</span>

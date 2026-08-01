@@ -2,6 +2,15 @@
   padding: 24px;
 }
 
+.files-page {
+  height: calc(100vh - 64px);
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
+
 .dashboard-page__header {
   display: flex;
   justify-content: space-between;
@@ -272,7 +281,7 @@
 
 .document-library__row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto;
+  grid-template-columns: minmax(220px, 1fr) auto auto auto;
   align-items: center;
   gap: 14px;
   padding: 11px 12px;
@@ -302,6 +311,10 @@
 .document-library__row small {
   color: var(--muted);
   font-size: 11px;
+}
+
+.document-library__remove {
+  white-space: nowrap;
 }
 
 .drive-tree {
@@ -484,6 +497,13 @@
 
   .document-library__row .dashboard-row-actions {
     justify-content: flex-start;
+  }
+}
+
+@media (max-width: 680px) {
+  .files-page {
+    height: calc(100vh - 58px);
+    height: calc(100dvh - 58px);
   }
 }
 

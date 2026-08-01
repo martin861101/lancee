@@ -53,7 +53,7 @@ export function getSmtpStatus() {
   }
 }
 
-export async function sendNotification({ to, subject, text, html }) {
+export async function sendNotification({ to, subject, text, html, attachments }) {
   if (!to || !subject || !text) {
     throw new Error('Notification recipient, subject, and text are required.')
   }
@@ -68,5 +68,6 @@ export async function sendNotification({ to, subject, text, html }) {
     subject,
     text,
     html,
+    attachments,
   })
 }

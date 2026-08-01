@@ -11,8 +11,11 @@ import type {
   Project,
   ProjectLink,
   ProjectFile,
+  ProjectComment,
+  DraftInvoice,
 } from '../../lib/api'
 import { api } from '../../lib/api'
+import { AnnotationReviewPanel } from '../annotations/AnnotationReviewPanel'
 import '../work-page.css'
 import './work-panel.css'
 
@@ -66,10 +69,15 @@ export default function WorkPanel({
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null)
   const [dropLaneId, setDropLaneId] = useState<string | null>(null)
   const [activeProjectTab, setActiveProjectTab] =
-    useState<'board' | 'details' | 'files' | 'links'>('board')
+    useState<'board' | 'details' | 'files' | 'links' | 'review'>('board')
   const [teamMembers, setTeamMembers] = useState<Array<{ id: string; name: string }>>([])
   const [customBuckets, setCustomBuckets] = useState<Array<{ id: string; label: string }>>([])
   const [bucketAssignees, setBucketAssignees] = useState<Record<string, string>>({})
+  const [reviewComments, setReviewComments] = useState<ProjectComment[]>([])
+  const [draftInvoice, setDraftInvoice] = useState<DraftInvoice | null>(null)
+  const [draftAmount, setDraftAmount] = useState('')
+  const [approvalBusy, setApprovalBusy] = useState(false)
+  const [lastReviewUrl, setLastReviewUrl] = useState('')
 
   useEffect(() => {
     let active = true
@@ -179,6 +187,7 @@ export default function WorkPanel({
 
   const openProjectWorkspace = async (project: Project) => {
     setSelectedProject(project)
+    setLastReviewUrl('')
     setWorkspaceLoading(true)
     setActiveProjectTab('board')
     try {
@@ -200,6 +209,10 @@ export default function WorkPanel({
       setLinks(projectLinks)
       setFiles(projectFiles)
       setProjectDriveLinks(driveLinks)
+      const review = await api.projectsWorkflow.approvals(project.id)
+      setReviewComments(review.comments)
+      setDraftInvoice(review.draftInvoice)
+      setDraftAmount(review.draftInvoice ? String(review.draftInvoice.amountMinor / 100) : '')
     } catch {
       setLinks([])
       setFiles([])
@@ -208,6 +221,55 @@ export default function WorkPanel({
     } finally {
       setWorkspaceLoading(false)
     }
+  }
+
+  const sendForApproval = async () => {
+    if (!selectedProject || approvalBusy) return
+    setApprovalBusy(true)
+    try {
+      const result = await api.projectsWorkflow.sendApproval(selectedProject.id)
+      setLastReviewUrl(result.approval.reviewUrl || '')
+      setSelectedProject((current) => current ? { ...current, status: 'In review' } : current)
+      setProjects((current) => current.map((item) => item.id === selectedProject.id ? { ...item, status: 'In review' } : item))
+      onToast(result.delivery === 'sent' ? 'Tokenized review link sent to the client.' : 'Tokenized review link created. Configure SMTP to send it automatically.')
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : 'Unable to send approval request.')
+    } finally {
+      setApprovalBusy(false)
+    }
+  }
+
+  const copyReviewUrl = async () => {
+    if (!lastReviewUrl) return
+    try {
+      await navigator.clipboard.writeText(lastReviewUrl)
+      onToast('Tokenized review link copied.')
+    } catch {
+      onToast('Copy the review link from the field.')
+    }
+  }
+
+  const saveDraftAmount = async () => {
+    if (!draftInvoice) return
+    try {
+      const updated = await api.projectsWorkflow.updateDraftInvoice(draftInvoice.id, { amountMinor: Math.round(Number(draftAmount) * 100) })
+      setDraftInvoice(updated)
+      onToast('Draft invoice updated.')
+    } catch (error) { onToast(error instanceof Error ? error.message : 'Unable to update draft invoice.') }
+  }
+
+  const sendDraftInvoice = async () => {
+    if (!draftInvoice) return
+    try {
+      const result = await api.projectsWorkflow.sendDraftInvoice(draftInvoice.id)
+      setDraftInvoice(result.invoice)
+      const completedProject = result.project
+      if (completedProject) {
+        setSelectedProject(completedProject)
+        setProjects((current) => current.map((item) => item.id === completedProject.id ? completedProject : item))
+      }
+      onToast(result.delivery === 'sent' ? 'Invoice sent to the client.' : 'Invoice prepared. Configure SMTP to email it automatically.')
+    } catch (error) { onToast(error instanceof Error ? error.message : 'Unable to send invoice.') }
   }
 
   const addCustomBucket = () => {
@@ -458,6 +520,7 @@ export default function WorkPanel({
     { id: 'in-progress', label: 'In progress', status: 'In progress', tone: 'blue' },
     { id: 'waiting', label: 'Waiting on client', status: 'Waiting on client', tone: 'amber' },
     { id: 'review', label: 'Review', status: 'In review', tone: 'pink' },
+    { id: 'client-comments', label: 'Client Comments', status: null, tone: 'violet' },
     { id: 'completed', label: 'Completed', status: 'Ready', tone: 'green' },
     ...customBuckets.map((bucket, index) => ({
       ...bucket,
@@ -498,6 +561,9 @@ export default function WorkPanel({
                 >
                   Edit details
                 </button>
+                <button type="button" className="button button--primary" onClick={() => void sendForApproval()} disabled={approvalBusy || !clients.find((client) => client.id === selectedProject.clientId)?.email}>
+                  {approvalBusy ? 'Sending…' : 'Send for approval'}
+                </button>
                 <button
                   type="button"
                   className="button button--danger"
@@ -517,6 +583,14 @@ export default function WorkPanel({
                 </button>
               </div>
             </header>
+
+            {lastReviewUrl && (
+              <div className="project-review-link" role="status">
+                <div><strong>Tokenized client review link</strong><span>The artwork is fetched only after the client opens this link.</span></div>
+                <input value={lastReviewUrl} readOnly aria-label="Tokenized client review link" />
+                <button type="button" className="button button--secondary button--small" onClick={() => void copyReviewUrl()}>Copy link</button>
+              </div>
+            )}
 
             <section className="project-workspace__stats" aria-label="Project summary">
               <article>
@@ -552,6 +626,9 @@ export default function WorkPanel({
                 <button type="button" className={activeProjectTab === 'files' ? 'is-active' : ''} onClick={() => setActiveProjectTab('files')}>
                   ◫ Files <span>{files.length}</span>
                 </button>
+                <button type="button" className={activeProjectTab === 'review' ? 'is-active' : ''} onClick={() => setActiveProjectTab('review')}>
+                  ◉ Review
+                </button>
                 <button type="button" className={activeProjectTab === 'links' ? 'is-active' : ''} onClick={() => setActiveProjectTab('links')}>
                   ↗ Links <span>{links.length + projectDriveLinks.length}</span>
                 </button>
@@ -563,7 +640,17 @@ export default function WorkPanel({
               )}
             </div>
 
-            {activeProjectTab === 'details' ? (
+            {activeProjectTab === 'review' ? (
+              <section className="project-section-panel project-section-panel--review">
+                <AnnotationReviewPanel
+                  projectId={selectedProject.id}
+                  imageUrl={(() => {
+                    const image = files.find((file) => file.mimeType.toLowerCase().startsWith('image/'))
+                    return image ? api.projects.files.downloadUrl(image.id) : null
+                  })()}
+                />
+              </section>
+            ) : activeProjectTab === 'details' ? (
               <section className="project-section-panel">
                 <header><div><span>Project details</span><h2>{selectedProject.name}</h2></div><button className="button button--secondary" onClick={() => void beginEdit(selectedProject)}>Edit details</button></header>
                 <dl>
@@ -622,6 +709,8 @@ export default function WorkPanel({
                             ? links.length + (isCurrent ? 1 : 0)
                             : lane.id === 'review'
                               ? projectDriveLinks.length + (isCurrent ? 1 : 0)
+                              : lane.id === 'client-comments'
+                                ? reviewComments.length + (draftInvoice ? 1 : 0)
                               : isCurrent ? 1 : 0
                     return (
                       <section
@@ -682,6 +771,22 @@ export default function WorkPanel({
                             </div>
                           )}
 
+                          {lane.id === 'client-comments' && (
+                            <>
+                              {reviewComments.map((comment) => (
+                                <article key={comment.id} className="project-kanban-card">
+                                  <span>Client comment</span><h3>{comment.authorName}</h3><p>{comment.body}</p><footer><em>{new Date(comment.createdAt).toLocaleDateString()}</em><i>CC</i></footer>
+                                </article>
+                              ))}
+                              {draftInvoice && (
+                                <article className="project-kanban-card">
+                                  <span>Draft invoice · {draftInvoice.status.replaceAll('_', ' ')}</span><h3>{draftInvoice.invoiceNumber}</h3><p>{draftInvoice.description}</p><label className="project-invoice-amount"><span>Amount (ZAR)</span><input type="number" min="0" step="0.01" value={draftAmount} onChange={(event) => setDraftAmount(event.target.value)} /></label><footer><button type="button" onClick={() => void saveDraftAmount()}>Save</button>{draftInvoice.status !== 'sent' && <button type="button" onClick={() => void sendDraftInvoice()} disabled={draftInvoice.amountMinor < 100}>Send invoice</button>}</footer>
+                                </article>
+                              )}
+                              {!reviewComments.length && !draftInvoice && <div className="project-lane__empty"><span>Comments and approved invoice drafts appear here.</span></div>}
+                            </>
+                          )}
+
                           {isCurrent && (
                             <article
                               className={`project-kanban-card project-kanban-card--primary${draggingProjectId === selectedProject.id ? ' is-dragging' : ''}`}
@@ -704,6 +809,7 @@ export default function WorkPanel({
                                 <em>{statusLabels[selectedProject.status]}</em>
                                 <i>{ownerInitials}</i>
                               </footer>
+                              <button type="button" className="project-card-action" onClick={(event) => { event.stopPropagation(); void sendForApproval() }} disabled={approvalBusy}>Send to client</button>
                             </article>
                           )}
 

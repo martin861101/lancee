@@ -44,6 +44,9 @@ function privateIpv4(address) {
 
 function privateIpv6(address) {
   const normalized = address.toLowerCase()
+  if (normalized.startsWith('::ffff:')) {
+    return privateIpv4(normalized.slice('::ffff:'.length))
+  }
   return (
     normalized === '::' ||
     normalized === '::1' ||
