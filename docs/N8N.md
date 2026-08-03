@@ -109,7 +109,7 @@ signature window and cleaned after ten minutes.
 The generated route is:
 
 ```text
-https://agents.hygridtech.co.za/api/hooks/n8n/<workspace-id>
+https://lancee.hookitupservices.com/api/hooks/n8n/<workspace-id>
 ```
 
 Signed GET and POST calls return `202` with a durable accepted delivery record.

@@ -7,12 +7,12 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5177,
     strictPort: true,
-    allowedHosts: ['agents.hygridtech.co.za'],
+    allowedHosts: ['lancee.hookitupservices.com'],
   },
   preview: {
     host: '0.0.0.0',
     port: 5177,
     strictPort: true,
-    allowedHosts: ['agents.hygridtech.co.za'],
+    allowedHosts: ['lancee.hookitupservices.com'],
   },
 })

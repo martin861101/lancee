@@ -11,6 +11,7 @@ export type User = {
   id: string
   name: string
   email: string
+  avatarUrl: string
   workspaceId: string
   workspace: string
   role: 'owner' | 'collaborator'
@@ -100,6 +101,7 @@ export type GoogleDriveFile = {
   canEdit: boolean
   canDownload: boolean
   canListChildren: boolean
+  canDelete: boolean
 }
 
 export type GoogleDriveEditorDocument = GoogleDriveFile & {
@@ -724,6 +726,33 @@ export const api = {
       if (!response.ok) throw new Error('Unable to sign out.')
       await clearOfflineData().catch(() => undefined)
       return { ok: true }
+    },
+    async updateAvatar(file: File) {
+      const response = await fetch('/api/account/avatar', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: mutationHeaders(),
+        body: file,
+      })
+      const payload = (await response.json()) as { user?: User; error?: string }
+      if (!response.ok || !payload.user) {
+        throw new Error(payload.error || 'Unable to update your profile image.')
+      }
+      void cacheSession(payload.user).catch(() => undefined)
+      return payload.user
+    },
+    async removeAvatar() {
+      const response = await fetch('/api/account/avatar', {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: mutationHeaders(),
+      })
+      const payload = (await response.json()) as { user?: User; error?: string }
+      if (!response.ok || !payload.user) {
+        throw new Error(payload.error || 'Unable to remove your profile image.')
+      }
+      void cacheSession(payload.user).catch(() => undefined)
+      return payload.user
     },
   },
   codexDevice: {
@@ -1918,6 +1947,7 @@ export const api = {
         : ''
       const response = await fetch(`/api/google-drive/files${query}`, {
         credentials: 'same-origin',
+        cache: 'no-store',
       })
       const payload = (await response.json()) as {
         files?: Array<{
@@ -1930,6 +1960,7 @@ export const api = {
           canEdit: boolean
           canDownload: boolean
           canListChildren: boolean
+          canDelete: boolean
         }>
         error?: string
       }
@@ -1946,11 +1977,33 @@ export const api = {
         canEdit: file.canEdit,
         canDownload: file.canDownload,
         canListChildren: file.canListChildren,
+        canDelete: file.canDelete,
       }))
+    },
+    async replaceSelections(
+      selections: Array<{
+        driveFileId: string
+        name: string
+        mimeType: string
+        webViewLink?: string | null
+      }>,
+    ) {
+      const response = await fetch('/api/google-drive/selections', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify({ selections }),
+      })
+      const payload = (await response.json()) as { selections?: unknown[]; error?: string }
+      if (!response.ok || !payload.selections) {
+        throw new Error(payload.error || 'Unable to save the selected Drive files.')
+      }
+      return payload.selections
     },
     async getPickerConfig() {
       const response = await fetch('/api/google-drive/picker-config', {
         credentials: 'same-origin',
+        cache: 'no-store',
       })
       const payload = (await response.json()) as {
         accessToken?: string
@@ -2072,6 +2125,21 @@ export const api = {
       }
       if (!response.ok || !payload.file) {
         throw new Error(payload.error || 'Unable to save this Google Drive document.')
+      }
+      return payload.file
+    },
+    async trash(fileId: string) {
+      const response = await fetch(
+        `/api/google-drive/files/${encodeURIComponent(fileId)}/trash`,
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: mutationHeaders(),
+        },
+      )
+      const payload = (await response.json()) as { file?: GoogleDriveFile; error?: string }
+      if (!response.ok || !payload.file) {
+        throw new Error(payload.error || 'Unable to move this Drive file to trash.')
       }
       return payload.file
     },
@@ -2310,10 +2378,25 @@ export const api = {
   },
   notifications: {
     async list() {
-      const response = await fetch('/api/notifications', { credentials: 'same-origin' })
+      const response = await fetch('/api/notifications', {
+        credentials: 'same-origin',
+        cache: 'no-store',
+      })
       const payload = (await response.json()) as { notifications?: WorkspaceNotification[]; error?: string }
       if (!response.ok || !payload.notifications) throw new Error(payload.error || 'Unable to load notifications.')
       return payload.notifications
+    },
+    async markRead(id: string) {
+      const response = await fetch(`/api/notifications/${encodeURIComponent(id)}/read`, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: mutationHeaders(),
+      })
+      const payload = (await response.json()) as { notification?: WorkspaceNotification; error?: string }
+      if (!response.ok || !payload.notification) {
+        throw new Error(payload.error || 'Unable to update this notification.')
+      }
+      return payload.notification
     },
   },
   clients: {

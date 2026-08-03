@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type FormEvent,
   type ReactNode,
 } from 'react'
@@ -41,6 +42,7 @@ import { syncIdeaMutations } from './lib/ideasRepository'
 import { IDEA_SYNC_REQUEST_EVENT } from './pwa'
 import { applyTheme, getStoredTheme, toggleTheme, type Theme } from './lib/theme'
 import type { WorkflowTemplate } from './components/WorkflowsPage'
+import { BUSINESS_IDENTITY } from './lib/business'
 
 const IdeasCanvasPage = lazy(() => import('./components/IdeasCanvasPage'))
 const MoneyPage = lazy(() => import('./components/MoneyPage'))
@@ -55,6 +57,9 @@ const WorkspaceChat = lazy(() => import('./components/dashboard/WorkspaceChat'))
 const WorkflowsPage = lazy(() => import('./components/WorkflowsPage'))
 const StorefrontPage = lazy(() => import('./components/StorefrontPage'))
 const ReviewPage = lazy(() => import('./components/annotations/ReviewPage'))
+import FeaturesPage from './components/FeaturesPage'
+
+const SIGNUPS_PAUSED = true
 
 type Page =
   | 'overview'
@@ -390,6 +395,14 @@ function BrandMark({ compact = false }: { compact?: boolean }) {
       <img src="/img/icon.png" alt="" />
     </div>
   )
+}
+
+function UserAvatar({ user, className = '' }: { user: User; className?: string }) {
+  const classes = `user-avatar ${className}`.trim()
+  if (user.avatarUrl) {
+    return <img className={classes} src={user.avatarUrl} alt="" />
+  }
+  return <span className={`${classes} user-avatar--fallback`}>{user.initials}</span>
 }
 
 type LandingTool = 'gmail' | 'calendar' | 'drive' | 'slack' | 'zoom' | 'stripe' | 'paypal' | 'paystack'
@@ -2436,7 +2449,7 @@ function ApiPage({
   onToast: (message: string) => void
   canManage: boolean
 }) {
-  const sampleCode = `curl https://agents.hygridtech.co.za/api/v1/workspace \\
+  const sampleCode = `curl https://lancee.hookitupservices.com/api/v1/workspace \\
   -H "Authorization: Bearer $LANCEE_API_KEY"`
   const formatTimestamp = (value: string | null) =>
     value
@@ -2555,7 +2568,7 @@ function ApiPage({
           </div>
           <pre>
             <code>
-              <span>curl</span> https://agents.hygridtech.co.za/api/v1/workspace \<br />
+              <span>curl</span> https://lancee.hookitupservices.com/api/v1/workspace \<br />
               {'  '}-H <em>&quot;Authorization: Bearer $LANCEE_API_KEY&quot;</em>
             </code>
           </pre>
@@ -2570,12 +2583,16 @@ function SettingsPage({
   onToast,
   onNavigate,
   onSaved,
+  onUserUpdated,
+  onSignOut,
   initialSection,
 }: {
   user: User
   onToast: (message: string) => void
   onNavigate: (page: Page) => void
   onSaved: (settings: { name: string }) => void
+  onUserUpdated: (user: User) => void
+  onSignOut: () => void
   initialSection: 'profile' | 'general' | 'dev'
 }) {
   const canEdit = user.role === 'owner'
@@ -2587,6 +2604,7 @@ function SettingsPage({
   const [saving, setSaving] = useState(false)
   const [settingsLoading, setSettingsLoading] = useState(true)
   const [settingsError, setSettingsError] = useState('')
+  const [avatarSaving, setAvatarSaving] = useState(false)
   const [section, setSection] = useState(initialSection)
   const [dbInfo, setDbInfo] = useState<{
     provider: string
@@ -2662,6 +2680,50 @@ function SettingsPage({
     }
   }
 
+  const changeAvatar = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setSettingsError('Profile images must be JPEG, PNG, or WebP files.')
+      return
+    }
+    if (file.size <= 0 || file.size > 2 * 1024 * 1024) {
+      setSettingsError('Profile images must be non-empty and no larger than 2 MB.')
+      return
+    }
+    setAvatarSaving(true)
+    setSettingsError('')
+    try {
+      const updated = await api.auth.updateAvatar(file)
+      onUserUpdated(updated)
+      onToast('Profile image updated')
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Unable to update your profile image.'
+      setSettingsError(message)
+      onToast(message)
+    } finally {
+      setAvatarSaving(false)
+    }
+  }
+
+  const removeAvatar = async () => {
+    if (!user.avatarUrl || avatarSaving) return
+    setAvatarSaving(true)
+    setSettingsError('')
+    try {
+      const updated = await api.auth.removeAvatar()
+      onUserUpdated(updated)
+      onToast('Profile image removed')
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Unable to remove your profile image.'
+      setSettingsError(message)
+      onToast(message)
+    } finally {
+      setAvatarSaving(false)
+    }
+  }
+
   return (
     <div className="page settings-page">
       <PageHeader
@@ -2700,10 +2762,32 @@ function SettingsPage({
             </div>
             {settingsError && <p className="form-error">{settingsError}</p>}
             <div className="workspace-logo-field">
-              <span>{user.initials}</span>
+              <UserAvatar user={user} />
               <div>
                 <strong>{user.name}</strong>
                 <small>{canEdit ? 'Workspace owner' : 'Workspace collaborator'}</small>
+                <div className="profile-image-actions">
+                  <label className="button button--secondary button--small">
+                    {avatarSaving ? 'Uploading…' : user.avatarUrl ? 'Change image' : 'Add image'}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={(event) => void changeAvatar(event)}
+                      disabled={avatarSaving}
+                    />
+                  </label>
+                  {user.avatarUrl && (
+                    <button
+                      type="button"
+                      className="button button--ghost button--small"
+                      onClick={() => void removeAvatar()}
+                      disabled={avatarSaving}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <small className="profile-image-help">JPEG, PNG, or WebP · max 2 MB</small>
               </div>
             </div>
             <label className="form-field">
@@ -2761,6 +2845,11 @@ function SettingsPage({
                 </button>
               ) : (
                 <small>Only workspace owners can change these settings.</small>
+              )}
+              {section === 'profile' && (
+                <button type="button" className="button button--danger" onClick={onSignOut}>
+                  <Icon name="logout" size={14} /> Log out
+                </button>
               )}
             </div>
           </form>
@@ -2837,6 +2926,43 @@ function SettingsPage({
   )
 }
 
+function PolicyFooter() {
+  const identity = BUSINESS_IDENTITY
+  const year = new Date().getFullYear()
+  return (
+    <footer className="landing-footer policy-footer">
+      <small>© {year} {identity.platformName} All Rights Reserved</small>
+      <small>
+        {identity.platformLegalStyle}
+        {identity.companyRegistrationNumber && (
+          <>
+            <br />
+            Company registration: {identity.companyRegistrationNumber}
+          </>
+        )}
+        {identity.vatRegistrationNumber && (
+          <>
+            <br />
+            VAT registration: {identity.vatRegistrationNumber}
+          </>
+        )}
+      </small>
+      {identity.supportEmail && (
+        <small>
+          Support:{" "}
+          <a href={`mailto:${identity.supportEmail}`}>{identity.supportEmail}</a>
+        </small>
+      )}
+      <small>
+        Engineered by{" "}
+        <a className="landing-footer__credit" href="https://hookitupservices.com" target="_blank" rel="noopener noreferrer">
+          Hookitup Solutions
+        </a>
+      </small>
+    </footer>
+  )
+}
+
 function TermsPage({ onBack }: { onBack: () => void }) {
   return (
     <main className="landing policy-page">
@@ -2869,15 +2995,7 @@ function TermsPage({ onBack }: { onBack: () => void }) {
         <h2>8. Contact</h2>
         <p>For questions about these Terms, please contact us through the Service.</p>
       </section>
-      <footer className="landing-footer policy-footer">
-        <small>© 2026 lancee All Rights Reserved</small>
-        <small>
-          Engineered by{" "}
-          <a className="landing-footer__credit" href="https://hookitupservices.com" target="_blank" rel="noopener noreferrer">
-            Hookitup Solutions
-          </a>
-        </small>
-      </footer>
+      <PolicyFooter />
     </main>
   )
 }
@@ -2914,15 +3032,7 @@ function PrivacyPage({ onBack }: { onBack: () => void }) {
         <h2>8. Contact</h2>
         <p>For privacy-related inquiries, please contact us through the Service.</p>
       </section>
-      <footer className="landing-footer policy-footer">
-        <small>© 2026 lancee All Rights Reserved</small>
-        <small>
-          Engineered by{" "}
-          <a className="landing-footer__credit" href="https://hookitupservices.com" target="_blank" rel="noopener noreferrer">
-            Hookitup Solutions
-          </a>
-        </small>
-      </footer>
+      <PolicyFooter />
     </main>
   )
 }
@@ -2955,15 +3065,7 @@ function RefundPage({ onBack }: { onBack: () => void }) {
         <h2>6. Contact</h2>
         <p>For refund requests or billing questions, please contact us through the Service.</p>
       </section>
-      <footer className="landing-footer policy-footer">
-        <small>© 2026 lancee All Rights Reserved</small>
-        <small>
-          Engineered by{" "}
-          <a className="landing-footer__credit" href="https://hookitupservices.com" target="_blank" rel="noopener noreferrer">
-            Hookitup Solutions
-          </a>
-        </small>
-      </footer>
+      <PolicyFooter />
     </main>
   )
 }
@@ -2977,6 +3079,22 @@ function LandingPage({
 }) {
   const landingRef = useRef<HTMLElement>(null)
   const [policyView, setPolicyView] = useState<'landing' | 'terms' | 'privacy' | 'refund'>('landing')
+  const [featuresOpen, setFeaturesOpen] = useState(false)
+  const [signupNotice, setSignupNotice] = useState(false)
+
+  useEffect(() => {
+    if (!signupNotice) return
+    const timeout = window.setTimeout(() => setSignupNotice(false), 4200)
+    return () => window.clearTimeout(timeout)
+  }, [signupNotice])
+
+  const handleSignUp = () => {
+    if (SIGNUPS_PAUSED) {
+      setSignupNotice(true)
+      return
+    }
+    onSignUp()
+  }
 
   useEffect(() => {
     const landing = landingRef.current
@@ -3061,6 +3179,17 @@ if (policyView !== 'landing') {
     if (policyView === 'refund') return <RefundPage onBack={back} />
   }
 
+  if (featuresOpen) {
+    return (
+      <FeaturesPage
+        onBack={() => setFeaturesOpen(false)}
+        onSignIn={onSignIn}
+        onSignUp={handleSignUp}
+        signupsPaused={SIGNUPS_PAUSED}
+      />
+    )
+  }
+
   return (
     <main ref={landingRef} className="landing">
       <header className="landing-nav">
@@ -3072,12 +3201,15 @@ if (policyView !== 'landing') {
           <a href="#platform">What it does</a>
           <a href="#workflow">How it works</a>
           <a href="#integrations">Connections</a>
+          <button className="landing-nav-features" onClick={() => setFeaturesOpen(true)}>
+            Features
+          </button>
         </nav>
         <div>
           <button className="landing-sign-in" onClick={onSignIn}>
             Sign in
           </button>
-          <button className="button button--primary" onClick={onSignUp}>
+          <button className="button button--primary" onClick={handleSignUp}>
             Sign Up <BrandMark compact />
           </button>
         </div>
@@ -3104,7 +3236,7 @@ if (policyView !== 'landing') {
             invoices, and payments, wherever you happen to be working.
           </p>
           <div className="landing-hero__actions">
-            <button className="button button--primary" onClick={onSignUp}>
+            <button className="button button--primary" onClick={handleSignUp}>
               Start your workspace <Icon name="arrow-right" size={15} />
             </button>
             <a href="#platform">
@@ -3220,6 +3352,9 @@ if (policyView !== 'landing') {
             lancee keeps projects, inspiration, admin, and money connected without
             turning your business into a complicated system.
           </p>
+          <button className="landing-section__cta" onClick={() => setFeaturesOpen(true)}>
+            Check out all features <Icon name="arrow-up-right" size={14} />
+          </button>
         </div>
         <div className="landing-feature-grid">
           <article className="landing-feature landing-feature--command">
@@ -3433,13 +3568,14 @@ if (policyView !== 'landing') {
         <BrandMark />
         <span className="landing-eyebrow">A lighter way to run your business</span>
         <h2>Carry the whole studio. Not the whole workload.</h2>
-        <button className="button button--primary" onClick={onSignUp}>
+        <button className="button button--primary" onClick={handleSignUp}>
           Sign Up <BrandMark compact />
         </button>
       </section>
 
       <footer className="landing-footer">
-        <small>© 2026 lancee All Rights Reserved</small>
+        <small>© {new Date().getFullYear()} {BUSINESS_IDENTITY.platformName} All Rights Reserved</small>
+        <small>{BUSINESS_IDENTITY.platformLegalStyle}</small>
         <div className="landing-footer__links">
           <a href="lancee.html" target="_blank" rel="noopener noreferrer">Documentation</a>
           <button onClick={() => setPolicyView('terms')}>Terms &amp; Conditions</button>
@@ -3453,6 +3589,21 @@ if (policyView !== 'landing') {
           </a>
         </small>
       </footer>
+
+      {signupNotice && (
+        <div className="signup-paused-toast" role="status">
+          <span>
+            <Icon name="alert" size={15} />
+          </span>
+          <div>
+            <strong>Sign-ups are temporarily paused</strong>
+            <p>New accounts are on hold for now. Existing members can still sign in.</p>
+          </div>
+          <button onClick={() => setSignupNotice(false)} aria-label="Dismiss">
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+      )}
     </main>
   )
 }
@@ -3743,7 +3894,9 @@ function AuthScreen({
             {!busy && !invitationLoading && <Icon name="arrow-right" size={16} />}
           </button>
           {!invitationToken && <p className="auth-signup">
-            {mode === 'login' && registrationEnabled ? (
+            {mode === 'login' && SIGNUPS_PAUSED ? (
+              <span className="auth-signup__paused">Sign-ups are temporarily paused. Existing members can sign in above.</span>
+            ) : mode === 'login' && registrationEnabled ? (
               <button type="button" onClick={() => { setMode('register'); setError(''); onNavigate('register') }}>
                 <Icon name="arrow-right" size={12} /> Don&rsquo;t have an account? Create one
               </button>
@@ -4345,7 +4498,7 @@ function Sidebar({
             <Icon name="arrow-up-right" size={14} />
           </a>
           <button className="sidebar-profile" onClick={onSignOut}>
-            <span>{user.initials}</span>
+            <UserAvatar user={user} className="user-avatar--sidebar" />
             <span>
               <strong>{user.name}</strong>
               <small>{user.email}</small>
@@ -5193,9 +5346,8 @@ function WorkspaceApp() {
   const [settingsSection, setSettingsSection] =
     useState<'profile' | 'general' | 'dev'>('general')
 
-  const clientNotifications = workspaceNotifications.filter((notification) =>
-    notification.kind.startsWith('approval.'),
-  )
+  const visibleNotifications = workspaceNotifications
+  const unreadNotifications = visibleNotifications.filter((notification) => !notification.readAt)
 
   useEffect(() => {
     applyTheme(theme)
@@ -5456,10 +5608,16 @@ function WorkspaceApp() {
   }
 
   const signOut = async () => {
-    await api.auth.signOut()
-    setUser(null)
-    navigateAuth('landing', true)
-    setNotificationsOpen(false)
+    try {
+      await api.auth.signOut()
+      setUser(null)
+      navigateAuth('landing', true)
+      setNotificationsOpen(false)
+      setProfileOpen(false)
+      setMobileOpen(false)
+    } catch (caught) {
+      setToast(caught instanceof Error ? caught.message : 'Unable to sign out.')
+    }
   }
 
   const dispatch = async (event: FormEvent<HTMLFormElement>) => {
@@ -5832,7 +5990,7 @@ function WorkspaceApp() {
         onRegister={register}
         onRegisterStart={startRegistration}
         onNavigate={(view) => navigateAuth(view)}
-        initialMode={authView}
+        initialMode={authView === 'register' && SIGNUPS_PAUSED ? 'login' : authView}
         onBack={() => navigateAuth('landing')}
       />
     )
@@ -6034,6 +6192,8 @@ function WorkspaceApp() {
                 current ? { ...current, workspace: settings.name } : current,
               )
             }
+            onUserUpdated={setUser}
+            onSignOut={() => void signOut()}
             initialSection={settingsSection}
           />
         )
@@ -6095,19 +6255,44 @@ function WorkspaceApp() {
                 onClick={() => setNotificationsOpen((open) => !open)}
               >
                 <Icon name="bell" size={18} />
-                {clientNotifications.length > 0 && <span className="notification-dot" />}
+                {unreadNotifications.length > 0 && <span className="notification-dot" />}
               </button>
               {notificationsOpen && (
                 <div className="notification-popover">
                   <div>
                     <strong>Notifications</strong>
-                    <button onClick={() => setNotificationsOpen(false)}>Close</button>
+                    <div className="notification-popover__actions">
+                      {unreadNotifications.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void Promise.all(unreadNotifications.map((notification) => api.notifications.markRead(notification.id)))
+                              .then(() => {
+                                const readAt = new Date().toISOString()
+                                setWorkspaceNotifications((current) => current.map((notification) => ({ ...notification, readAt: notification.readAt || readAt })))
+                              })
+                              .catch(() => setToast('Unable to mark notifications as read.'))
+                          }}
+                        >
+                          Mark read
+                        </button>
+                      )}
+                      <button type="button" onClick={() => setNotificationsOpen(false)}>Close</button>
+                    </div>
                   </div>
-                  {clientNotifications.slice(0, 5).map((notification) => (
+                  {visibleNotifications.slice(0, 8).map((notification) => (
                     <button
                       key={notification.id}
                       onClick={() => {
-                        setActivePage(notification.entityType === 'project' ? 'work' : 'overview')
+                        void api.notifications.markRead(notification.id).catch(() => undefined)
+                        setWorkspaceNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, readAt: item.readAt || new Date().toISOString() } : item))
+                        setActivePage(
+                          notification.entityType === 'project'
+                            ? 'work'
+                            : notification.entityType === 'invoice'
+                              ? 'money'
+                              : 'overview',
+                        )
                         setNotificationsOpen(false)
                       }}
                     >
@@ -6116,11 +6301,12 @@ function WorkspaceApp() {
                       </span>
                       <span>
                         <strong>{notification.title}</strong>
+                        <small>{notification.body}</small>
                         <small>{new Date(notification.createdAt).toLocaleString()}</small>
                       </span>
                     </button>
                   ))}
-                  {clientNotifications.length === 0 && <p className="empty-copy">No client activity yet.</p>}
+                  {visibleNotifications.length === 0 && <p className="empty-copy">No notifications yet.</p>}
                 </div>
               )}
             </div>
@@ -6131,12 +6317,12 @@ function WorkspaceApp() {
                 aria-expanded={profileOpen}
                 aria-label="Open profile menu"
               >
-                {user.initials}
+                <UserAvatar user={user} className="user-avatar--topbar" />
               </button>
               {profileOpen && (
                 <div className="profile-popover">
                   <header>
-                    <span>{user.initials}</span>
+                    <UserAvatar user={user} className="user-avatar--profile" />
                     <div><strong>{user.name}</strong><small>{user.email}</small></div>
                   </header>
                   <button onClick={() => {

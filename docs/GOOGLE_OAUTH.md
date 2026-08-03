@@ -31,7 +31,7 @@ After signing in to Google Cloud Console:
    production redirect URI:
 
    ```text
-   https://agents.hygridtech.co.za/oauth/callback
+   https://lancee.hookitupservices.com/oauth/callback
    ```
 
    Use the matching local `PUBLIC_ORIGIN` plus
@@ -47,7 +47,7 @@ After signing in to Google Cloud Console:
    ```dotenv
    GOOGLE_DRIVE_CLIENT_ID=
    GOOGLE_DRIVE_CLIENT_SECRET=
-   GOOGLE_DRIVE_REDIRECT_URI=https://agents.hygridtech.co.za/oauth/callback
+   GOOGLE_DRIVE_REDIRECT_URI=https://lancee.hookitupservices.com/oauth/callback
    GOOGLE_PICKER_API_KEY=
    GOOGLE_PICKER_APP_ID=
    ```

@@ -48,9 +48,16 @@ type GooglePickerApi = {
     setDeveloperKey(key: string): GooglePickerApi['PickerBuilder']['prototype']
     setAppId(appId: string): GooglePickerApi['PickerBuilder']['prototype']
     setOrigin(origin: string): GooglePickerApi['PickerBuilder']['prototype']
-    setCallback(callback: (data: { action?: string }) => void): GooglePickerApi['PickerBuilder']['prototype']
+    setCallback(callback: (data: { action?: string; docs?: GooglePickerDocument[] }) => void): GooglePickerApi['PickerBuilder']['prototype']
     build(): { setVisible(value: boolean): void }
   }
+}
+
+type GooglePickerDocument = {
+  id?: string
+  name?: string
+  mimeType?: string
+  url?: string
 }
 
 declare global {
@@ -158,6 +165,7 @@ export default function FilesPage({
   const [uploadOpen, setUploadOpen] = useState(false)
   const [driveListLoaded, setDriveListLoaded] = useState(false)
   const [driveLoading, setDriveLoading] = useState(false)
+  const [removingDriveFileId, setRemovingDriveFileId] = useState<string | null>(null)
   const [removingDocumentId, setRemovingDocumentId] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [provider, setProvider] = useState<StorageProvider>('drive')
@@ -190,13 +198,22 @@ export default function FilesPage({
     setError('')
     setDriveLoading(true)
     try {
-      setDriveFiles(await api.googleDrive.list())
+      const files = await api.googleDrive.list()
+      setDriveFiles(files)
       setDriveChildren({})
       setExpandedDriveFolders(new Set())
+      setLoadingDriveFolders(new Set())
+      setSelectedDriveFile(null)
+      setSelectedDriveResource(null)
       return true
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to load Drive files')
       setDriveFiles([])
+      setDriveChildren({})
+      setExpandedDriveFolders(new Set())
+      setLoadingDriveFolders(new Set())
+      setSelectedDriveFile(null)
+      setSelectedDriveResource(null)
       return false
     } finally {
       setDriveListLoaded(true)
@@ -255,6 +272,7 @@ export default function FilesPage({
       const docsView = new picker.DocsView(picker.ViewId.DOCS)
       docsView.setIncludeFolders(true)
       docsView.setSelectFolderEnabled(true)
+      let pickedDocuments: GooglePickerDocument[] | null = null
       await new Promise<void>((resolve) => {
         const instance = new picker.PickerBuilder()
           .addView(docsView)
@@ -264,16 +282,29 @@ export default function FilesPage({
           .setAppId(config.appId)
           .setOrigin(window.location.origin)
           .setCallback((data) => {
-            if (
-              data.action === picker.Action.PICKED ||
-              data.action === picker.Action.CANCEL
-            ) {
+            if (data.action === picker.Action.PICKED) {
+              pickedDocuments = data.docs || []
+              resolve()
+            } else if (data.action === picker.Action.CANCEL) {
               resolve()
             }
           })
           .build()
         instance.setVisible(true)
       })
+      const selectedDocuments = pickedDocuments as GooglePickerDocument[] | null
+      if (selectedDocuments !== null) {
+        await api.googleDrive.replaceSelections(
+          selectedDocuments
+            .map((document) => ({
+              driveFileId: String(document.id || '').trim(),
+              name: String(document.name || '').trim(),
+              mimeType: String(document.mimeType || 'application/octet-stream'),
+              webViewLink: document.url || null,
+            }))
+            .filter((document) => document.driveFileId && document.name),
+        )
+      }
       await fetchDriveFiles()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to open Google Drive')
@@ -415,6 +446,41 @@ export default function FilesPage({
       onToast('Drive link removed')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to remove this Drive link.')
+    }
+  }
+
+  const handleTrashDriveFile = async (file: GoogleDriveFile) => {
+    if (!file.canDelete || removingDriveFileId) return
+    const isFolder = isDriveFolder(file)
+    const warning = isFolder
+      ? ' This will move the folder and its contents to Google Drive trash.'
+      : ' You can restore it from Google Drive trash.'
+    if (!window.confirm(`Move “${file.name}” to Google Drive trash?${warning}`)) return
+    setRemovingDriveFileId(file.id)
+    setError('')
+    try {
+      await api.googleDrive.trash(file.id)
+      setDriveFiles((current) => current.filter((item) => item.id !== file.id))
+      setDriveChildren((current) => {
+        const next: Record<string, GoogleDriveFile[]> = {}
+        for (const [folderId, children] of Object.entries(current)) {
+          if (folderId !== file.id) next[folderId] = children.filter((item) => item.id !== file.id)
+        }
+        return next
+      })
+      setExpandedDriveFolders((current) => {
+        const next = new Set(current)
+        next.delete(file.id)
+        return next
+      })
+      setSelectedDriveFile((current) => (current?.id === file.id ? null : current))
+      setSelectedDriveResource((current) => (current?.id === file.id ? null : current))
+      setResourceLinks((current) => current.filter((link) => link.driveFileId !== file.id))
+      onToast(`${file.name} moved to Google Drive trash`)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to remove this Drive file.')
+    } finally {
+      setRemovingDriveFileId(null)
     }
   }
 
@@ -566,12 +632,29 @@ export default function FilesPage({
                   </button>
                 )}
                 {file.webViewLink && <a href={file.webViewLink} target="_blank" rel="noreferrer">Open in Drive ↗</a>}
+                {file.canDelete && (
+                  <button
+                    type="button"
+                    className="file-item-menu__danger"
+                    disabled={removingDriveFileId !== null}
+                    onClick={() => void handleTrashDriveFile(file)}
+                  >
+                    {removingDriveFileId === file.id ? 'Moving to trash…' : 'Move to Drive trash'}
+                  </button>
+                )}
               </div>
             </details>
           </div>
           {folder && expanded && (
             <div className="drive-tree__children">
-              {(driveChildren[file.id] || []).length > 0 ? (
+              {loadingFolder ? (
+                <div
+                  className="drive-tree__empty"
+                  style={{ paddingLeft: `${42 + depth * 22}px` }}
+                >
+                  Loading folder…
+                </div>
+              ) : driveChildren[file.id] && driveChildren[file.id].length > 0 ? (
                 renderDriveRows(driveChildren[file.id], depth + 1)
               ) : (
                 <div
@@ -796,6 +879,7 @@ export default function FilesPage({
                     canEdit: true,
                     canDownload: true,
                     canListChildren: false,
+                    canDelete: false,
                   }) !== 'unsupported' && (
                     <button
                       type="button"
@@ -854,7 +938,7 @@ export default function FilesPage({
                 Google Drive folder tree
               </h3>
               <p>
-                Expand folders in place, open supported files in lancee, or link any item to a client and project.
+                Only the files and folders you choose are shown here. Expand folders in place, open supported files in lancee, or link any item to a client and project.
               </p>
             </div>
             <button
@@ -867,7 +951,7 @@ export default function FilesPage({
           </div>
           {driveFiles.length === 0 ? (
             <div className="dashboard-empty dashboard-drive-browser__empty">
-              No Drive files have been shared with lancee yet. Choose files or folders to make them available here.
+              No Drive files are selected yet. Choose files or folders to make them available here.
             </div>
           ) : (
             <div className="drive-tree">
@@ -1097,6 +1181,7 @@ export default function FilesPage({
             canEdit: true,
             canDownload: true,
             canListChildren: false,
+            canDelete: false,
           }}
           onClose={() => setSelectedLocalDocument(null)}
           onSaved={() => {

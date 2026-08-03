@@ -1,13 +1,13 @@
 # lancee
 
 <p align="center">
-  <a href="https://agents.hygridtech.co.za">
+  <a href="https://lancee.hookitupservices.com">
     <img src="docs/assets/lancee-readme-header.svg" alt="lancee — a calm operating workspace for client work" width="1200">
   </a>
 </p>
 
 <p align="center">
-  <a href="https://agents.hygridtech.co.za"><img src="https://img.shields.io/website?url=https%3A%2F%2Fagents.hygridtech.co.za&style=flat-square&label=live%20platform" alt="Live platform status"></a>
+  <a href="https://lancee.hookitupservices.com"><img src="https://img.shields.io/website?url=https%3A%2F%2Flancee.hookitupservices.com&style=flat-square&label=live%20platform" alt="Live platform status"></a>
   <a href="https://github.com/martin861101/lancee"><img src="https://img.shields.io/github/stars/martin861101/lancee?style=flat-square&logo=github&label=stars" alt="GitHub stars"></a>
   <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=101828" alt="React 19">
   <img src="https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript 6">
@@ -41,6 +41,11 @@ For a new installation, local full-stack setup, first sign-in, integrations,
 SMTP, production deployment, and troubleshooting, follow
 [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md).
 
+The standalone [lancee platform reference](lancee.html) tracks the current
+product surfaces, API route families, `.env.example` configuration, and PM2/
+reverse-proxy deployment shape. The deployed static copy is kept at
+[`public/lancee.html`](public/lancee.html).
+
 ## Product areas
 
 - **Public landing page** — freelancer-focused product narrative, workflow
@@ -65,8 +70,11 @@ SMTP, production deployment, and troubleshooting, follow
   clients and projects, plus a lancee document library. Upload PDF, DOC/DOCX,
   Markdown, text, and image files to lancee, Drive, or both; edit supported
   documents in-app, sync local files to Drive later, and remove local workspace
-  copies with a visible, confirmation-protected action. The page uses its own
-  vertical scroll region so long file lists remain usable on desktop and mobile.
+  copies with a visible, confirmation-protected action. Google Picker selections
+  are persisted per workspace, stale Drive results are not reintroduced from
+  browser caches, folder contents load on demand, and eligible files can be
+  moved to Google Drive trash. The page uses its own vertical scroll region so
+  long file lists remain usable on desktop and mobile.
 - **Messages** — a workspace mail app with automatic provider discovery,
   guided manual IMAP/SMTP setup, folders, search, message reading, compose and
   reply. New incoming mail can trigger native Core automations by sender,
@@ -102,8 +110,11 @@ SMTP, production deployment, and troubleshooting, follow
   MCP servers, MCP apps, and MCPB packages.
 - **Money** — durable ZAR invoices, real Paystack hosted payment links, and
   verified, duplicate-safe webhook reconciliation.
-- **Settings** — workspace, authentication, and notification configuration
-  surfaces.
+- **Notifications** — workspace-scoped activity with unread indicators, a
+  readable notification popover, navigation to related work, and mark-as-read
+  controls.
+- **Settings** — workspace, authentication, notification configuration, profile
+  image upload/removal, and explicit logout controls.
 
 See [`docs/PRODUCT_VISION.md`](docs/PRODUCT_VISION.md) for the target user, product
 principles, information architecture, role of AI, and delivery roadmap.
@@ -164,7 +175,7 @@ model and SMTP setup. The administrator password is never stored in source or
 documentation.
 
 Administrator access starts at
-[https://agents.hygridtech.co.za](https://agents.hygridtech.co.za) using the
+[https://lancee.hookitupservices.com](https://lancee.hookitupservices.com) using the
 configured `ADMIN_EMAIL` and its corresponding password.
 
 ## Built-in MCP capability
@@ -595,7 +606,7 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Vite uses port `5177` and accepts `agents.hygridtech.co.za`. This is a
+Vite uses port `5177` and accepts `lancee.hookitupservices.com`. This is a
 frontend-only workflow; use the
 [complete local workflow](docs/GETTING_STARTED.md#3-run-the-complete-platform-locally)
 when testing authentication or backend actions.
@@ -640,7 +651,7 @@ curl --fail http://127.0.0.1:5177/api/health
 
 The Compose `app` service is the authoritative production runtime and serves
 the compiled app and API on `0.0.0.0:5177`. Nginx Proxy Manager terminates TLS
-for `agents.hygridtech.co.za` and forwards to that listener. Do not run the PM2
+for `lancee.hookitupservices.com` and forwards to that listener. Do not run the PM2
 entry and the Compose app simultaneously on the same port; use
 `ecosystem.config.cjs` only for a deliberate non-Docker deployment.
 

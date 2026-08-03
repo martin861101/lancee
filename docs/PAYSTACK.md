@@ -23,7 +23,7 @@ The server-only environment key remains an optional bootstrap/fallback:
 ```dotenv
 PAYSTACK_SECRET_KEY=sk_test_replace_me
 PAYSTACK_BASE_URL=https://api.paystack.co
-PAYSTACK_CALLBACK_URL=https://agents.hygridtech.co.za/?payment=paystack
+PAYSTACK_CALLBACK_URL=https://lancee.hookitupservices.com/?payment=paystack
 ```
 
 Start with an `sk_test_...` key. The Connections and Money UIs report `test` or
@@ -36,7 +36,7 @@ Copy the workspace webhook shown in Connections into the matching Paystack
 dashboard:
 
 ```text
-https://agents.hygridtech.co.za/api/webhooks/paystack/{workspaceId}
+https://lancee.hookitupservices.com/api/webhooks/paystack/{workspaceId}
 ```
 
 The unscoped `/api/webhooks/paystack` route remains for the environment-key

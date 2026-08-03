@@ -342,12 +342,13 @@ export async function listGoogleDriveFiles({
   pageToken = null,
   query = null,
   folderId = null,
+  fileIds = null,
 }) {
   const url = new URL(GOOGLE_DRIVE_FILES_URL)
   const size = Math.min(100, Math.max(1, Number(pageSize) || 25))
   url.searchParams.set(
     'fields',
-    'nextPageToken,files(id,name,mimeType,webViewLink,iconLink,modifiedTime,owners(displayName,emailAddress),size,shared,capabilities(canEdit,canDownload,canListChildren))',
+    'nextPageToken,files(id,name,mimeType,webViewLink,iconLink,modifiedTime,parents,owners(displayName,emailAddress),size,shared,capabilities(canEdit,canDownload,canListChildren,canDelete))',
   )
   url.searchParams.set('pageSize', String(size))
   url.searchParams.set('orderBy', 'modifiedTime desc')
@@ -358,6 +359,10 @@ export async function listGoogleDriveFiles({
   // Exclude trashed files by default; allow caller to narrow further.
   const q = ['trashed = false']
   if (folderId) q.push(`'${String(folderId)}' in parents`)
+  if (Array.isArray(fileIds)) {
+    if (fileIds.length === 0) return { files: [], nextPageToken: null }
+    q.push(`id in (${fileIds.map((id) => `'${String(id)}'`).join(',')})`)
+  }
   if (query && String(query).trim()) q.push(`(${String(query).trim()})`)
   url.searchParams.set('q', q.join(' and '))
 
@@ -389,11 +394,13 @@ export async function listGoogleDriveFiles({
       webViewLink: file.webViewLink || null,
       iconLink: file.iconLink || null,
       modifiedTime: file.modifiedTime || null,
+      parents: Array.isArray(file.parents) ? file.parents : [],
       size: file.size ? Number(file.size) : null,
       shared: Boolean(file.shared),
       canEdit: Boolean(file.capabilities?.canEdit),
       canDownload: file.capabilities?.canDownload !== false,
       canListChildren: Boolean(file.capabilities?.canListChildren),
+      canDelete: Boolean(file.capabilities?.canDelete),
       owners: Array.isArray(file.owners)
         ? file.owners.map((owner) => ({
             displayName: owner.displayName || null,
@@ -414,7 +421,8 @@ function fileMetadataFields() {
     'modifiedTime',
     'version',
     'size',
-    'capabilities(canEdit,canDownload,canListChildren)',
+    'parents',
+    'capabilities(canEdit,canDownload,canListChildren,canDelete)',
   ].join(',')
 }
 
@@ -476,11 +484,13 @@ export async function getGoogleDriveFileMetadata({ accessToken, fileId }) {
     mimeType: String(file.mimeType || 'application/octet-stream'),
     webViewLink: file.webViewLink || null,
     modifiedTime: file.modifiedTime || null,
+    parents: Array.isArray(file.parents) ? file.parents : [],
     version: file.version ? String(file.version) : null,
     size: file.size ? Number(file.size) : null,
     canEdit: Boolean(file.capabilities?.canEdit),
     canDownload: file.capabilities?.canDownload !== false,
     canListChildren: Boolean(file.capabilities?.canListChildren),
+    canDelete: Boolean(file.capabilities?.canDelete),
     etag: response.headers.get('etag') || null,
   }
 }
@@ -660,6 +670,39 @@ export async function updateGoogleDriveFileContent({
     canEdit: Boolean(file.capabilities?.canEdit),
     canDownload: file.capabilities?.canDownload !== false,
     canListChildren: Boolean(file.capabilities?.canListChildren),
+    canDelete: Boolean(file.capabilities?.canDelete),
+  }
+}
+
+export async function trashGoogleDriveFile({ accessToken, fileId }) {
+  const url = new URL(`${GOOGLE_DRIVE_FILES_URL}/${encodeURIComponent(fileId)}`)
+  url.searchParams.set('supportsAllDrives', 'true')
+  url.searchParams.set('fields', fileMetadataFields())
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ trashed: true }),
+  })
+  if (!response.ok) {
+    await googleDriveResponseError(response, 'Unable to move this Google Drive file to trash.')
+  }
+  const file = await response.json()
+  return {
+    id: String(file.id || fileId),
+    name: String(file.name || 'Untitled'),
+    mimeType: String(file.mimeType || 'application/octet-stream'),
+    webViewLink: file.webViewLink || null,
+    modifiedTime: file.modifiedTime || null,
+    version: file.version ? String(file.version) : null,
+    size: file.size ? Number(file.size) : null,
+    canEdit: Boolean(file.capabilities?.canEdit),
+    canDownload: file.capabilities?.canDownload !== false,
+    canListChildren: Boolean(file.capabilities?.canListChildren),
+    canDelete: Boolean(file.capabilities?.canDelete),
   }
 }
 
@@ -715,6 +758,7 @@ export async function uploadGoogleDriveFile({
     canEdit: Boolean(file.capabilities?.canEdit),
     canDownload: file.capabilities?.canDownload !== false,
     canListChildren: Boolean(file.capabilities?.canListChildren),
+    canDelete: Boolean(file.capabilities?.canDelete),
   }
 }
 

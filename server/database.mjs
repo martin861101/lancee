@@ -59,6 +59,7 @@ function mapContext(row) {
       id: row.user_id,
       name: row.user_name,
       email: row.user_email,
+      avatarUrl: row.user_avatar_url || '',
       passwordSalt: row.password_salt,
       passwordHash: row.password_hash,
     },
@@ -394,6 +395,20 @@ function mapNotification(row) {
   }
 }
 
+function mapGoogleDriveSelection(row) {
+  if (!row) return null
+  return {
+    driveFileId: row.drive_file_id,
+    rootFileId: row.root_file_id,
+    name: row.name,
+    mimeType: row.mime_type,
+    webViewLink: row.web_view_link,
+    resourceKind: row.resource_kind,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
 /**
  * Creates/opens a PostgreSQL database connection layer.
  * Connects to external Postgres if DATABASE_URL/PGHOST is supplied, otherwise
@@ -526,12 +541,14 @@ export async function openDatabase({
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
+      avatar_url TEXT NOT NULL DEFAULT '',
       password_salt TEXT NOT NULL,
       password_hash TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       disabled_at TEXT
     )`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT NOT NULL DEFAULT ''`,
     `CREATE TABLE IF NOT EXISTS registration_confirmations (
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
@@ -1140,6 +1157,18 @@ export async function openDatabase({
       updated_at TEXT NOT NULL,
       CHECK (client_id IS NOT NULL OR project_id IS NOT NULL)
     )`,
+    `CREATE TABLE IF NOT EXISTS google_drive_selections (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      drive_file_id TEXT NOT NULL,
+      root_file_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      web_view_link TEXT,
+      resource_kind TEXT NOT NULL CHECK (resource_kind IN ('folder', 'file')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, drive_file_id)
+    )`,
     `CREATE TABLE IF NOT EXISTS workspace_documents (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1190,6 +1219,8 @@ export async function openDatabase({
       ON google_drive_resource_links (workspace_id, client_id)`,
     `CREATE INDEX IF NOT EXISTS idx_drive_resource_links_project
       ON google_drive_resource_links (workspace_id, project_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_drive_selections_root
+      ON google_drive_selections (workspace_id, root_file_id)`,
     `CREATE INDEX IF NOT EXISTS idx_invoices_workspace_status
       ON invoices (workspace_id, status)`,
     `CREATE INDEX IF NOT EXISTS idx_idempotency_expiry
@@ -1740,6 +1771,7 @@ export async function openDatabase({
            users.id AS user_id,
            users.name AS user_name,
            users.email AS user_email,
+           users.avatar_url AS user_avatar_url,
            users.password_salt,
            users.password_hash,
            workspaces.id AS workspace_id,
@@ -1762,6 +1794,7 @@ export async function openDatabase({
            users.id AS user_id,
            users.name AS user_name,
            users.email AS user_email,
+           users.avatar_url AS user_avatar_url,
            users.password_salt,
            users.password_hash,
            workspaces.id AS workspace_id,
@@ -4441,6 +4474,16 @@ export async function openDatabase({
       return rows.map(mapNotification)
     },
 
+    async markWorkspaceNotificationRead(selectedWorkspaceId, id) {
+      await query(
+        `UPDATE workspace_notifications
+         SET read_at = COALESCE(read_at, $1)
+         WHERE workspace_id = $2 AND id = $3`,
+        [nowIso(), selectedWorkspaceId, id],
+      )
+      return await this.getWorkspaceNotification(selectedWorkspaceId, id)
+    },
+
     async updateProjectStatus(selectedWorkspaceId, id, status) {
       await query(
         `UPDATE projects SET status = $1, updated_at = $2 WHERE workspace_id = $3 AND id = $4`,
@@ -4660,6 +4703,130 @@ export async function openDatabase({
       )
     },
 
+    async listGoogleDriveSelections(selectedWorkspaceId) {
+      const rows = await query(
+        `SELECT drive_file_id, root_file_id, name, mime_type, web_view_link,
+                resource_kind, created_at, updated_at
+         FROM google_drive_selections
+         WHERE workspace_id = $1
+         ORDER BY updated_at DESC`,
+        [selectedWorkspaceId],
+      )
+      return rows.map(mapGoogleDriveSelection)
+    },
+
+    async listGoogleDriveRootFileIds(selectedWorkspaceId) {
+      const rows = await query(
+        `SELECT drive_file_id
+         FROM google_drive_selections
+         WHERE workspace_id = $1 AND drive_file_id = root_file_id
+         UNION
+         SELECT drive_file_id
+         FROM google_drive_resource_links
+         WHERE workspace_id = $2
+         UNION
+         SELECT drive_file_id
+         FROM workspace_documents
+         WHERE workspace_id = $3 AND drive_file_id IS NOT NULL`,
+        [selectedWorkspaceId, selectedWorkspaceId, selectedWorkspaceId],
+      )
+      return [...new Set(rows.map((row) => String(row.drive_file_id || '').trim()).filter(Boolean))]
+    },
+
+    async getGoogleDriveSelectionRoot(selectedWorkspaceId, driveFileId) {
+      const rows = await query(
+        `SELECT root_file_id FROM google_drive_selections
+         WHERE workspace_id = $1 AND drive_file_id = $2`,
+        [selectedWorkspaceId, driveFileId],
+      )
+      return rows[0]?.root_file_id || null
+    },
+
+    async replaceGoogleDriveSelections(selectedWorkspaceId, selections) {
+      const timestamp = nowIso()
+      await query(
+        `DELETE FROM google_drive_selections WHERE workspace_id = $1`,
+        [selectedWorkspaceId],
+      )
+      for (const selection of selections) {
+        await query(
+          `INSERT INTO google_drive_selections (
+             workspace_id, drive_file_id, root_file_id, name, mime_type,
+             web_view_link, resource_kind, created_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            selectedWorkspaceId,
+            selection.driveFileId,
+            selection.driveFileId,
+            selection.name,
+            selection.mimeType,
+            selection.webViewLink || null,
+            selection.resourceKind,
+            timestamp,
+            timestamp,
+          ],
+        )
+      }
+      return await this.listGoogleDriveSelections(selectedWorkspaceId)
+    },
+
+    async upsertGoogleDriveSelection({ workspaceId, rootFileId, file }) {
+      const timestamp = nowIso()
+      const resourceKind = file.mimeType === 'application/vnd.google-apps.folder'
+        ? 'folder'
+        : 'file'
+      await query(
+        `INSERT INTO google_drive_selections (
+           workspace_id, drive_file_id, root_file_id, name, mime_type,
+           web_view_link, resource_kind, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (workspace_id, drive_file_id) DO UPDATE SET
+           root_file_id = EXCLUDED.root_file_id,
+           name = EXCLUDED.name,
+           mime_type = EXCLUDED.mime_type,
+           web_view_link = EXCLUDED.web_view_link,
+           resource_kind = EXCLUDED.resource_kind,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          workspaceId,
+          file.id,
+          rootFileId || file.id,
+          file.name,
+          file.mimeType,
+          file.webViewLink || null,
+          resourceKind,
+          timestamp,
+          timestamp,
+        ],
+      )
+    },
+
+    async upsertGoogleDriveSelectionFiles(selectedWorkspaceId, rootFileId, files) {
+      for (const file of files) {
+        await this.upsertGoogleDriveSelection({
+          workspaceId: selectedWorkspaceId,
+          rootFileId,
+          file,
+        })
+      }
+    },
+
+    async deleteGoogleDriveSelection(selectedWorkspaceId, driveFileId) {
+      await query(
+        `DELETE FROM google_drive_selections
+         WHERE workspace_id = $1 AND (drive_file_id = $2 OR root_file_id = $2)`,
+        [selectedWorkspaceId, driveFileId],
+      )
+    },
+
+    async deleteDriveResourceLinksForFile(selectedWorkspaceId, driveFileId) {
+      await query(
+        `DELETE FROM google_drive_resource_links
+         WHERE workspace_id = $1 AND drive_file_id = $2`,
+        [selectedWorkspaceId, driveFileId],
+      )
+    },
+
     async listWorkspaceDocuments(selectedWorkspaceId) {
       const rows = await query(
         `SELECT id, workspace_id, name, mime_type, size, content_sha256,
@@ -4791,6 +4958,16 @@ export async function openDatabase({
       await query(
         `DELETE FROM workspace_documents WHERE workspace_id = $1 AND id = $2`,
         [selectedWorkspaceId, id],
+      )
+    },
+
+    async clearWorkspaceDocumentDriveLink(selectedWorkspaceId, driveFileId) {
+      await query(
+        `UPDATE workspace_documents
+         SET drive_file_id = NULL, drive_web_view_link = NULL,
+             synced_at = NULL, updated_at = $1
+         WHERE workspace_id = $2 AND drive_file_id = $3`,
+        [nowIso(), selectedWorkspaceId, driveFileId],
       )
     },
 
@@ -5461,6 +5638,13 @@ export async function openDatabase({
         passwordHash: row.password_hash,
         disabledAt: row.disabled_at,
       }
+    },
+
+    async updateUserAvatar(userId, avatarUrl) {
+      await query(
+        `UPDATE users SET avatar_url = $1, updated_at = $2 WHERE id = $3`,
+        [avatarUrl || '', nowIso(), userId],
+      )
     },
 
     async getRegistrationConfirmationByTokenHash(tokenHash) {

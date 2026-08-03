@@ -57,7 +57,7 @@ database migration are resolved by email for a compatible transition.
 
 ## Administrator sign-in
 
-Open [https://agents.hygridtech.co.za](https://agents.hygridtech.co.za), select
+Open [https://lancee.hookitupservices.com](https://lancee.hookitupservices.com), select
 **Sign in**, and use the email configured in `ADMIN_EMAIL` with the password
 used to generate the current hash. There is no dashboard bypass or plaintext
 password stored on the server.

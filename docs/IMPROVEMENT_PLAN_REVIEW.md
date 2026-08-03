@@ -101,7 +101,7 @@ external credentials or unresolved data-model decisions:
   automation terminology.
 - The platform replacement map now specifies `/v1/automations` routes.
 
-The public `agents.hygridtech.co.za` hostname and legacy PM2 process name were
+The public `lancee.hookitupservices.com` hostname and legacy PM2 process name were
 intentionally left unchanged because they are deployment identifiers, not
 domain-model terminology.
 

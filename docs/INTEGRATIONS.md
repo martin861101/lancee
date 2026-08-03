@@ -74,7 +74,7 @@ lancee can send either:
 The UI generates the callback:
 
 ```text
-https://agents.hygridtech.co.za/api/hooks/n8n/wsp_primary
+https://lancee.hookitupservices.com/api/hooks/n8n/wsp_primary
 ```
 
 An n8n HTTP Request node can call the callback with either GET or POST. Both
@@ -172,7 +172,7 @@ Durable storage and mutation replay behavior are documented in
 
 ## Deployment
 
-- Public URL: `https://agents.hygridtech.co.za`
+- Public URL: `https://lancee.hookitupservices.com`
 - Application listener: `0.0.0.0:5177`
 - PM2 process: `nexus-agents-platform`
 - TLS and reverse proxy: Nginx Proxy Manager

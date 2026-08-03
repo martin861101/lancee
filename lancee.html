@@ -387,7 +387,7 @@
   </div>
   <div class="topbar-actions">
     <a class="btn btn-outline" href="#api-reference"><span class="full">API reference</span></a>
-    <a class="btn btn-gradient" href="https://agents.hygridtech.co.za" target="_blank" rel="noopener">Open lancee →</a>
+    <a class="btn btn-gradient" href="https://lancee.hookitupservices.com" target="_blank" rel="noopener">Open lancee →</a>
   </div>
 </header>
 
@@ -402,7 +402,7 @@
   <div class="hero-facts">
     <div class="hero-fact">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
-      <div><b>Six product surfaces</b><span>Home, Work, Ideas, Automations, Connections, Money</span></div>
+      <div><b>Full workspace suite</b><span>Home, Clients, Work, Ideas, Files, Messages, Automations, Money, and more</span></div>
     </div>
     <div class="hero-fact">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
@@ -420,6 +420,13 @@
     <div class="nav-group">
       <div class="nav-group-label">Start</div>
       <a href="#overview">Overview</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Current platform</div>
+      <a href="#workspace-features">Functions available now</a>
+      <a href="#files-drive">Files &amp; Google Drive</a>
+      <a href="#mail">Messages &amp; mail</a>
+      <a href="#ai-workspaces">AI</a>
     </div>
     <div class="nav-group">
       <div class="nav-group-label">Product Vision</div>
@@ -482,7 +489,7 @@
       <div class="kicker">Start here</div>
       <h2 class="section-heading"><span class="fold"></span>What lancee is</h2>
       <p>lancee is a portable operating workspace for freelancers and small business owners. It keeps client work, ideas, lightweight automations, connected tools, invoices, and payments in one calm place. AI is optional and appears only where it removes meaningful effort from an existing workflow.</p>
-      <p>The application is built with <strong>React, TypeScript, Vite</strong>, and a small <strong>Express</strong> backend, persisted to <strong>SQLite</strong>. Live platform: <a href="https://agents.hygridtech.co.za" target="_blank" rel="noopener">agents.hygridtech.co.za</a>.</p>
+      <p>The application is built with <strong>React, TypeScript, Vite</strong>, and an <strong>Express</strong> backend. PostgreSQL is the production database, SQLite is the single-process local fallback, and Redis backs queued automation work with an in-process fallback for development. Live platform: <a href="https://lancee.hookitupservices.com" target="_blank" rel="noopener">lancee.hookitupservices.com</a>.</p>
 
       <div class="pill-row">
         <span class="pill pill-live">Live &amp; durable</span>
@@ -494,16 +501,40 @@
 
       <h3 class="subheading"><span class="fold"></span>Product surfaces</h3>
       <div class="card-grid">
-        <div class="card"><h4>Home</h4><p>Attention view — projects, deadlines, outstanding invoices, automations, and recent activity.</p></div>
-        <div class="card"><h4>Work</h4><p>Travel-aware client and project tracking, deadlines, progress, and deliverables.</p></div>
-        <div class="card"><h4>Ideas</h4><p>Visual canvas with durable, versioned quick notes that stay readable and editable offline.</p></div>
-        <div class="card"><h4>Automations</h4><p>Plain-language routines for repetitive work, schedules, and activity history.</p></div>
-        <div class="card"><h4>Connections</h4><p>Design, communication, storage, payment, n8n, and managed MCP services.</p></div>
-        <div class="card"><h4>Money</h4><p>Durable ZAR invoices, real Paystack payment links, and verified webhook reconciliation.</p></div>
+        <div class="card"><h4>Home</h4><p>Attention view with projects, deadlines, client totals, invoices, automations, analytics, and recent activity.</p></div>
+        <div class="card"><h4>Clients &amp; Work</h4><p>Client records, searchable projects, Kanban workspaces, files, links, reviews, approvals, and deliverables.</p></div>
+        <div class="card"><h4>Ideas &amp; PDF Studio</h4><p>Excalidraw boards, imported assets, offline editing, libraries, and styled PDF generation.</p></div>
+        <div class="card"><h4>Files &amp; Messages</h4><p>Workspace documents, Google Drive Picker selections, mail folders, search, compose, and mail-triggered automations.</p></div>
+        <div class="card"><h4>Automations &amp; Results</h4><p>Core and Edge recipes, workflow templates, schedules, approvals, runs, logs, retries, and outcome cards.</p></div>
+        <div class="card"><h4>Money &amp; Storefront</h4><p>ZAR invoices and Paystack checkout alongside optional storefront previews and custom-domain setup.</p></div>
+        <div class="card"><h4>Connections &amp; Services</h4><p>Google Drive, Mail, Paystack, n8n, Basebox/MCP services, AI providers, and connection requests.</p></div>
+        <div class="card"><h4>Workspace controls</h4><p>Team roles, API keys, notifications, profile images, settings, command palette, logout, and PWA support.</p></div>
       </div>
 
       <h3 class="subheading"><span class="fold"></span>What's real right now</h3>
-      <p>Authentication, workspace membership, MCP grants and service activation, API keys, Idea quick notes, Paystack invoices/payment links, and the n8n bridge are all backed by durable server flows. Projects, the broader visual board, automation execution, and standard Stripe/PayPal connections are still typed in-memory placeholders.</p>
+      <p>The browser client uses real Express APIs for authentication, registration, invitations, clients, projects, project files, documents, Google Drive, Messages, automations, runs, analytics, team membership, cloud links, storefronts, notifications, API keys, Paystack, n8n, MCP, and AI. Unsupported business systems are recorded as connection requests instead of fake connected states. Demo seeding is off by default.</p>
+    </section>
+
+    <section id="workspace-features" class="section-block">
+      <div class="kicker">Current platform</div>
+      <h2 class="section-heading"><span class="fold"></span>Functions available now</h2>
+      <p>This is the current product boundary. A <span class="pill pill-live">Live</span> capability is backed by the application API or a verified provider response; <span class="pill pill-preview">Preview</span> describes a presentational or optional surface; unsupported providers remain requestable without being represented as connected.</p>
+      <div class="table-wrap"><table>
+        <tr><th>Area</th><th>Current functions</th></tr>
+        <tr><td><strong>Identity &amp; workspace</strong></td><td>Sign in, registration, email confirmation, invitations, signed sessions, owner/collaborator/viewer roles, profile image upload/removal, settings, and explicit logout.</td></tr>
+        <tr><td><strong>Client delivery</strong></td><td>Clients, projects, Kanban boards, custom buckets, status moves, project files, external links, client reviews, artwork annotations, approvals, and draft invoices.</td></tr>
+        <tr><td><strong>Ideas</strong></td><td>Excalidraw boards, bundled libraries, imported assets, PDF export, workspace board names, IndexedDB persistence, queued note mutations, and conflict resolution.</td></tr>
+        <tr><td><strong>Files</strong></td><td>Workspace documents, PDF/DOC/DOCX/Markdown/text/image upload, in-app editing, Drive sync, Google Picker selection persistence, lazy folder browsing, cache-safe refresh, and Drive trash actions.</td></tr>
+        <tr><td><strong>Messages</strong></td><td>Provider discovery, IMAP/SMTP setup, folder and message reads, server-side search, compose/reply, sanitised HTML, polling, and keyword-based native automations.</td></tr>
+        <tr><td><strong>Automation</strong></td><td>Core and Edge recipes, workflow templates, schedules, tool permissions, approvals, Redis-backed execution, run events, logs, retries, and result summaries.</td></tr>
+        <tr><td><strong>Commerce</strong></td><td>Storefront style previews and domains; Money supports durable ZAR invoices, Paystack hosted payment links, and signed webhook reconciliation.</td></tr>
+        <tr><td><strong>Connected intelligence</strong></td><td>n8n signed webhooks, MCP/Basebox service discovery and invocation, and Workspace AI approvals.</td></tr>
+        <tr><td><strong>Operations</strong></td><td>Analytics, team management, API keys, notifications with unread/read state, command palette, mobile navigation, PWA shell, and offline Ideas.</td></tr>
+      </table></div>
+      <div class="callout callout-note">
+        <span class="callout-label">Provider boundary</span>
+        <p>Paystack is the current live payment provider. Stripe and PayPal are not presented as connected payment implementations. Google Drive, Mail, n8n, MCP/Basebox, AI, and Paystack are configured through their current Connections or server environment flows.</p>
+      </div>
     </section>
 
     <!-- PRODUCT VISION -->
@@ -537,12 +568,15 @@
       <h2 class="section-heading"><span class="fold"></span>Navigation &amp; information architecture</h2>
       <p>The primary navigation is stable and user-centered. Global search and quick capture span every section, and each record links to related clients, projects, ideas, invoices, connections, and automation runs.</p>
       <ul>
-        <li><strong>Home</strong> — today's priorities, upcoming deadlines, recent activity, blocked work, unpaid invoices, and failed automations. Cards link to their source records; Home is never a separate data silo.</li>
-        <li><strong>Work</strong> — clients, projects, briefs, tasks, milestones, files, approvals, and deliverables. Default hierarchy is <code>Client → Project → Work items</code>, with lightweight work allowed before a client is assigned.</li>
-        <li><strong>Ideas</strong> — fast capture for notes, references, images, links, and early concepts. Ideas can be tagged, grouped, linked to clients/projects, or promoted into a brief, task, or project while retaining provenance.</li>
-        <li><strong>Automations</strong> — user-visible recipes, triggers, runs, approvals, and failure history, described in plain language. Advanced configuration may expose n8n details without making n8n the primary interface.</li>
-        <li><strong>Connections</strong> — external services, credentials, permission scopes, sync health, last successful sync, and reconnect controls.</li>
-        <li><strong>Money</strong> — estimates, invoices, payment links, payment status, expenses where supported, and a simple cash overview. Stripe, PayPal, and Paystack are first-class providers, represented with their real capabilities rather than false parity.</li>
+        <li><strong>Home</strong> — today's priorities, upcoming deadlines, recent activity, client totals, unpaid invoices, and automation status. Cards link to their source records; Home is never a separate data silo.</li>
+        <li><strong>Clients &amp; Work</strong> — clients, projects, briefs, tasks, milestones, files, approvals, reviews, and deliverables. Default hierarchy is <code>Client → Project → Work items</code>, with lightweight work allowed before a client is assigned.</li>
+        <li><strong>Ideas &amp; PDF Studio</strong> — Excalidraw boards, references, images, links, early concepts, bundled libraries, PDF export, and styled document generation. Offline Ideas data is scoped to the workspace and board in IndexedDB.</li>
+        <li><strong>Files</strong> — workspace documents, project attachments, external cloud links, and Google Drive resources selected through Google Picker. Drive browsing is selection-based and folder contents load on demand.</li>
+        <li><strong>Messages</strong> — connected mailbox folders, search, reading, compose, replies, provider discovery, and native mail-triggered automation rules.</li>
+        <li><strong>Automations &amp; Results</strong> — user-visible Core and Edge recipes, triggers, runs, approvals, logs, retries, workflow templates, and failure history, described in plain language.</li>
+        <li><strong>Connections &amp; Services</strong> — Google Drive, Mail, Paystack, n8n, MCP/Basebox, AI providers, credential status, permission scopes, sync health, and reconnect controls.</li>
+        <li><strong>Money</strong> — durable ZAR invoices, Paystack payment links, payment status, verified webhooks, draft invoice review, and a simple cash overview. Unsupported payment systems remain requestable rather than falsely connected.</li>
+        <li><strong>Storefront, Team &amp; Settings</strong> — optional storefront previews and domains, member roles, API keys, notifications, profile images, workspace settings, and account controls.</li>
       </ul>
     </section>
 
@@ -565,8 +599,8 @@
         <li>A liquor client sends a packaging brief. The designer creates a project in <strong>Work</strong>, attaches the brief, and links the captured idea.</li>
         <li>AI optionally summarizes constraints and suggests a task list; the designer reviews and accepts only useful items.</li>
         <li>The project tracks research, label concepts, regulatory copy, dieline preparation, client review, revisions, and final production files.</li>
-        <li>An approved automation uses n8n to copy final files to connected storage, notify the client, and record the run against the project. Any failure appears on Home and in Automations.</li>
-        <li>The designer creates an invoice in <strong>Money</strong> from approved milestones, selects Stripe, PayPal, or Paystack, verifies amount and recipient, and explicitly sends it.</li>
+        <li>An approved automation uses n8n or a native Core recipe to copy final files to connected storage, notify the client, and record the run against the project. Any failure appears on Home and in Results.</li>
+        <li>The designer creates an invoice in <strong>Money</strong> from approved milestones, uses Paystack when configured, verifies amount and recipient, and explicitly sends the hosted checkout link.</li>
         <li>A verified provider webhook marks the invoice paid. Home clears the outstanding-payment alert, and the project timeline records the event.</li>
       </ol>
       <p>The full workflow remains possible manually if AI, n8n, MCP, or a payment connection is unavailable.</p>
@@ -597,10 +631,10 @@
       <h3 class="subheading"><span class="fold"></span>Phased roadmap</h3>
       <div class="table-wrap"><table>
         <tr><th>Phase</th><th>Focus</th></tr>
-        <tr><td><strong>1 · Coherent core</strong></td><td>Six-section navigation, shared record-linking, Home attention view, basic Money records, explicit sample/live/pending/error states, manual workflows end to end.</td></tr>
-        <tr><td><strong>2 · Get paid &amp; stay connected</strong></td><td>Production-grade Stripe/PayPal/Paystack, invoice sending, provider references, verified webhooks, Connections health and audit history.</td></tr>
-        <tr><td><strong>3 · Repeatable operations</strong></td><td>n8n-backed recipes with approval gates and retries, MCP connections for bounded context/actions, templates for common freelancer workflows.</td></tr>
-        <tr><td><strong>4 · Optional intelligence &amp; growth</strong></td><td>Contextual AI on validated high-effort tasks, cross-workspace search and summaries, lightweight shared access for small studios.</td></tr>
+        <tr><td><strong>1 · Coherent core</strong></td><td>Client delivery, Ideas, Files, Messages, Money, storefront, shared record-linking, explicit live/pending/draft/error states, and manual workflows end to end.</td></tr>
+        <tr><td><strong>2 · Get paid &amp; stay connected</strong></td><td>Paystack checkout and webhook reconciliation, Google Drive selection-based storage, mailbox sync, Connections health, and audit history.</td></tr>
+        <tr><td><strong>3 · Repeatable operations</strong></td><td>Core and n8n-backed recipes with approval gates and retries, MCP/Basebox services for bounded actions, and workflow templates for common freelancer work.</td></tr>
+        <tr><td><strong>4 · Optional intelligence &amp; growth</strong></td><td>Contextual AI on validated high-effort tasks, cross-workspace search and summaries, and lightweight shared access for small studios.</td></tr>
       </table></div>
       <p style="font-size:13.5px;">Each phase improves the non-AI product first — optional intelligence can accelerate a working workflow, but never substitutes for one.</p>
     </section>
@@ -642,7 +676,7 @@ chmod 600 .env</code></pre>
       <p>At minimum, set:</p>
       <pre><code>APP_ENV=production
 PORT=5177
-PUBLIC_ORIGIN=https://agents.hygridtech.co.za
+PUBLIC_ORIGIN=https://lancee.hookitupservices.com
 
 ADMIN_NAME=Workspace Admin
 ADMIN_EMAIL=admin@example.com
@@ -651,7 +685,29 @@ ADMIN_PASSWORD_HASH=
 SESSION_TTL_HOURS=12
 WORKSPACE_ID=wsp_primary
 WORKSPACE_NAME=Hookitup Solutions
-DATABASE_PATH=.runtime/lancee.sqlite</code></pre>
+ALLOW_REGISTRATION=true
+DATABASE_PATH=.runtime/lancee.sqlite
+DATABASE_URL=
+REDIS_URL=redis://127.0.0.1:6379
+REDIS_QUEUE_PREFIX=lancee</code></pre>
+      <p>For production, prefer PostgreSQL through <code>DATABASE_URL</code> or <code>PG*</code> settings. SQLite remains the local single-process fallback. Add an <code>ENCRYPTION_MASTER_KEY</code> before configuring mailbox credentials or other encrypted workspace integrations.</p>
+      <pre><code># Optional integrations
+ENCRYPTION_MASTER_KEY=
+GOOGLE_DRIVE_CLIENT_ID=
+GOOGLE_DRIVE_CLIENT_SECRET=
+GOOGLE_DRIVE_REDIRECT_URI=https://lancee.hookitupservices.com/oauth/callback
+GOOGLE_PICKER_API_KEY=
+GOOGLE_PICKER_APP_ID=
+MCP_GATEWAY_URL=https://mcp.hygridtech.co.za
+BASEBOX_MCP_URL=https://base-api.hygridtech.co.za/mcp
+BASEBOX_MCP_ACCESS_KEY=
+N8N_BASE_URL=https://n8n.hygridtech.co.za
+PAYSTACK_SECRET_KEY=
+AI_PROVIDER=
+AI_API_KEY=
+AI_MODEL=
+HERMES_ENDPOINT_URL=http://127.0.0.1:8642
+HERMES_API_KEY=</code></pre>
       <p>Use the exact public scheme and hostname for <code>PUBLIC_ORIGIN</code>, with no trailing slash. Then generate administrator credentials interactively:</p>
       <pre><code>pnpm auth:hash</code></pre>
       <div class="callout callout-security">
@@ -681,15 +737,17 @@ curl -i http://127.0.0.1:5177/api/auth/session
     <section id="gs-first-workspace" class="section-block">
       <h2 class="section-heading"><span class="fold"></span>First workspace setup</h2>
       <ol>
-        <li>Review <strong>Home</strong> for projects, upcoming work, outstanding invoices, and recent activity.</li>
-        <li>Open <strong>Work</strong> and create a sample client project.</li>
-        <li>Open <strong>Ideas</strong> to capture references, colours, notes, and early directions on the project canvas.</li>
-        <li>Open <strong>Automations</strong> and describe one repetitive task in plain language.</li>
-        <li>Open <strong>Connections</strong> to preview Stripe/PayPal, inspect Paystack status, configure n8n, and request managed service access.</li>
-        <li>Open <strong>Money</strong> to review invoice status and create a draft invoice.</li>
-        <li>Open <strong>Settings</strong> to review workspace profile, authentication, and travel preferences.</li>
+        <li>Review <strong>Home</strong> for projects, upcoming work, client totals, outstanding invoices, automation runs, and recent activity.</li>
+        <li>Open <strong>Clients</strong> and <strong>Work</strong> to create a client project, attach files, set a due date, and try a Kanban status move.</li>
+        <li>Open <strong>Ideas</strong> to capture references, colours, notes, and early directions; use <strong>PDF Studio</strong> when a styled document is needed.</li>
+        <li>Open <strong>Files</strong>, connect Google Drive, select only the folders/files this workspace should browse, and confirm folder contents load on demand.</li>
+        <li>Open <strong>Messages</strong> to discover a mailbox or configure IMAP/SMTP, then review folders, search, and mail rules.</li>
+        <li>Open <strong>Automations</strong> or <strong>Workflows</strong> to create a Core recipe; use <strong>Results</strong> to inspect run steps, logs, and failures.</li>
+        <li>Open <strong>Connections</strong> to configure Mail, Drive, Paystack, n8n, MCP/Basebox, or AI. Unsupported providers can be requested without being marked connected.</li>
+        <li>Open <strong>Money</strong> to review ZAR invoice status and create a Paystack hosted payment link when configured.</li>
+        <li>Open <strong>Settings</strong> to add a profile image, update workspace preferences, inspect Dev Tools, and test logout.</li>
       </ol>
-      <p style="font-size:13.5px;">Project, broader idea-canvas, automation, and standard Stripe/PayPal actions are currently in-memory placeholders and may reset. Auth, MCP, API keys, Idea notes, Paystack, and n8n are real and durable.</p>
+      <p style="font-size:13.5px;">Current durable flows use the real Express API and workspace-scoped persistence. Optional integrations may remain disconnected or pending until their server credentials and provider setup are complete; demo seeding is disabled unless explicitly enabled.</p>
 
       <h3 class="subheading"><span class="fold"></span>Install &amp; verify offline Ideas</h3>
       <ol>
@@ -710,23 +768,23 @@ curl -i http://127.0.0.1:5177/api/auth/session
 pnpm build
 pm2 startOrReload ecosystem.config.cjs --update-env
 pm2 save
-pm2 describe nexus-agents-platform</code></pre>
-      <p><code>nexus-agents-platform</code> is the legacy internal PM2 process name; the public product and service remain <strong>lancee</strong>.</p>
+pm2 describe lancee</code></pre>
+      <p>The PM2 process is <strong>lancee</strong>, running <code>server/index.mjs</code> with the repository's <code>.env</code> file.</p>
 
       <div class="table-wrap"><table>
         <tr><th>Reverse proxy setting</th><th>Value</th></tr>
-        <tr><td>Public hostname</td><td><code>agents.hygridtech.co.za</code></td></tr>
+        <tr><td>Public hostname</td><td><code>lancee.hookitupservices.com</code></td></tr>
         <tr><td>Forward scheme</td><td><code>http</code></td></tr>
-        <tr><td>Forward host</td><td><code>192.168.1.66</code></td></tr>
+        <tr><td>Forward host</td><td><code>127.0.0.1</code> or the host running the app</td></tr>
         <tr><td>Forward port</td><td><code>5177</code></td></tr>
         <tr><td>TLS / Force HTTPS</td><td>Enabled</td></tr>
         <tr><td>WebSocket support</td><td>Enabled</td></tr>
       </table></div>
 
       <h3 class="subheading"><span class="fold"></span>Production verification</h3>
-      <pre><code>curl -fsS https://agents.hygridtech.co.za/api/health
-curl -I https://agents.hygridtech.co.za
-pm2 logs nexus-agents-platform --nostream --lines 50</code></pre>
+      <pre><code>curl -fsS https://lancee.hookitupservices.com/api/health
+curl -I https://lancee.hookitupservices.com
+pm2 logs lancee --nostream --lines 50</code></pre>
       <p>In a private browser window, confirm: HTTPS loads without a certificate warning, the landing page appears before sign-in, invalid credentials fail without identifying the wrong field, valid credentials open the workspace, refresh preserves the session, and sign-out clears it.</p>
 
       <h3 class="subheading"><span class="fold"></span>Updating an existing deployment</h3>
@@ -734,7 +792,7 @@ pm2 logs nexus-agents-platform --nostream --lines 50</code></pre>
 pnpm install --frozen-lockfile
 pnpm build
 pm2 startOrReload ecosystem.config.cjs --update-env
-curl -fsS https://agents.hygridtech.co.za/api/health</code></pre>
+curl -fsS https://lancee.hookitupservices.com/api/health</code></pre>
       <p>Do not overwrite an existing <code>.env</code> during an update.</p>
 
       <h3 class="subheading"><span class="fold"></span>Backend verification suite</h3>
@@ -744,8 +802,20 @@ pnpm verify:durability
 pnpm verify:paystack
 pnpm verify:n8n
 pnpm verify:offline
+pnpm verify:google-drive
+pnpm verify:mail
+pnpm verify:client-files
+pnpm verify:workspace-flows
+pnpm verify:ai
+pnpm verify:basebox
+pnpm verify:basebox:live
+pnpm verify:core-edge
+pnpm verify:postgres
+pnpm verify:platform
 node --check server/database.mjs
 node --check server/index.mjs
+node --check server/google-drive.mjs
+node --check server/mail.mjs
 node --check server/notifications.mjs
 node --check server/paystack.mjs
 node --check server/n8n.mjs
@@ -763,11 +833,11 @@ node --check public/sw.js</code></pre>
         <tr><td>Login returns <code>403 Origin not allowed</code></td><td>Browser address vs. <code>PUBLIC_ORIGIN</code></td><td>Match scheme, hostname, and port exactly</td></tr>
         <tr><td>Cookie not retained locally</td><td><code>APP_ENV</code></td><td>Use <code>APP_ENV=development</code> for local HTTP</td></tr>
         <tr><td>SMTP test says "not configured"</td><td>SMTP status and <code>.env</code></td><td>Enable SMTP with host/port/from address; restart</td></tr>
-        <tr><td>MCP request stays pending</td><td><code>MCP_API_TOKEN</code></td><td>Expected in manual mode; configure a server token for auto-approval</td></tr>
-        <tr><td>Durable state missing after restart</td><td><code>DATABASE_PATH</code> and permissions</td><td>Confirm every process uses the same writable SQLite path</td></tr>
+        <tr><td>MCP request stays pending</td><td><code>MCP_API_TOKEN</code> / Basebox access</td><td>Expected when no live server provider is configured; set the relevant server-only credential and restart</td></tr>
+        <tr><td>Durable state missing after restart</td><td><code>DATABASE_URL</code>, <code>PG*</code>, or <code>DATABASE_PATH</code></td><td>Confirm every process uses the same PostgreSQL database or writable local SQLite path</td></tr>
         <tr><td>Mutation returns <code>400</code></td><td><code>Idempotency-Key</code> header</td><td>Supply a stable 8–128 character key</td></tr>
         <tr><td>Mutation returns <code>409</code></td><td>Reused idempotency key</td><td>Reuse the original payload, or issue a new key</td></tr>
-        <tr><td>Paystack card says not configured</td><td><code>PAYSTACK_SECRET_KEY</code></td><td>Add a valid test key and restart</td></tr>
+        <tr><td>Paystack card says not configured</td><td>Money connection or <code>PAYSTACK_SECRET_KEY</code></td><td>Connect a workspace key in Connections, or add a valid environment key and restart</td></tr>
         <tr><td>Paystack webhook returns <code>401</code></td><td>Raw body / <code>x-paystack-signature</code></td><td>Confirm the exact webhook URL and unmodified body</td></tr>
         <tr><td>n8n URL rejected</td><td>Scheme, origin, DNS</td><td>Use HTTPS on the exact <code>N8N_BASE_URL</code> with public DNS</td></tr>
         <tr><td>n8n callback returns <code>401</code></td><td>Timestamp, nonce, canonical signature</td><td>Sign the exact transmitted bytes; clocks within 5 minutes</td></tr>
@@ -781,33 +851,48 @@ node --check public/sw.js</code></pre>
 
     <section id="gs-env-reference" class="section-block">
       <h2 class="section-heading"><span class="fold"></span>Environment variable reference</h2>
+      <p><code>.env.example</code> is the source of truth for names and safe defaults. Keep provider secrets server-side, use blank values for integrations that are not enabled, and never commit <code>.env</code>.</p>
       <div class="table-wrap"><table>
         <tr><th>Variable</th><th>Required</th><th>Description</th></tr>
         <tr><td><code>APP_ENV</code></td><td>Yes</td><td><code>production</code> behind HTTPS; <code>development</code> for local HTTP</td></tr>
         <tr><td><code>PORT</code></td><td>Yes</td><td>Express listener; standard value <code>5177</code></td></tr>
         <tr><td><code>PUBLIC_ORIGIN</code></td><td>Yes</td><td>Exact browser origin allowed for state-changing requests</td></tr>
-        <tr><td><code>ADMIN_NAME</code></td><td>Recommended</td><td>Display name/initials for the initial administrator</td></tr>
-        <tr><td><code>ADMIN_EMAIL</code></td><td>Yes</td><td>Case-insensitive administrator sign-in email</td></tr>
-        <tr><td><code>ADMIN_PASSWORD_SALT</code></td><td>Yes</td><td>Output from <code>pnpm auth:hash</code></td></tr>
-        <tr><td><code>ADMIN_PASSWORD_HASH</code></td><td>Yes</td><td>Output from <code>pnpm auth:hash</code></td></tr>
+        <tr><td><code>ADMIN_NAME</code> / <code>ADMIN_EMAIL</code></td><td>Bootstrap</td><td>Initial administrator display name and sign-in email</td></tr>
+        <tr><td><code>ADMIN_PASSWORD_SALT</code> / <code>HASH</code></td><td>Bootstrap</td><td>Outputs from <code>pnpm auth:hash</code>; never store plaintext</td></tr>
         <tr><td><code>SESSION_TTL_HOURS</code></td><td>Recommended</td><td>Signed-session lifetime; default <code>12</code></td></tr>
-        <tr><td><code>WORKSPACE_ID</code></td><td>Recommended</td><td>Stable id for the bootstrap workspace</td></tr>
-        <tr><td><code>WORKSPACE_NAME</code></td><td>Recommended</td><td>Initial display name for the bootstrap workspace</td></tr>
-        <tr><td><code>DATABASE_PATH</code></td><td>Recommended</td><td>SQLite path; defaults to <code>.runtime/lancee.sqlite</code></td></tr>
+        <tr><td><code>WORKSPACE_ID</code> / <code>WORKSPACE_NAME</code></td><td>Recommended</td><td>Stable bootstrap workspace identity and display name</td></tr>
+        <tr><td><code>ALLOW_REGISTRATION</code></td><td>Recommended</td><td>Allow invitation/registration flows; default <code>true</code></td></tr>
+        <tr><td><code>SEED_DEMO_DATA</code></td><td>No</td><td>Keep <code>false</code> in production; enables explicit demo fixtures</td></tr>
+        <tr><td><code>DATABASE_URL</code></td><td>Production</td><td>Preferred PostgreSQL connection URL</td></tr>
+        <tr><td><code>DATABASE_SSL</code></td><td>PostgreSQL</td><td>Set <code>true</code> when the PostgreSQL provider requires TLS</td></tr>
+        <tr><td><code>PGHOST</code> / <code>PGPORT</code> / <code>PGUSER</code></td><td>PostgreSQL</td><td>PostgreSQL connection fields; port defaults to <code>5432</code></td></tr>
+        <tr><td><code>PGPASSWORD</code> / <code>PGDATABASE</code></td><td>PostgreSQL</td><td>Server-side database password and database name</td></tr>
+        <tr><td><code>POSTGRES_USER</code> / <code>POSTGRES_PASSWORD</code> / <code>POSTGRES_DB</code></td><td>PostgreSQL service</td><td>Container/service bootstrap values; keep them aligned with the application database</td></tr>
+        <tr><td><code>PGPOOL_MAX</code> / <code>PGIDLE_TIMEOUT_MS</code> / <code>PGCONNECT_TIMEOUT_MS</code></td><td>Optional</td><td>Pool size and connection timeout controls</td></tr>
+        <tr><td><code>DATABASE_PATH</code></td><td>Local fallback</td><td>SQLite path; defaults to <code>.runtime/lancee.sqlite</code></td></tr>
+        <tr><td><code>REDIS_URL</code> / <code>REDIS_QUEUE_PREFIX</code></td><td>Recommended</td><td>Redis queue endpoint and namespace; jobs fall back in-process in development</td></tr>
+        <tr><td><code>ENCRYPTION_MASTER_KEY</code></td><td>Integrations</td><td>Key for encrypted mailbox, provider, and connection credentials</td></tr>
         <tr><td><code>SMTP_ENABLED</code></td><td>No</td><td>Set <code>true</code> only after SMTP is configured</td></tr>
-        <tr><td><code>SMTP_HOST</code> / <code>PORT</code> / <code>SECURE</code></td><td>When enabled</td><td>Transport host, port (587/465), and TLS mode</td></tr>
-        <tr><td><code>SMTP_USER</code> / <code>PASSWORD</code></td><td>Provider-dependent</td><td>SMTP account credentials</td></tr>
-        <tr><td><code>SMTP_FROM_NAME</code> / <code>FROM_EMAIL</code></td><td>Recommended / when enabled</td><td>Sender display name and envelope address</td></tr>
-        <tr><td><code>SMTP_REPLY_TO</code></td><td>No</td><td>Optional reply address</td></tr>
-        <tr><td><code>SMTP_TEST_TO</code></td><td>No</td><td>Test recipient; defaults to <code>ADMIN_EMAIL</code></td></tr>
-        <tr><td><code>MCP_GATEWAY_URL</code></td><td>Recommended</td><td>DNS URL of the managed MCP gateway</td></tr>
-        <tr><td><code>MCP_API_TOKEN</code></td><td>For auto-approval</td><td>Server-only MCP bearer token</td></tr>
-        <tr><td><code>N8N_BASE_URL</code></td><td>Recommended</td><td>DNS URL of the managed n8n instance</td></tr>
-        <tr><td><code>N8N_SIGNING_SECRET</code></td><td>Optional</td><td>Server-side bootstrap signing secret</td></tr>
-        <tr><td><code>N8N_TIMEOUT_MS</code></td><td>Recommended</td><td>Outbound timeout, clamped 250–30,000 ms</td></tr>
-        <tr><td><code>PAYSTACK_SECRET_KEY</code></td><td>For live flow</td><td>Server-only <code>sk_test_...</code> / <code>sk_live_...</code> key</td></tr>
-        <tr><td><code>PAYSTACK_BASE_URL</code></td><td>Recommended</td><td>Defaults to <code>https://api.paystack.co</code></td></tr>
-        <tr><td><code>PAYSTACK_CALLBACK_URL</code></td><td>Recommended</td><td>Browser return URL after hosted checkout</td></tr>
+        <tr><td><code>SMTP_HOST</code> / <code>SMTP_PORT</code> / <code>SMTP_SECURE</code></td><td>When enabled</td><td>Transport host, port (587/465), and TLS mode</td></tr>
+        <tr><td><code>SMTP_USER</code> / <code>SMTP_PASSWORD</code></td><td>Provider-dependent</td><td>SMTP account credentials</td></tr>
+        <tr><td><code>SMTP_FROM_NAME</code> / <code>SMTP_FROM_EMAIL</code></td><td>When enabled</td><td>Sender display name and envelope address</td></tr>
+        <tr><td><code>SMTP_REPLY_TO</code> / <code>SMTP_TEST_TO</code></td><td>No</td><td>Optional reply and test-recipient addresses</td></tr>
+        <tr><td><code>MAIL_SYNC_INTERVAL_MS</code> / <code>MAIL_ALLOW_PRIVATE_HOSTS</code></td><td>Optional</td><td>Mailbox poll interval (default 60s) and explicit private-host opt-in</td></tr>
+        <tr><td><code>GOOGLE_DRIVE_CLIENT_ID</code> / <code>CLIENT_SECRET</code></td><td>Drive</td><td>OAuth client credentials; keep the secret server-side</td></tr>
+        <tr><td><code>GOOGLE_DRIVE_REDIRECT_URI</code></td><td>Drive</td><td>OAuth callback, normally <code>https://lancee.hookitupservices.com/oauth/callback</code></td></tr>
+        <tr><td><code>GOOGLE_PICKER_API_KEY</code> / <code>GOOGLE_PICKER_APP_ID</code></td><td>Drive Picker</td><td>Browser Picker configuration values; access is still scoped by saved selections</td></tr>
+        <tr><td><code>MCP_GATEWAY_URL</code> / <code>MCP_API_TOKEN</code></td><td>MCP</td><td>Server gateway URL and optional server-only bearer token</td></tr>
+        <tr><td><code>MCP_ALLOWED_CATEGORIES</code></td><td>Optional</td><td>Comma-separated catalog categories; default <code>Browser,Utilities</code></td></tr>
+        <tr><td><code>BASEBOX_MCP_URL</code> / <code>BASEBOX_MCP_ACCESS_KEY</code></td><td>Basebox</td><td>Server-to-server Basebox MCP endpoint and access key</td></tr>
+        <tr><td><code>N8N_BASE_URL</code> / <code>N8N_SIGNING_SECRET</code></td><td>n8n</td><td>Managed n8n URL and server-side webhook signing secret</td></tr>
+        <tr><td><code>N8N_TIMEOUT_MS</code> / <code>N8N_ALLOW_PRIVATE</code> / <code>N8N_PRIVATE_NETWORK</code></td><td>Optional</td><td>Timeout and explicit network-policy controls</td></tr>
+        <tr><td><code>N8N_IMAGE</code> / <code>N8N_REDIS_PASSWORD</code> / <code>N8N_ENCRYPTION_KEY</code></td><td>n8n service</td><td>Optional container image, Redis password, and n8n encryption configuration</td></tr>
+        <tr><td><code>PAYSTACK_SECRET_KEY</code></td><td>Paystack</td><td>Server-only <code>sk_test_...</code> / <code>sk_live_...</code> key</td></tr>
+        <tr><td><code>PAYSTACK_BASE_URL</code> / <code>PAYSTACK_CALLBACK_URL</code></td><td>Paystack</td><td>API endpoint and browser return URL after hosted checkout</td></tr>
+        <tr><td><code>AI_PROVIDER</code> / <code>AI_API_KEY</code> / <code>AI_MODEL</code></td><td>AI</td><td>Optional server-side AI provider, key, and model</td></tr>
+        <tr><td><code>AI_MAX_TOKENS</code> / <code>AI_TEMPERATURE</code> / <code>AI_ENDPOINT_URL</code> / <code>AI_TIMEOUT_MS</code></td><td>AI</td><td>AI generation limits, endpoint, and timeout</td></tr>
+        <tr><td><code>HERMES_ENDPOINT_URL</code> / <code>HERMES_API_KEY</code> / <code>HERMES_MODEL</code></td><td>Hermes</td><td>Optional local/remote lancee AI fallback configuration</td></tr>
+        <tr><td><code>LANCEE_MCP_CODE_EXECUTION</code> / <code>LANCEE_MCP_PYTHON_BIN</code></td><td>Code tools</td><td>Enable bounded MCP code execution and select the Python binary</td></tr>
       </table></div>
     </section>
 
@@ -820,24 +905,31 @@ node --check public/sw.js</code></pre>
       <p>The platform is intentionally split into layers so the UI never depends on a specific database or auth vendor:</p>
       <ol>
         <li><code>src/App.tsx</code> owns presentation, navigation, local view state, feedback, and interactions.</li>
-        <li><code>src/lib/mockApi.ts</code> owns remaining placeholder contracts and seeded domain data, while routing durable auth, MCP state, and API-key actions to Express.</li>
-        <li><code>src/lib/offlineStore.ts</code> and <code>src/lib/ideasRepository.ts</code> own workspace-partitioned IndexedDB snapshots, queued Idea mutations, reconnect sync, and conflict resolution.</li>
-        <li><code>server/database.mjs</code> owns the SQLite schema and workspace-scoped durable repositories.</li>
+        <li><code>src/lib/api.ts</code> is the typed client boundary for the real Express API; feature repositories keep domain-specific loading and mutation behavior close to the UI.</li>
+        <li><code>src/lib/offlineStore.ts</code> and <code>src/lib/ideasRepository.ts</code> own workspace-partitioned IndexedDB snapshots, Excalidraw assets, queued Idea mutations, reconnect sync, and conflict resolution.</li>
+        <li><code>server/index.mjs</code> exposes authenticated workspace routes for the current product surfaces, while integration modules isolate Drive, mail, payments, n8n, MCP, and AI transports.</li>
+        <li><code>server/database.mjs</code> owns the provider-neutral repositories and selects PostgreSQL in production or SQLite for local single-process development.</li>
+        <li>Redis is the preferred queue backend for automation work; the in-process queue remains available as a development fallback.</li>
       </ol>
 
       <h3 class="subheading"><span class="fold"></span>Backend replacement map</h3>
       <div class="table-wrap"><table>
         <tr><th>Capability</th><th>Status</th><th>Route / action</th></tr>
-        <tr><td>Auth session / sign-in / sign-out</td><td><span class="pill pill-live">Live</span></td><td>Signed <code>HttpOnly</code> session, scrypt verification</td></tr>
-        <tr><td>Idea quick-note read/create/edit</td><td><span class="pill pill-live">Live</span></td><td><code>/api/ideas/notes</code></td></tr>
-        <tr><td>Paystack status / invoices / links</td><td><span class="pill pill-live">Live</span></td><td><code>/api/money/paystack/*</code></td></tr>
-        <tr><td>n8n configure / trigger / retry</td><td><span class="pill pill-live">Live</span></td><td><code>/api/n8n/*</code></td></tr>
-        <tr><td>MCP access request / service toggle</td><td><span class="pill pill-live">Live</span></td><td><code>/api/mcp/*</code></td></tr>
+        <tr><td>Authentication, registration, profile, logout</td><td><span class="pill pill-live">Live</span></td><td><code>/api/auth/*</code>, <code>/api/account/avatar</code></td></tr>
+        <tr><td>Workspace settings, team, links, analytics</td><td><span class="pill pill-live">Live</span></td><td><code>/api/workspace/*</code></td></tr>
+        <tr><td>Clients, projects, links, files, reviews</td><td><span class="pill pill-live">Live</span></td><td><code>/api/clients</code>, <code>/api/projects/*</code></td></tr>
+        <tr><td>Ideas boards, Excalidraw elements, notes</td><td><span class="pill pill-live">Live</span></td><td><code>/api/ideas/*</code></td></tr>
+        <tr><td>Documents, Drive selection, folders, trash</td><td><span class="pill pill-live">Live</span></td><td><code>/api/documents/*</code>, <code>/api/google-drive/*</code></td></tr>
+        <tr><td>Mail discovery, folders, messages, rules</td><td><span class="pill pill-live">Live</span></td><td><code>/api/mail/*</code></td></tr>
+        <tr><td>Notifications, unread count, read state</td><td><span class="pill pill-live">Live</span></td><td><code>/api/notifications</code></td></tr>
+        <tr><td>Automations, schedules, runs, logs</td><td><span class="pill pill-live">Live</span></td><td><code>/api/automations</code>, <code>/api/automations/runs/*</code></td></tr>
+        <tr><td>Paystack status, invoices, hosted links</td><td><span class="pill pill-live">Live</span></td><td><code>/api/money/paystack/*</code></td></tr>
+        <tr><td>n8n configure, trigger, callback, retry</td><td><span class="pill pill-live">Live</span></td><td><code>/api/n8n/*</code>, signed hooks</td></tr>
+        <tr><td>MCP/Basebox discovery and invocation</td><td><span class="pill pill-live">Live</span></td><td><code>/api/mcp/*</code>, server-to-server MCP transport</td></tr>
+        <tr><td>Workspace AI</td><td><span class="pill pill-live">Live</span></td><td><code>/api/ai/*</code></td></tr>
+        <tr><td>Storefront settings and custom domains</td><td><span class="pill pill-live">Live</span></td><td><code>/api/storefront/*</code></td></tr>
         <tr><td>API key list / create / revoke</td><td><span class="pill pill-live">Live</span></td><td><code>/api/api-keys</code></td></tr>
-        <tr><td>Automations list / create / toggle</td><td><span class="pill pill-placeholder">Placeholder</span></td><td><code>/v1/automations</code> (suggested)</td></tr>
-        <tr><td>Runs list / dispatch</td><td><span class="pill pill-placeholder">Placeholder</span></td><td><code>/v1/runs</code> (suggested)</td></tr>
-        <tr><td>Standard integrations (Stripe/PayPal, storage)</td><td><span class="pill pill-preview">Preview</span></td><td><code>/v1/integrations</code> (suggested)</td></tr>
-        <tr><td>MCP capability discovery / tool invocation</td><td><span class="pill pill-placeholder">Placeholder</span></td><td>Pending live gateway transport</td></tr>
+        <tr><td>Unsupported provider connection requests</td><td><span class="pill pill-live">Live</span></td><td>Honest pending state in Connections; no fake credentials</td></tr>
       </table></div>
 
       <h3 class="subheading"><span class="fold"></span>UX states covered</h3>
@@ -846,15 +938,16 @@ node --check public/sw.js</code></pre>
 
     <section id="durable-foundation" class="section-block">
       <h2 class="section-heading"><span class="fold"></span>Durable foundation</h2>
-      <p>lancee persists identity, workspace membership, MCP grant state, MCP service activation, API keys, Idea notes, payment state, n8n delivery state, and mutation-idempotency records in SQLite at <code>.runtime/lancee.sqlite</code>.</p>
-      <p><code>.runtime/</code> is Git-ignored and restricted to the server operator. On startup the app enforces mode <code>0600</code> on the database and enables foreign-key enforcement, write-ahead logging, full synchronous durability, a five-second busy timeout, and strict SQLite tables.</p>
+      <p>lancee persists identity, workspace membership, profile images, integration state, Drive selections, documents, mail accounts, notifications, automation runs, client/project records, payments, storefront settings, AI conversations, and mutation-idempotency records through the configured database provider. Production deployments should use PostgreSQL through <code>DATABASE_URL</code> or <code>PG*</code>; local single-process runs fall back to SQLite at <code>.runtime/lancee.sqlite</code>.</p>
+      <p><code>.runtime/</code> is Git-ignored and restricted to the server operator. SQLite local mode enforces mode <code>0600</code>, foreign-key enforcement, write-ahead logging, full synchronous durability, a five-second busy timeout, and strict tables. Redis-backed queue state is used when available, with a bounded in-process fallback for development.</p>
 
       <h3 class="subheading"><span class="fold"></span>Schema</h3>
       <div class="table-wrap"><table>
         <tr><th>Table</th><th>Responsibility</th></tr>
-        <tr><td><code>users</code></td><td>Durable identity, display name, email, scrypt password material</td></tr>
+        <tr><td><code>users</code></td><td>Durable identity, display name, avatar URL, email, scrypt password material</td></tr>
         <tr><td><code>workspaces</code></td><td>Stable workspace identity and name</td></tr>
         <tr><td><code>workspace_members</code></td><td>Owner/collaborator membership boundary</td></tr>
+        <tr><td><code>team_invitations</code> / <code>registration_confirmations</code></td><td>Invitation and registration lifecycle</td></tr>
         <tr><td><code>mcp_access</code></td><td>Workspace-scoped bearer request and approval state</td></tr>
         <tr><td><code>mcp_service_state</code></td><td>Workspace-scoped service activation</td></tr>
         <tr><td><code>api_keys</code></td><td>Masked metadata, SHA-256 secret hash, scopes, use/revocation timestamps</td></tr>
@@ -866,7 +959,15 @@ node --check public/sw.js</code></pre>
         <tr><td><code>n8n_connections</code></td><td>Workspace URL/methods and AES-GCM encrypted signing secret</td></tr>
         <tr><td><code>n8n_deliveries</code></td><td>Durable outbound/inbound status, correlation, and retry lineage</td></tr>
         <tr><td><code>n8n_nonces</code></td><td>Workspace-scoped inbound replay protection</td></tr>
+        <tr><td><code>idea_boards</code> / <code>canvas_elements</code> / <code>idea_canvas_scenes</code></td><td>Workspace boards, Excalidraw elements, and canvas documents/assets</td></tr>
         <tr><td><code>idea_notes</code></td><td>Workspace/board-scoped content with optimistic versions</td></tr>
+        <tr><td><code>clients</code> / <code>projects</code> / <code>project_files</code></td><td>Client delivery records, Kanban work, and project attachments</td></tr>
+        <tr><td><code>workspace_documents</code> / <code>google_drive_selections</code></td><td>Local documents and explicitly selected Drive roots/files</td></tr>
+        <tr><td><code>google_drive_tokens</code> / <code>google_drive_resource_links</code></td><td>Encrypted Drive OAuth state and workspace links</td></tr>
+        <tr><td><code>mail_accounts</code> / <code>mail_automation_rules</code></td><td>Encrypted mailbox configuration, folders, and mail rules</td></tr>
+        <tr><td><code>automations</code> / <code>automation_runs</code> / <code>automation_run_events</code></td><td>Core/n8n automation definitions, run status, steps, and logs</td></tr>
+        <tr><td><code>workspace_notifications</code></td><td>Unread/read in-app notification records</td></tr>
+        <tr><td><code>workspace_settings</code> / <code>storefront_domains</code></td><td>Workspace preferences, storefront state, and domain verification</td></tr>
       </table></div>
       <p>The configured administrator is an initial bootstrap identity: on startup lancee upserts it and ensures an owner membership in <code>WORKSPACE_ID</code>. Sessions issued before this migration remain valid, resolved by email; new sessions carry stable user and workspace IDs.</p>
     </section>
@@ -922,27 +1023,29 @@ pnpm verify:offline</code></pre>
     <section id="auth-flow" class="section-block">
       <div class="kicker">Authentication &amp; notifications</div>
       <h2 class="section-heading"><span class="fold"></span>Session &amp; sign-in flow</h2>
-      <p>lancee uses an application-owned Express session rather than Firebase, keeping authentication, MCP grants, n8n signing secrets, SMTP credentials, and future provider tokens behind one trusted backend. Firebase remains a reasonable future identity provider — its ID token would be verified here and exchanged for the same session model.</p>
+      <p>lancee uses an application-owned Express session rather than Firebase, keeping authentication, workspace membership, MCP grants, n8n signing secrets, SMTP credentials, and provider tokens behind one trusted backend. Registration and invitation flows are enabled by configuration; Firebase remains a possible future identity provider, not a current dependency.</p>
       <ol>
         <li>The public landing page renders for a visitor with no session.</li>
         <li><code>GET /api/auth/session</code> restores an existing signed session.</li>
-        <li><code>POST /api/auth/login</code> resolves the user and owner membership from SQLite, then verifies the configured administrator with <code>scrypt</code>.</li>
+        <li><code>POST /api/auth/login</code> resolves the user and workspace membership from the configured database, then verifies password material with <code>scrypt</code>.</li>
         <li>The server issues <code>lancee_session</code> as an <code>HttpOnly</code>, <code>Secure</code>, <code>SameSite=Lax</code> cookie.</li>
         <li><code>POST /api/auth/logout</code> expires the cookie, returns to the landing page, and clears the browser's IndexedDB data.</li>
+        <li><code>PUT/DELETE /api/account/avatar</code> stores or removes a validated JPEG, PNG, or WebP profile image (up to 2 MB) for the signed-in user.</li>
       </ol>
       <div class="pill-row"><span class="pill pill-security">Security defaults</span></div>
       <ul>
         <li>12-hour default session expiry, persistent 384-bit signing secret in <code>.runtime/session-secret</code>.</li>
         <li>Constant-time password comparison; five failed attempts per IP per 15 minutes.</li>
         <li>Same-origin checks for mutations; CSP, frame denial, MIME-sniffing protection, referrer policy, restrictive permissions.</li>
-        <li><code>Cache-Control: no-store</code> on authentication and MCP grant state.</li>
+        <li><code>Cache-Control: no-store</code> on authentication, notifications, Drive status/file responses, and MCP grant state.</li>
       </ul>
       <p>After one authenticated load, the browser retains a non-secret display snapshot of the last user/workspace so the installed shell can reopen cached Idea notes offline. This snapshot is never accepted by the server and never replaces the signed cookie.</p>
 
       <h3 class="subheading"><span class="fold"></span>Administrator sign-in &amp; password rotation</h3>
-      <p>Open <a href="https://agents.hygridtech.co.za" target="_blank" rel="noopener">agents.hygridtech.co.za</a>, select <strong>Sign in</strong>, and use the email in <code>ADMIN_EMAIL</code> with the password used to generate the current hash. There is no dashboard bypass and no plaintext password stored on the server.</p>
+      <p>Open <a href="https://lancee.hookitupservices.com" target="_blank" rel="noopener">lancee.hookitupservices.com</a>, select <strong>Sign in</strong>, and use the email in <code>ADMIN_EMAIL</code> with the password used to generate the current hash. There is no dashboard bypass and no plaintext password stored on the server.</p>
       <pre><code>pnpm auth:hash</code></pre>
       <p>The script prompts without echoing the password and prints a new <code>ADMIN_PASSWORD_SALT</code> / <code>ADMIN_PASSWORD_HASH</code>. Replace both in <code>.env</code>, then reload PM2 with <code>--update-env</code>.</p>
+      <p>In-app notification history is workspace-scoped: the bell reads <code>GET /api/notifications</code>, shows unread state, and marks individual items read with <code>PATCH /api/notifications/:id/read</code>. SMTP is an optional outbound channel for tests and access-request notices; it is separate from the in-app notification feed.</p>
     </section>
 
     <section id="auth-smtp" class="section-block">
@@ -966,7 +1069,80 @@ SMTP_TEST_TO=</code></pre>
       <p><code>GET /api/notifications/status</code> reports whether the transport is enabled and configured, without returning credentials. <code>POST /api/notifications/test</code> sends a test message to <code>SMTP_TEST_TO</code> (falls back to <code>ADMIN_EMAIL</code>). MCP bearer requests emit a notification when SMTP is enabled — notification failure never leaks credentials or blocks the access request.</p>
       <div class="callout callout-note">
         <span class="callout-label">Files &amp; permissions</span>
-        <p><code>.env</code> is ignored, mode <code>0600</code>. <code>.env.example</code> holds names and safe defaults only. <code>.runtime/session-secret</code> and <code>.runtime/lancee.sqlite</code> are generated with mode <code>0600</code> and ignored. <code>server/notifications.mjs</code> creates the SMTP transport lazily, so missing credentials never block app startup.</p>
+        <p><code>.env</code> is ignored, mode <code>0600</code>. <code>.env.example</code> holds names and safe defaults only. <code>.runtime/session-secret</code> is generated with mode <code>0600</code>; <code>.runtime/lancee.sqlite</code> is the same protected local fallback when PostgreSQL is not configured. <code>server/notifications.mjs</code> creates the SMTP transport lazily, so missing credentials never block app startup.</p>
+      </div>
+    </section>
+
+    <section id="files-drive" class="section-block">
+      <div class="kicker">Files &amp; storage</div>
+      <h2 class="section-heading"><span class="fold"></span>Files, documents &amp; Google Drive</h2>
+      <p><strong>Files</strong> combines workspace documents, project attachments, cloud links, and a scoped Google Drive browser. Drive access is OAuth-based and the workspace stores only encrypted server credentials plus the resources the user explicitly selected.</p>
+      <div class="table-wrap"><table>
+        <tr><th>Function</th><th>Current behavior</th><th>Route family</th></tr>
+        <tr><td>Connect Drive</td><td>OAuth callback validates signed state, workspace membership, refresh scope, and refresh-token availability.</td><td><code>/api/google-drive/status</code>, <code>/api/google-drive/oauth/url</code></td></tr>
+        <tr><td>Choose the browse scope</td><td>Google Picker saves up to 100 selected files/folders; replacing the selection replaces the previous allow-list.</td><td><code>GET/PUT /api/google-drive/selections</code></td></tr>
+        <tr><td>Browse folders</td><td>Root items come only from the saved selection. Folder contents load on demand and are rejected unless the folder is selected or descends from a selected root.</td><td><code>GET /api/google-drive/files?folderId=...</code></td></tr>
+        <tr><td>Preview &amp; edit</td><td>Supported PDFs/images preview in-app; editable Google documents use the Drive editor conversion path with version conflict checks.</td><td><code>/api/google-drive/files/:fileId/content</code>, <code>/editor</code></td></tr>
+        <tr><td>Remove a Drive file</td><td>Moves the selected Drive item to Google Drive trash, clears its saved selection/resource links/local Drive link, and leaves the provider as the source of truth.</td><td><code>POST /api/google-drive/files/:fileId/trash</code></td></tr>
+        <tr><td>Link to delivery work</td><td>Selected Drive files/folders can be attached to a client or project without importing the whole Drive.</td><td><code>/api/google-drive/resource-links</code></td></tr>
+      </table></div>
+      <div class="callout callout-note">
+        <span class="callout-label">Selection and cache safety</span>
+        <p>The Files view does not treat an old browser cache as a new selection. File listings use no-store responses and the current server-side selection set; selecting again replaces stale roots. An empty folder now means “load this selected folder from Drive”, not “show a previously cached empty result”.</p>
+      </div>
+      <pre><code>GOOGLE_DRIVE_CLIENT_ID=
+GOOGLE_DRIVE_CLIENT_SECRET=
+GOOGLE_DRIVE_REDIRECT_URI=https://lancee.hookitupservices.com/oauth/callback
+GOOGLE_PICKER_API_KEY=
+GOOGLE_PICKER_APP_ID=</code></pre>
+    </section>
+
+    <section id="mail" class="section-block">
+      <div class="kicker">Messages &amp; mail</div>
+      <h2 class="section-heading"><span class="fold"></span>Mailbox connection and Messages</h2>
+      <p>Messages supports provider discovery, encrypted IMAP/SMTP account settings, folders, search, message detail, compose/send, reply, sync, and native Core mail rules. Mail credentials are tested before they are saved and are never sent to the browser.</p>
+      <div class="table-wrap"><table>
+        <tr><th>Function</th><th>Current behavior</th><th>Route family</th></tr>
+        <tr><td>Discover provider settings</td><td>Suggests IMAP/SMTP host, port, TLS, and username settings from the mailbox address.</td><td><code>POST /api/mail/discover</code></td></tr>
+        <tr><td>Connect or remove a mailbox</td><td>Owner-only account updates test the credentials first, encrypt the password, and support explicit disconnect.</td><td><code>GET/PUT/DELETE /api/mail/account</code></td></tr>
+        <tr><td>Read mail</td><td>Lists folders, searches a selected folder, and loads individual messages by UID.</td><td><code>/api/mail/folders</code>, <code>/api/mail/messages</code></td></tr>
+        <tr><td>Send and sync</td><td>Compose/send is idempotent; manual sync refreshes the workspace mailbox and the configured interval can be used by the worker.</td><td><code>POST /api/mail/send</code>, <code>POST /api/mail/sync</code></td></tr>
+        <tr><td>Mail rules</td><td>Rules attach only to native Core automations; n8n workflows are not silently treated as mail rules.</td><td><code>/api/mail/rules</code></td></tr>
+      </table></div>
+      <pre><code>ENCRYPTION_MASTER_KEY=
+MAIL_SYNC_INTERVAL_MS=60000
+MAIL_ALLOW_PRIVATE_HOSTS=false
+SMTP_ENABLED=false
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_FROM_NAME=lancee
+SMTP_FROM_EMAIL=</code></pre>
+    </section>
+
+    <section id="ai-workspaces" class="section-block">
+      <div class="kicker">Connected intelligence</div>
+      <h2 class="section-heading"><span class="fold"></span>Workspace AI</h2>
+      <p>The platform exposes a single server-mediated intelligence path: the workspace assistant for scoped business data and approved actions.</p>
+      <div class="table-wrap"><table>
+        <tr><th>Surface</th><th>Current behavior</th><th>Configuration / route</th></tr>
+        <tr><td>Workspace assistant</td><td>Answers from a bounded workspace snapshot, can propose a live MCP/native tool action, and requires explicit human approval before execution. Read-only data actions are separately allow-listed.</td><td><code>/api/ai/status</code>, <code>/api/ai/chat</code>, <code>/api/ai/actions</code></td></tr>
+        <tr><td>MCP / Basebox tools</td><td>Live service discovery and bounded invocation happen server-to-server; the browser receives schemas and normalized results, never gateway tokens.</td><td><code>/api/mcp/sync</code>, <code>/api/mcp/invoke</code></td></tr>
+      </table></div>
+      <pre><code>AI_PROVIDER=
+AI_API_KEY=
+AI_MODEL=
+AI_MAX_TOKENS=2048
+AI_TEMPERATURE=0.3
+AI_ENDPOINT_URL=
+AI_TIMEOUT_MS=30000
+HERMES_ENDPOINT_URL=http://127.0.0.1:8642
+HERMES_API_KEY=</code></pre>
+      <div class="callout callout-security">
+        <span class="callout-label">Approval boundary</span>
+        <p>AI can describe, query approved workspace resources, and propose actions. It cannot claim an automation ran, execute a write action, or expose provider credentials until the user approves the relevant action.</p>
       </div>
     </section>
 
@@ -976,11 +1152,10 @@ SMTP_TEST_TO=</code></pre>
     <section id="integrations-payments" class="section-block">
       <div class="kicker">Connections</div>
       <h2 class="section-heading"><span class="fold"></span>Payments &amp; invoicing overview</h2>
-      <p>Stripe, PayPal, and Paystack appear in <strong>Connections</strong> and <strong>Money</strong>. lancee stores normalized business records plus immutable provider references — the provider remains authoritative for settlement, and idempotency, webhook verification, currency, tax, refund, and partial-payment states are handled explicitly.</p>
+      <p>Paystack is the current connected payment provider in <strong>Connections</strong> and <strong>Money</strong>. lancee stores normalized business records plus immutable provider references — Paystack remains authoritative for settlement. Other payment providers are not represented as connected implementations; users can request them from Connections.</p>
       <div class="card-grid">
-        <div class="card"><h4>Stripe <span class="pill pill-preview" style="margin-left:6px;">Preview</span></h4><p>Card/bank payments, hosted links, invoice reconciliation, verified webhooks — intended scope, not yet live.</p></div>
-        <div class="card"><h4>PayPal <span class="pill pill-preview" style="margin-left:6px;">Preview</span></h4><p>PayPal checkout and supported card payments for international clients — intended scope, not yet live.</p></div>
         <div class="card"><h4>Paystack <span class="pill pill-live" style="margin-left:6px;">Live</span></h4><p>Region-friendly card/bank payments across African markets. Real server-side ZAR flow with verified webhook reconciliation.</p></div>
+        <div class="card"><h4>Other providers <span class="pill pill-placeholder" style="margin-left:6px;">Request</span></h4><p>Stripe, PayPal, and other gateways can be recorded as connection requests without implying that credentials or live payment flows exist.</p></div>
       </div>
       <p>See <a href="#paystack">Paystack flow</a> for full configuration and webhook details.</p>
     </section>
@@ -1024,7 +1199,7 @@ sha256_hex_of_exact_body_bytes</code></pre>
       <p>For GET, the body is empty and the query string is part of the signed path. Inbound timestamps must be within five minutes of server time; nonces are stored per workspace and accepted once, then retained ten minutes for replay cleanup.</p>
 
       <h3 class="subheading"><span class="fold"></span>Inbound callback</h3>
-      <pre><code>https://agents.hygridtech.co.za/api/hooks/n8n/&lt;workspace-id&gt;</code></pre>
+      <pre><code>https://lancee.hookitupservices.com/api/hooks/n8n/&lt;workspace-id&gt;</code></pre>
       <div class="table-wrap"><table>
         <tr><th>Response</th><th>Meaning</th></tr>
         <tr><td><code>202</code></td><td>Signature accepted and event recorded</td></tr>
@@ -1055,7 +1230,7 @@ sha256_hex_of_exact_body_bytes</code></pre>
 
     <section id="integrations-mcp" class="section-block">
       <h2 class="section-heading"><span class="fold"></span>MCP service grid <span class="pill pill-live" style="margin-left:10px;">Grants live</span></h2>
-      <p>MCP is a platform feature, not an integration people install — every workspace can browse the service catalog immediately. The backend boundary connects to <code>https://mcp.hygridtech.co.za</code>; the browser never receives <code>MCP_API_TOKEN</code>.</p>
+      <p>MCP is a platform feature, not an integration people install. The server can combine the managed gateway, Basebox MCP, and built-in Lancee tools into one workspace-scoped service grid; the browser never receives <code>MCP_API_TOKEN</code> or <code>BASEBOX_MCP_ACCESS_KEY</code>.</p>
 
       <h3 class="subheading"><span class="fold"></span>Bearer access lifecycle</h3>
       <pre><code>available → pending or approved → activated services</code></pre>
@@ -1070,27 +1245,27 @@ Cookie: lancee_session=&lt;HttpOnly session&gt;</code></pre>
       </ul>
       <p>Bearer state and per-service activation survive process restarts in <code>mcp_access</code> and <code>mcp_service_state</code>.</p>
 
-      <h3 class="subheading"><span class="fold"></span>Discovery <span class="pill pill-placeholder" style="margin-left:8px;">Placeholder catalog</span></h3>
-      <pre><code>GET /api/v1/capabilities
-Authorization: Bearer &lt;server-side token&gt;</code></pre>
+      <h3 class="subheading"><span class="fold"></span>Discovery and live service state <span class="pill pill-live" style="margin-left:8px;">Live</span></h3>
+      <pre><code>GET  /api/mcp/services
+POST /api/mcp/sync
+Cookie: lancee_session=&lt;HttpOnly session&gt;</code></pre>
       <div class="table-wrap"><table>
-        <tr><th>Service</th><th>Tools</th></tr>
-        <tr><td><code>browser-worker</code></td><td>Ten browser, audit, extraction, screenshot, and document tools</td></tr>
-        <tr><td><code>text-worker</code></td><td>Text transformation, statistics, and replacement</td></tr>
-        <tr><td><code>data-worker</code></td><td>Bounded CSV/JSON conversion and field selection</td></tr>
-        <tr><td><code>utility-worker</code></td><td>Hashes, Base64, and UUID generation</td></tr>
+        <tr><th>Provider</th><th>Current role</th></tr>
+        <tr><td><code>lancee</code></td><td>Built-in workspace tools; always active for authenticated workspace users</td></tr>
+        <tr><td><code>basebox</code></td><td>Server-to-server live catalog and tool invocation through <code>BASEBOX_MCP_URL</code></td></tr>
+        <tr><td>Managed gateway</td><td>Server-to-server catalog filtered by <code>MCP_ALLOWED_CATEGORIES</code>; default <code>Browser,Utilities</code></td></tr>
       </table></div>
-      <p>Service activation is durable; capability discovery and representative tool results remain placeholders until the gateway transport is connected. Browser automation tests use <code>website_smoke_test</code>.</p>
+      <p>Service status is fetched from the configured live transports. A disconnected or unauthorized provider is shown as unavailable/pending rather than populated with invented tools. Service activation remains durable in the workspace database.</p>
 
       <h3 class="subheading"><span class="fold"></span>Tool invocation</h3>
-      <pre><code>POST /api/v1/tools/{tool_id}/call
-Authorization: Bearer &lt;server-side token&gt;
+      <pre><code>POST /api/mcp/invoke
+Cookie: lancee_session=&lt;HttpOnly session&gt;
 Content-Type: application/json</code></pre>
-      <p>The MCP registry resolves the active worker. Disabled services/tools cannot be invoked; a missing live lease returns <code>503</code>.</p>
+      <p>Send <code>serviceId</code>, <code>toolId</code>, and a JSON <code>arguments</code> object. The registry resolves the active live service, applies the bearer/activation boundary, invokes server-to-server, and records a normalized result. Disabled services/tools cannot be invoked.</p>
 
       <h3 class="subheading"><span class="fold"></span>Credential boundary</h3>
       <ul>
-        <li><code>PUBLIC_API_TOKEN</code> never enters the browser bundle.</li>
+        <li>There is no public MCP credential in the browser bundle.</li>
         <li>Bearer request responses never contain a token or token hint.</li>
         <li>Provider API keys referenced by MCP tools remain in the server-side secret store.</li>
         <li>The frontend receives names, descriptions, tool schemas, activation state, and normalized invocation results only.</li>
@@ -1099,11 +1274,11 @@ Content-Type: application/json</code></pre>
 
       <h3 class="subheading"><span class="fold"></span>Deployment</h3>
       <div class="table-wrap"><table>
-        <tr><td>Public URL</td><td><code>https://agents.hygridtech.co.za</code></td></tr>
+        <tr><td>Public URL</td><td><code>https://lancee.hookitupservices.com</code></td></tr>
         <tr><td>Application listener</td><td><code>0.0.0.0:5177</code></td></tr>
-        <tr><td>PM2 process</td><td><code>nexus-agents-platform</code></td></tr>
+        <tr><td>PM2 process</td><td><code>lancee</code></td></tr>
         <tr><td>TLS / reverse proxy</td><td>Nginx Proxy Manager</td></tr>
-        <tr><td>Upstream</td><td><code>http://192.168.1.66:5177</code></td></tr>
+        <tr><td>Upstream</td><td><code>http://127.0.0.1:5177</code> or the app host</td></tr>
       </table></div>
     </section>
 
@@ -1114,14 +1289,14 @@ Content-Type: application/json</code></pre>
       <div class="kicker">Money</div>
       <h2 class="section-heading"><span class="fold"></span>Paystack payment flow <span class="pill pill-live" style="margin-left:10px;">Live</span></h2>
       <pre><code>invoice details → Paystack hosted checkout → verified webhook → paid invoice</code></pre>
-      <p>Uses Paystack's documented server-side secret-key authentication — no assumed OAuth flow, and the secret never enters the browser or SQLite.</p>
+      <p>Uses Paystack's documented server-side secret-key authentication — no assumed OAuth flow, and the secret never enters the browser or the configured database.</p>
 
       <h3 class="subheading"><span class="fold"></span>Configuration</h3>
       <pre><code>PAYSTACK_SECRET_KEY=sk_test_replace_me
 PAYSTACK_BASE_URL=https://api.paystack.co
-PAYSTACK_CALLBACK_URL=https://agents.hygridtech.co.za/?payment=paystack</code></pre>
+PAYSTACK_CALLBACK_URL=https://lancee.hookitupservices.com/?payment=paystack</code></pre>
       <p>Start with an <code>sk_test_...</code> key — the Money UI reports test or live mode from the key prefix. lancee stores only a short SHA-256 fingerprint and the fact that the connection comes from the environment. Configure this webhook in the Paystack dashboard:</p>
-      <pre><code>https://agents.hygridtech.co.za/api/webhooks/paystack</code></pre>
+      <pre><code>https://lancee.hookitupservices.com/api/webhooks/paystack</code></pre>
 
       <h3 class="subheading"><span class="fold"></span>User flow</h3>
       <ol>
@@ -1154,11 +1329,11 @@ PAYSTACK_CALLBACK_URL=https://agents.hygridtech.co.za/?payment=paystack</code></
 
       <div class="callout callout-warning">
         <span class="callout-label">Honest boundaries</span>
-        <p>Checkout initialization and webhook reconciliation are live when a key is configured. The app creates a hosted link — it never directly charges stored cards, and nothing is sent to a client automatically. Refunds, partial payments, disputes, verification recovery, tax, and multi-currency are not yet implemented. Stripe and PayPal remain labelled previews.</p>
+        <p>Checkout initialization and webhook reconciliation are live when a key is configured. The app creates a hosted link — it never directly charges stored cards, and nothing is sent to a client automatically. Refunds, partial payments, disputes, verification recovery, tax, and multi-currency are not yet implemented. Other gateways remain connection requests.</p>
       </div>
 
       <pre><code>pnpm verify:paystack</code></pre>
-      <p style="font-size:13.5px;">Uses a temporary local Paystack stub — never contacts Paystack or creates a real charge. Checks server-side authorization, request shape, idempotent initialization, immutable references, signature rejection, amount matching, reconciliation, duplicate handling, secret absence from SQLite, and persistence after restart.</p>
+      <p style="font-size:13.5px;">Uses a temporary local Paystack stub — never contacts Paystack or creates a real charge. Checks server-side authorization, request shape, idempotent initialization, immutable references, signature rejection, amount matching, reconciliation, duplicate handling, secret absence from the configured database, and persistence after restart.</p>
       <p style="font-size:13px;">Official references: <a href="https://paystack.com/docs/api/authentication/" target="_blank" rel="noopener">Authentication</a> · <a href="https://paystack.com/docs/api/transaction/" target="_blank" rel="noopener">Transaction initialization</a> · <a href="https://paystack.com/docs/payments/webhooks/" target="_blank" rel="noopener">Webhook verification</a></p>
     </section>
 
@@ -1168,13 +1343,15 @@ PAYSTACK_CALLBACK_URL=https://agents.hygridtech.co.za/?payment=paystack</code></
     <section id="offline-overview" class="section-block">
       <div class="kicker">Offline &amp; PWA</div>
       <h2 class="section-heading"><span class="fold"></span>Offline boundary</h2>
-      <p>lancee is installable as a PWA and provides a deliberately narrow offline workflow for quick notes on the Ideas canvas.</p>
+      <p>lancee is installable as a PWA. Its service worker caches only the application shell/static assets, while the Ideas editor keeps the full Excalidraw document and imported assets in workspace-and-board-scoped IndexedDB for offline editing.</p>
       <div class="table-wrap"><table>
         <tr><th>Capability</th><th>Offline behavior</th></tr>
         <tr><td>Application shell</td><td>Cached after the first successful production load</td></tr>
         <tr><td>Last workspace identity</td><td>Cached only to reopen the local shell</td></tr>
-        <tr><td>Idea quick-note reads</td><td>Last workspace/board snapshot read from IndexedDB</td></tr>
-        <tr><td>Idea quick-note creates/edits</td><td>Optimistically stored, then queued in IndexedDB</td></tr>
+        <tr><td>Idea canvas document/assets</td><td>Previously opened Excalidraw document and imported assets read/written locally in IndexedDB</td></tr>
+        <tr><td>Idea quick-note reads</td><td>Last workspace/board note snapshot read from IndexedDB</td></tr>
+        <tr><td>Idea quick-note creates/edits</td><td>Optimistically stored, then queued for the authenticated API</td></tr>
+        <tr><td>Idea board names</td><td><span class="pill pill-security">Online only</span> — managed by the workspace API</td></tr>
         <tr><td>Payments &amp; payment links</td><td><span class="pill pill-security">Online only</span> — never queued</td></tr>
         <tr><td>API key / MCP / n8n / connection changes</td><td><span class="pill pill-security">Online only</span> — never queued</td></tr>
         <tr><td>API responses</td><td>Never stored by the service worker</td></tr>
@@ -1213,7 +1390,7 @@ PAYSTACK_CALLBACK_URL=https://agents.hygridtech.co.za/?payment=paystack</code></
       <p>This is deliberate last-writer resolution — the queue never silently overwrites a newer server note.</p>
       <div class="callout callout-note">
         <span class="callout-label">Local-data note</span>
-        <p>IndexedDB data is scoped by workspace but not encrypted by lancee — rely on OS-level device encryption and account lock on shared devices. Don't use the Idea quick-note field for credentials or regulated secrets. Broader visual-board records, attachments, projects, and automations are not yet offline domain records.</p>
+        <p>IndexedDB data is scoped by workspace and board but not encrypted by lancee — rely on OS-level device encryption and account lock on shared devices. Don't store credentials or regulated secrets in the canvas or quick-note field. Project attachments, board names, payments, mail, and automations remain server-backed and online-only.</p>
       </div>
       <pre><code>pnpm build
 pnpm lint
@@ -1230,14 +1407,29 @@ node --check public/sw.js</code></pre>
       <div class="table-wrap"><table>
         <tr><th>Method</th><th>Route</th><th>Auth</th></tr>
         <tr><td>GET</td><td><code>/api/health</code></td><td>Public</td></tr>
+        <tr><td>GET</td><td><code>/api/auth/config</code>, <code>/api/auth/invitations/:token</code></td><td>Public, no-store</td></tr>
         <tr><td>GET</td><td><code>/api/auth/session</code></td><td>Session response</td></tr>
         <tr><td>POST</td><td><code>/api/auth/login</code></td><td>Public, origin-checked, rate-limited</td></tr>
+        <tr><td>POST</td><td><code>/api/auth/register</code>, <code>/api/auth/register/start</code>, <code>/confirm</code></td><td>Registration config + origin checks</td></tr>
         <tr><td>POST</td><td><code>/api/auth/logout</code></td><td>Session mutation, origin-checked</td></tr>
-        <tr><td>GET</td><td><code>/api/ideas/notes?boardId=...</code></td><td>Required</td></tr>
-        <tr><td>POST</td><td><code>/api/ideas/notes</code></td><td>Required</td></tr>
-        <tr><td>PATCH</td><td><code>/api/ideas/notes/:noteId</code></td><td>Required</td></tr>
+        <tr><td>PUT/DELETE</td><td><code>/api/account/avatar</code></td><td>Session + image validation</td></tr>
+        <tr><td>GET/POST/PATCH</td><td><code>/api/clients</code>, <code>/api/clients/:id</code></td><td>Required</td></tr>
+        <tr><td>GET/POST/PATCH/DELETE</td><td><code>/api/projects</code>, <code>/api/projects/:id</code></td><td>Required</td></tr>
+        <tr><td>GET/POST/DELETE</td><td><code>/api/projects/:id/links</code>, <code>/api/projects/:id/files</code></td><td>Required</td></tr>
+        <tr><td>GET/POST/PUT/DELETE</td><td><code>/api/ideas/boards</code>, <code>/api/ideas/elements</code></td><td>Required</td></tr>
+        <tr><td>GET/POST/PATCH</td><td><code>/api/ideas/notes</code></td><td>Required + idempotency/version checks</td></tr>
+        <tr><td>GET/POST/PUT/DELETE</td><td><code>/api/documents</code>, <code>/api/documents/:id/*</code></td><td>Required</td></tr>
+        <tr><td>GET</td><td><code>/api/google-drive/status</code>, <code>/picker-config</code>, <code>/oauth/url</code></td><td>Required; no-store</td></tr>
+        <tr><td>PUT</td><td><code>/api/google-drive/selections</code></td><td>Required + idempotency</td></tr>
+        <tr><td>GET/POST/DELETE</td><td><code>/api/google-drive/resource-links</code></td><td>Required</td></tr>
+        <tr><td>GET/PUT/POST</td><td><code>/api/google-drive/files</code>, <code>/content</code>, <code>/editor</code>, <code>/trash</code></td><td>Required + Drive scope</td></tr>
+        <tr><td>GET</td><td><code>/api/notifications</code>, <code>/api/notifications/status</code></td><td>Required, private no-store</td></tr>
+        <tr><td>PATCH/POST</td><td><code>/api/notifications/:id/read</code>, <code>/api/notifications/test</code></td><td>Required</td></tr>
+        <tr><td>GET/PATCH/DELETE</td><td><code>/api/workspace/settings</code>, <code>/team/:memberId</code></td><td>Required; owner for team mutations</td></tr>
+        <tr><td>GET/POST/DELETE</td><td><code>/api/workspace/cloud-links</code>, <code>/api/workspace/analytics</code></td><td>Required</td></tr>
         <tr><td>GET</td><td><code>/api/mcp/access</code></td><td>Required</td></tr>
         <tr><td>GET</td><td><code>/api/mcp/services</code></td><td>Required</td></tr>
+        <tr><td>POST</td><td><code>/api/mcp/sync</code>, <code>/api/mcp/invoke</code></td><td>Required + live service/access boundary</td></tr>
         <tr><td>POST</td><td><code>/api/mcp/access-request</code></td><td>Required</td></tr>
         <tr><td>POST</td><td><code>/api/mcp/access/revoke</code></td><td>Required</td></tr>
         <tr><td>POST</td><td><code>/api/mcp/services/:serviceId</code></td><td>Required</td></tr>
@@ -1253,6 +1445,9 @@ node --check public/sw.js</code></pre>
         <tr><td>POST</td><td><code>/api/n8n/deliveries/:deliveryId/retry</code></td><td>Required</td></tr>
         <tr><td>POST</td><td><code>/api/n8n/inbound-self-test</code></td><td>Required</td></tr>
         <tr><td>GET/POST</td><td><code>/api/hooks/n8n/:workspaceId</code></td><td>Timestamped signature + nonce</td></tr>
+        <tr><td>GET/POST/PUT/DELETE</td><td><code>/api/mail/*</code></td><td>Required; owner for account changes</td></tr>
+        <tr><td>GET/POST/PUT/DELETE</td><td><code>/api/automations</code>, <code>/api/automations/:id</code></td><td>Required</td></tr>
+        <tr><td>GET/POST</td><td><code>/api/automations/runs</code>, <code>/api/automations/runs/:runId/*</code></td><td>Required</td></tr>
         <tr><td>GET</td><td><code>/api/api-keys</code></td><td>Required</td></tr>
         <tr><td>POST</td><td><code>/api/api-keys</code></td><td>Required</td></tr>
         <tr><td>DELETE</td><td><code>/api/api-keys/:keyId</code></td><td>Required</td></tr>
@@ -1260,6 +1455,10 @@ node --check public/sw.js</code></pre>
         <tr><td>GET</td><td><code>/api/v1/mcp/access</code></td><td><code>mcp:read</code> API key</td></tr>
         <tr><td>GET</td><td><code>/api/notifications/status</code></td><td>Required</td></tr>
         <tr><td>POST</td><td><code>/api/notifications/test</code></td><td>Required</td></tr>
+        <tr><td>GET/POST</td><td><code>/api/ai/status</code>, <code>/api/ai/complete</code>, <code>/api/ai/chat</code></td><td>Required</td></tr>
+        <tr><td>POST</td><td><code>/api/ai/actions</code></td><td>Required; approval boundary</td></tr>
+        <tr><td>GET/POST/PATCH</td><td><code>/api/integrations</code>, <code>/api/integrations/tokens</code></td><td>Required</td></tr>
+        <tr><td>GET/PATCH/POST/DELETE</td><td><code>/api/storefront/settings</code>, <code>/domains</code></td><td>Required</td></tr>
       </table></div>
     </section>
 
@@ -1269,13 +1468,20 @@ node --check public/sw.js</code></pre>
         <tr><th>Path</th><th>Responsibility</th></tr>
         <tr><td><code>src/App.tsx</code></td><td>Landing page, authenticated workspace, interaction flows</td></tr>
         <tr><td><code>src/index.css</code></td><td>Complete responsive visual system</td></tr>
-        <tr><td><code>src/lib/mockApi.ts</code></td><td>Typed placeholder actions and durable backend client boundary</td></tr>
-        <tr><td><code>src/lib/offlineStore.ts</code></td><td>IndexedDB identity, Idea snapshots, queued mutations</td></tr>
+        <tr><td><code>src/lib/api.ts</code></td><td>Typed client for current authenticated Express routes</td></tr>
+        <tr><td><code>src/components/dashboard/FilesPage.tsx</code></td><td>Workspace documents, Drive selections, cache-safe file loading, and trash actions</td></tr>
+        <tr><td><code>src/components/dashboard/DriveFileWorkspace.tsx</code></td><td>Drive file preview, editing, and content actions</td></tr>
+        <tr><td><code>src/components/dashboard/MessagesPage.tsx</code></td><td>Mailbox discovery, folders, messages, compose, and rules</td></tr>
+        <tr><td><code>src/lib/offlineStore.ts</code></td><td>IndexedDB identity, full Idea canvas documents/assets, notes, and queued mutations</td></tr>
         <tr><td><code>src/lib/ideasRepository.ts</code></td><td>Idea API, reconnect sync, idempotent replay, conflict resolution</td></tr>
         <tr><td><code>public/sw.js</code></td><td>Static-only application-shell cache and sync handoff</td></tr>
         <tr><td><code>public/manifest.webmanifest</code></td><td>Installable application identity</td></tr>
-        <tr><td><code>server/index.mjs</code></td><td>Express, authentication, sessions, MCP, API keys, routing</td></tr>
-        <tr><td><code>server/database.mjs</code></td><td>SQLite schema and workspace-scoped repositories</td></tr>
+        <tr><td><code>server/index.mjs</code></td><td>Express authentication, workspace routes, integrations, notifications, AI, and routing</td></tr>
+        <tr><td><code>server/database.mjs</code></td><td>PostgreSQL/SQLite provider selection, schema, and workspace-scoped repositories</td></tr>
+        <tr><td><code>server/google-drive.mjs</code></td><td>OAuth, Picker scope, selected-root browsing, content, editing, and Drive trash</td></tr>
+        <tr><td><code>server/mail.mjs</code></td><td>IMAP/SMTP discovery, mailbox operations, and sync helpers</td></tr>
+        <tr><td><code>server/ai.mjs</code></td><td>Provider-backed AI client</td></tr>
+        <tr><td><code>server/basebox-mcp.mjs</code> / <code>server/redis.mjs</code></td><td>Basebox MCP transport and Redis/in-process queue boundary</td></tr>
         <tr><td><code>server/paystack.mjs</code></td><td>Paystack auth, initialization, timeout, signature verification</td></tr>
         <tr><td><code>server/n8n.mjs</code></td><td>URL policy, encryption, canonical signatures, DNS checks, delivery</td></tr>
         <tr><td><code>server/notifications.mjs</code></td><td>SMTP transport and notification delivery</td></tr>
@@ -1284,6 +1490,8 @@ node --check public/sw.js</code></pre>
         <tr><td><code>scripts/verify-paystack-flow.mjs</code></td><td>Mocked Paystack initialization and webhook verification</td></tr>
         <tr><td><code>scripts/verify-n8n-bridge.mjs</code></td><td>Signed GET/POST, replay, retry, encryption, restart verification</td></tr>
         <tr><td><code>scripts/verify-offline-sync.mjs</code></td><td>PWA boundary, durable notes, idempotency, conflicts, restart verification</td></tr>
+        <tr><td><code>scripts/verify-google-drive.mjs</code> / <code>verify-mail-connector.mjs</code></td><td>Drive selection/cache/trash and mailbox connector verification</td></tr>
+        <tr><td><code>scripts/verify-ai-providers.mjs</code></td><td>AI provider behavior</td></tr>
         <tr><td><code>.env.example</code></td><td>Safe environment template</td></tr>
         <tr><td><code>ecosystem.config.cjs</code></td><td>PM2 process definition</td></tr>
       </table></div>
@@ -1316,7 +1524,7 @@ node --check public/sw.js</code></pre>
 <footer>
   <div class="brand"><img src="img/icon.png" alt="lancee" style="width:20px;height:20px;border-radius:4px;"><span style="font-size:15px;">lancee</span></div>
   <p style="color:var(--text-faint); margin-bottom:6px;">Connect · Collaborate · Automate · Deliver</p>
-  <p style="margin-bottom:0;"><a href="https://agents.hygridtech.co.za" target="_blank" rel="noopener">agents.hygridtech.co.za</a> · <a href="#">Documentation</a></p>
+  <p style="margin-bottom:0;"><a href="https://lancee.hookitupservices.com" target="_blank" rel="noopener">lancee.hookitupservices.com</a> · <a href="#">Documentation</a></p>
 </footer>
 
 <script>

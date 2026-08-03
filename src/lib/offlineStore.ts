@@ -19,6 +19,7 @@ export type CachedSessionUser = {
   id: string
   name: string
   email: string
+  avatarUrl: string
   workspaceId: string
   workspace: string
   role: 'owner' | 'collaborator'
@@ -131,7 +132,9 @@ export async function getCachedSession() {
     transaction.objectStore('meta').get(SESSION_KEY),
   )
   await completed
-  return record?.user || null
+  return record?.user
+    ? { ...record.user, avatarUrl: record.user.avatarUrl || '' }
+    : null
 }
 
 export async function clearOfflineData() {

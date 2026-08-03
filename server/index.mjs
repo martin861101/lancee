@@ -13,7 +13,16 @@ import { resolveCname, resolveTxt } from 'node:dns/promises'
 import { fileURLToPath } from 'node:url'
 import express from 'express'
 import { openDatabase } from './database.mjs'
-import { getSmtpStatus, sendNotification } from './notifications.mjs'
+import {
+  getSmtpStatus,
+  sendNotification,
+  registrationEmail,
+  invitationEmail,
+  clientReviewEmail,
+  invoiceEmail,
+  mcpAccessEmail,
+  testEmail,
+} from './notifications.mjs'
 import {
   createPaystackClient,
   decryptPaystackSecret,
@@ -95,6 +104,7 @@ import {
   loadEditorDocumentFromBuffer,
   parseOAuthState,
   refreshGoogleAccessToken,
+  trashGoogleDriveFile,
   tokenHasDriveFileScope,
   updateGoogleDriveFileContent,
   uploadGoogleDriveFile,
@@ -125,7 +135,7 @@ const production =
   process.env.APP_ENV === 'production' || process.env.NODE_ENV === 'production'
 const registrationEnabled =
   process.env.ALLOW_REGISTRATION !== 'false'
-const publicOrigin = process.env.PUBLIC_ORIGIN || 'https://agents.hygridtech.co.za'
+const publicOrigin = process.env.PUBLIC_ORIGIN || 'https://lancee.hookitupservices.com'
 const publicHostname = new URL(publicOrigin).hostname
 const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase()
 const adminName = (process.env.ADMIN_NAME || 'Workspace Admin').trim()
@@ -347,6 +357,7 @@ function userResponse(context) {
     id: context.user.id,
     name: context.user.name,
     email: context.user.email,
+    avatarUrl: context.user.avatarUrl || '',
     workspaceId: context.workspace.id,
     workspace: context.workspace.name,
     role: context.membership.role,
@@ -1979,6 +1990,64 @@ app.get('/api/auth/session', async (request, response) => {
   response.json({ user: userResponse(session.context) })
 })
 
+const profileImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
+
+app.put(
+  '/api/account/avatar',
+  secureMutations,
+  requireAuth,
+  express.raw({ type: [...profileImageTypes], limit: '2mb' }),
+  async (request, response) => {
+    const contentType = String(request.get('Content-Type') || '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase()
+    if (!profileImageTypes.has(contentType)) {
+      throw new HttpError(415, 'Use a JPEG, PNG, or WebP profile image.')
+    }
+    if (!Buffer.isBuffer(request.body) || request.body.byteLength === 0) {
+      throw new HttpError(400, 'Choose a non-empty profile image.')
+    }
+    const avatarUrl = `data:${contentType};base64,${request.body.toString('base64')}`
+    const result = await executeIdempotentMutation({
+      request,
+      route: 'PUT /api/account/avatar',
+      input: { contentType, imageHash: hashSecret(request.body.toString('base64')) },
+      operation: async () => {
+        await database.updateUserAvatar(request.auth.context.user.id, avatarUrl)
+        const context = await database.getContextByIds(
+          request.auth.context.user.id,
+          request.auth.context.workspace.id,
+        )
+        return { status: 200, response: { user: userResponse(context) } }
+      },
+    })
+    sendMutationResponse(response, result)
+  },
+)
+
+app.delete(
+  '/api/account/avatar',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const result = await executeIdempotentMutation({
+      request,
+      route: 'DELETE /api/account/avatar',
+      input: {},
+      operation: async () => {
+        await database.updateUserAvatar(request.auth.context.user.id, '')
+        const context = await database.getContextByIds(
+          request.auth.context.user.id,
+          request.auth.context.workspace.id,
+        )
+        return { status: 200, response: { user: userResponse(context) } }
+      },
+    })
+    sendMutationResponse(response, result)
+  },
+)
+
 app.get(
   '/api/codex/connection',
   requireAuth,
@@ -2109,12 +2178,16 @@ app.post('/api/auth/register/start', secureMutations, rateLimitLogin, async (req
 
   const confirmationUrl = new URL('/signup/confirm', publicOrigin)
   confirmationUrl.searchParams.set('token', token)
+  const registrationMail = registrationEmail({
+    name,
+    confirmationUrl: confirmationUrl.toString(),
+  })
   try {
     await sendNotification({
       to: email,
       subject: 'Confirm your lancee account',
-      text: `Hi ${name},\n\nConfirm your lancee account and choose your password:\n${confirmationUrl}\n\nThis link expires in 24 hours.`,
-      html: `<p>Hi ${escapeHtml(name)},</p><p>Confirm your lancee account and choose your password:</p><p><a href="${confirmationUrl}">Confirm your email address</a></p><p>This link expires in 24 hours.</p>`,
+      text: registrationMail.text,
+      html: registrationMail.html,
     })
   } catch (error) {
     if (error?.code === 'SMTP_NOT_CONFIGURED') {
@@ -3266,11 +3339,12 @@ app.post(
     })
 
     if (shouldNotify && !result.replayed) {
+      const accessMail = mcpAccessEmail({ userName: request.auth.context.user.name })
       void sendNotification({
         to: process.env.SMTP_TEST_TO || request.auth.context.user.email,
         subject: 'lancee MCP bearer access request',
-        text: `${request.auth.context.user.name} requested bearer access to the MCP Service Grid.`,
-        html: `<p><strong>${request.auth.context.user.name}</strong> requested bearer access to the lancee MCP Service Grid.</p>`,
+        text: accessMail.text,
+        html: accessMail.html,
       }).catch(() => undefined)
     }
 
@@ -3691,11 +3765,12 @@ app.post(
   async (request, response) => {
     const recipient = process.env.SMTP_TEST_TO || request.auth.context.user.email
     try {
+      const mail = testEmail()
       const result = await sendNotification({
         to: recipient,
         subject: 'lancee notification test',
-        text: 'SMTP notifications are configured correctly for lancee.',
-        html: '<p>SMTP notifications are configured correctly for <strong>lancee</strong>.</p>',
+        text: mail.text,
+        html: mail.html,
       })
       response.json({ ok: true, messageId: result.messageId })
     } catch (error) {
@@ -4398,13 +4473,17 @@ app.post('/api/workspace/team/invite', secureMutations, requireAuth, requireOwne
   const payload = { ...result.response }
   if (!result.replayed && getSmtpStatus().configured) {
     try {
+      const inviteMail = invitationEmail({
+        name,
+        inviterName: request.auth.context.user.name,
+        workspaceName: request.auth.context.workspace.name,
+        acceptUrl: payload.acceptUrl,
+      })
       await sendNotification({
         to: email,
         subject: `Invitation to ${request.auth.context.workspace.name}`,
-        text:
-          `${request.auth.context.user.name} invited you to ` +
-          `${request.auth.context.workspace.name} on lancee.\n\n` +
-          `Accept the invitation within 7 days:\n${payload.acceptUrl}`,
+        text: inviteMail.text,
+        html: inviteMail.html,
       })
       payload.delivery = 'sent'
     } catch {
@@ -4825,11 +4904,18 @@ app.post('/api/projects/:id/approvals', secureMutations, requireAuth, async (req
   ).toString()
   let delivery = 'not_configured'
   try {
+    const reviewMail = clientReviewEmail({
+      clientName: client.name,
+      workspaceName: request.auth.context.workspace.name,
+      title,
+      body,
+      reviewUrl,
+    })
     await sendNotification({
       to: client.email,
       subject: `${request.auth.context.workspace.name}: ${title}`,
-      text: `${body}\n\nReview and respond: ${reviewUrl}`,
-      html: `<p>${escapeHtml(body).replaceAll('\n', '<br>')}</p><p><a href="${escapeHtml(reviewUrl)}">Review for your approval</a></p>`,
+      text: reviewMail.text,
+      html: reviewMail.html,
     })
     delivery = 'sent'
   } catch (error) {
@@ -4932,11 +5018,20 @@ app.post('/api/draft-invoices/:id/send', secureMutations, requireAuth, async (re
   let delivery = 'not_configured'
   if (draft.clientEmail) {
     try {
+      const invoiceMail = invoiceEmail({
+        clientName: draft.clientName,
+        workspaceName: request.auth.context.workspace.name,
+        description: draft.description,
+        invoiceNumber: draft.invoiceNumber,
+        paymentUrl,
+        amountMinor: draft.amountMinor,
+        currency: draft.currency,
+      })
       await sendNotification({
         to: draft.clientEmail,
         subject: `Invoice ${draft.invoiceNumber} from ${request.auth.context.workspace.name}`,
-        text: `${draft.description}\n\nPay this invoice: ${paymentUrl}`,
-        html: `<p>${escapeHtml(draft.description)}</p><p><a href="${escapeHtml(paymentUrl)}">Pay invoice</a></p>`,
+        text: invoiceMail.text,
+        html: invoiceMail.html,
       })
       delivery = 'sent'
     } catch (error) {
@@ -4985,7 +5080,29 @@ app.post('/api/public/draft-invoices/:id/pay', async (request, response) => {
 })
 
 app.get('/api/notifications', requireAuth, async (request, response) => {
+  response.set('Cache-Control', 'private, no-store')
   response.json({ notifications: await database.listWorkspaceNotifications(request.auth.context.workspace.id) })
+})
+
+app.patch('/api/notifications/:id/read', secureMutations, requireAuth, async (request, response) => {
+  const id = String(request.params.id || '').trim()
+  if (!/^ntf_[A-Za-z0-9_-]{8,80}$/.test(id)) {
+    throw new HttpError(400, 'A valid notification id is required.')
+  }
+  const result = await executeIdempotentMutation({
+    request,
+    route: 'PATCH /api/notifications/:id/read',
+    input: { id },
+    operation: async () => {
+      const notification = await database.markWorkspaceNotificationRead(
+        request.auth.context.workspace.id,
+        id,
+      )
+      if (!notification) throw new HttpError(404, 'Notification not found.')
+      return { status: 200, response: { notification } }
+    },
+  })
+  sendMutationResponse(response, result)
 })
 
 app.post('/api/clients', secureMutations, requireAuth, async (request, response) => {
@@ -5542,6 +5659,11 @@ app.post(
           driveFile,
         )
       }
+      await database.upsertGoogleDriveSelection({
+        workspaceId: selectedWorkspaceId,
+        rootFileId: driveFile.id,
+        file: driveFile,
+      })
     }
     response.status(201).json({ document, driveFile })
   },
@@ -5697,6 +5819,11 @@ app.post('/api/documents/:id/sync-drive', secureMutations, requireAuth, async (r
     document.id,
     driveFile,
   )
+  await database.upsertGoogleDriveSelection({
+    workspaceId: selectedWorkspaceId,
+    rootFileId: driveFile.id,
+    file: driveFile,
+  })
   response.json({ document: updated, driveFile })
 })
 
@@ -5706,6 +5833,64 @@ app.delete('/api/documents/:id', secureMutations, requireAuth, async (request, r
     request.params.id,
   )
   response.status(204).end()
+})
+
+app.put('/api/google-drive/selections', secureMutations, requireAuth, async (request, response) => {
+  const rawSelections = Array.isArray(request.body?.selections)
+    ? request.body.selections
+    : null
+  if (!rawSelections || rawSelections.length > 100) {
+    throw new HttpError(400, 'Choose up to 100 Google Drive files or folders.')
+  }
+  const selections = rawSelections.map((selection) => {
+    const driveFileId = String(selection?.driveFileId || '').trim()
+    const name = String(selection?.name || '').trim()
+    const mimeType = String(selection?.mimeType || 'application/octet-stream').trim()
+    const webViewLink = String(selection?.webViewLink || '').trim() || null
+    if (!/^[A-Za-z0-9_-]{3,200}$/.test(driveFileId) || !name || name.length > 240) {
+      throw new HttpError(400, 'Each selected Drive item must have a valid id and name.')
+    }
+    if (mimeType.length > 160) {
+      throw new HttpError(400, 'A selected Drive item has an invalid file type.')
+    }
+    if (webViewLink) {
+      let parsedDriveUrl
+      try {
+        parsedDriveUrl = new URL(webViewLink)
+      } catch {
+        throw new HttpError(400, 'A selected Drive item has an invalid view link.')
+      }
+      if (
+        parsedDriveUrl.protocol !== 'https:' ||
+        !['drive.google.com', 'docs.google.com'].includes(parsedDriveUrl.hostname) ||
+        webViewLink.length > 2048
+      ) {
+        throw new HttpError(400, 'Selected Drive links must use a secure Google Drive URL.')
+      }
+    }
+    return {
+      driveFileId,
+      name,
+      mimeType,
+      webViewLink,
+      resourceKind: mimeType === 'application/vnd.google-apps.folder' ? 'folder' : 'file',
+    }
+  })
+  const result = await executeIdempotentMutation({
+    request,
+    route: 'PUT /api/google-drive/selections',
+    input: { selections },
+    operation: async () => ({
+      status: 200,
+      response: {
+        selections: await database.replaceGoogleDriveSelections(
+          request.auth.context.workspace.id,
+          [...new Map(selections.map((selection) => [selection.driveFileId, selection])).values()],
+        ),
+      },
+    }),
+  })
+  sendMutationResponse(response, result)
 })
 
 app.get('/api/google-drive/resource-links', requireAuth, async (request, response) => {
@@ -5984,6 +6169,22 @@ app.get('/api/google-drive/files', requireAuth, async (request, response) => {
     if (folderId && !/^[A-Za-z0-9_-]{3,200}$/.test(folderId)) {
       throw new HttpError(400, 'A valid Google Drive folder ID is required.')
     }
+    const rootFileIds = await database.listGoogleDriveRootFileIds(workspaceId)
+    let selectionRootId = null
+    if (folderId) {
+      selectionRootId = await database.getGoogleDriveSelectionRoot(workspaceId, folderId)
+      if (!selectionRootId && rootFileIds.includes(folderId)) selectionRootId = folderId
+      if (!selectionRootId) {
+        throw new GoogleDriveError(
+          'DRIVE_SELECTION_REQUIRED',
+          'Choose this folder in Google Drive before opening it here.',
+          403,
+        )
+      }
+    } else if (rootFileIds.length === 0) {
+      response.json({ files: [], nextPageToken: null })
+      return
+    }
     if (folderId) {
       const folder = await getGoogleDriveFileMetadata({ accessToken, fileId: folderId })
       if (folder.mimeType !== 'application/vnd.google-apps.folder') {
@@ -5995,7 +6196,13 @@ app.get('/api/google-drive/files', requireAuth, async (request, response) => {
       pageSize,
       pageToken,
       folderId,
+      fileIds: folderId ? null : rootFileIds,
     })
+    await database.upsertGoogleDriveSelectionFiles(
+      workspaceId,
+      selectionRootId,
+      result.files,
+    )
     response.json(result)
   } catch (error) {
     if (error instanceof GoogleDriveError) {
@@ -6135,6 +6342,38 @@ app.put(
           }),
         },
       }),
+    })
+    sendMutationResponse(response, result)
+  },
+)
+
+app.post(
+  '/api/google-drive/files/:fileId/trash',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const fileId = googleDriveFileId(request)
+    const workspaceId = request.auth.context.workspace.id
+    const accessToken = await resolveGoogleDriveAccessToken(workspaceId)
+    const file = await getGoogleDriveFileMetadata({ accessToken, fileId })
+    if (!file.canDelete) {
+      throw new GoogleDriveError(
+        'DRIVE_FILE_NOT_DELETABLE',
+        'Google Drive does not allow this file to be moved to trash.',
+        403,
+      )
+    }
+    const result = await executeIdempotentMutation({
+      request,
+      route: 'POST /api/google-drive/files/:fileId/trash',
+      input: { fileId },
+      operation: async () => {
+        const trashed = await trashGoogleDriveFile({ accessToken, fileId })
+        await database.deleteGoogleDriveSelection(workspaceId, fileId)
+        await database.deleteDriveResourceLinksForFile(workspaceId, fileId)
+        await database.clearWorkspaceDocumentDriveLink(workspaceId, fileId)
+        return { status: 200, response: { file: trashed } }
+      },
     })
     sendMutationResponse(response, result)
   },

@@ -5,7 +5,7 @@ local or production deployment. It also covers the first workspace sign-in,
 SMTP notifications, the n8n webhook bridge, the built-in MCP Service Grid, PWA
 installation, and the bounded offline Idea-note workflow.
 
-Production platform: [https://agents.hygridtech.co.za](https://agents.hygridtech.co.za)
+Production platform: [https://lancee.hookitupservices.com](https://lancee.hookitupservices.com)
 
 ## Choose a path
 
@@ -74,7 +74,7 @@ Open `.env` in your preferred editor. At minimum, set:
 ```dotenv
 APP_ENV=production
 PORT=5177
-PUBLIC_ORIGIN=https://agents.hygridtech.co.za
+PUBLIC_ORIGIN=https://lancee.hookitupservices.com
 
 ADMIN_NAME=Workspace Admin
 ADMIN_EMAIL=admin@example.com
@@ -218,13 +218,13 @@ Start in test mode:
 ```dotenv
 PAYSTACK_SECRET_KEY=sk_test_replace_me
 PAYSTACK_BASE_URL=https://api.paystack.co
-PAYSTACK_CALLBACK_URL=https://agents.hygridtech.co.za/?payment=paystack
+PAYSTACK_CALLBACK_URL=https://lancee.hookitupservices.com/?payment=paystack
 ```
 
 Configure this webhook in Paystack:
 
 ```text
-https://agents.hygridtech.co.za/api/webhooks/paystack
+https://lancee.hookitupservices.com/api/webhooks/paystack
 ```
 
 Restart lancee, open **Money**, and confirm Paystack reports **test mode**.
@@ -348,7 +348,7 @@ calls use the real lancee backend and persist per workspace. See
 
 Before starting, confirm:
 
-- `PUBLIC_ORIGIN=https://agents.hygridtech.co.za`
+- `PUBLIC_ORIGIN=https://lancee.hookitupservices.com`
 - `APP_ENV=production`
 - the administrator salt and hash are populated
 - `.env` permissions are `600`
@@ -373,7 +373,7 @@ Configure the reverse proxy with:
 
 | Setting | Value |
 | --- | --- |
-| Public hostname | `agents.hygridtech.co.za` |
+| Public hostname | `lancee.hookitupservices.com` |
 | Forward scheme | `http` |
 | Forward host | The lancee application server, currently `192.168.1.66` |
 | Forward port | `5177` |
@@ -387,8 +387,8 @@ cookie is marked `Secure`.
 ### Production verification
 
 ```bash
-curl -fsS https://agents.hygridtech.co.za/api/health
-curl -I https://agents.hygridtech.co.za
+curl -fsS https://lancee.hookitupservices.com/api/health
+curl -I https://lancee.hookitupservices.com
 pm2 logs nexus-agents-platform --nostream --lines 50
 ```
 
@@ -410,7 +410,7 @@ cd /home/apps/agent-app
 pnpm install --frozen-lockfile
 pnpm build
 pm2 startOrReload ecosystem.config.cjs --update-env
-curl -fsS https://agents.hygridtech.co.za/api/health
+curl -fsS https://lancee.hookitupservices.com/api/health
 ```
 
 Do not overwrite an existing `.env` during an update.

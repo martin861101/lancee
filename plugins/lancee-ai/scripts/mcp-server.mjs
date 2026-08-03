@@ -8,7 +8,7 @@ import { createInterface } from 'node:readline'
 const clientId = 'lancee-codex-plugin'
 const scope = 'ai:invoke mcp:invoke'
 const baseUrl = String(
-  process.env.LANCEE_BASE_URL || 'https://agents.hygridtech.co.za',
+  process.env.LANCEE_BASE_URL || 'https://lancee.hookitupservices.com',
 ).replace(/\/+$/, '')
 const dataDirectory =
   process.env.PLUGIN_DATA || join(homedir(), '.lancee-codex')
