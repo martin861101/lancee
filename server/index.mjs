@@ -1260,6 +1260,22 @@ async function syncMailWorkspace(account) {
       }
     }
     await database.updateMailSyncState(account.workspaceId, { lastSeenUid: result.maximumUid })
+    if (result.messages.length > 0) {
+      const firstMessage = result.messages[0]
+      const sender = firstMessage.from?.[0]?.address || firstMessage.from?.[0]?.name || 'A contact'
+      const subject = firstMessage.subject || '(No subject)'
+      const suffix = result.messages.length > 1
+        ? ` and ${result.messages.length - 1} more message${result.messages.length === 2 ? '' : 's'}`
+        : ''
+      await database.createWorkspaceNotification({
+        workspaceId: account.workspaceId,
+        kind: 'mail.received',
+        title: `${result.messages.length} new message${result.messages.length === 1 ? '' : 's'} received`,
+        body: `${sender}: ${subject}${suffix}.`,
+        entityType: 'mail',
+        entityId: firstMessage.messageId || `mail_${account.workspaceId}_${firstMessage.uid}`,
+      })
+    }
     return { newMessages: result.messages.length, triggered, skipped: false }
   } catch (error) {
     await database.updateMailSyncState(account.workspaceId, {
@@ -4497,6 +4513,67 @@ app.get('/api/clients', requireAuth, async (request, response) => {
   })
 })
 
+function emailDomain(value) {
+  const match = String(value || '').trim().toLowerCase().match(/^[^@\s]+@([^@\s]+)$/)
+  return match ? match[1] : ''
+}
+
+function messageIncludesDomain(message, domain) {
+  return [...(message?.from || []), ...(message?.to || []), ...(message?.cc || [])]
+    .some((address) => emailDomain(address?.address) === domain)
+}
+
+app.get('/api/clients/:id/history', requireAuth, async (request, response) => {
+  const id = String(request.params.id || '')
+  if (!/^clt_[a-z0-9_-]{8,80}$/i.test(id)) {
+    throw new HttpError(400, 'A valid client id is required.')
+  }
+  const workspaceId = request.auth.context.workspace.id
+  const client = (await database.listClients(workspaceId)).find((item) => item.id === id)
+  if (!client) throw new HttpError(404, 'Client not found.')
+
+  const projects = (await database.listProjects(workspaceId)).filter((project) =>
+    project.clientId === client.id || (
+      !project.clientId &&
+      project.client.toLowerCase() === client.name.toLowerCase()
+    ),
+  )
+  const domain = emailDomain(client.email)
+  let messages = []
+  let mailConnected = false
+  const account = await database.getMailAccount(workspaceId, true)
+  if (domain && account) {
+    mailConnected = true
+    try {
+      const password = mailPassword(account)
+      const folders = await listMailFolders(account, password)
+      const messageLists = await Promise.all(
+        folders.slice(0, 8).map((folder) =>
+          listMailMessages(account, password, {
+            folder: folder.path,
+            query: domain,
+            limit: 25,
+          }).catch(() => []),
+        ),
+      )
+      const seen = new Set()
+      messages = messageLists
+        .flat()
+        .filter((message) => {
+          const key = `${message.folder}:${message.uid}`
+          if (seen.has(key) || !messageIncludesDomain(message, domain)) return false
+          seen.add(key)
+          return true
+        })
+        .sort((left, right) => Date.parse(right.date) - Date.parse(left.date))
+        .slice(0, 50)
+    } catch {
+      messages = []
+    }
+  }
+  response.json({ projects, messages, domain: domain || null, mailConnected })
+})
+
 app.get('/api/storefront/settings', requireAuth, async (request, response) => {
   const settings = await database.getWorkspaceSettings(request.auth.context.workspace.id)
   response.json({ enabled: settings.storefrontEnabled })
@@ -5158,6 +5235,69 @@ app.patch('/api/clients/:id', secureMutations, requireAuth, async (request, resp
   response.json(updated)
 })
 
+const clientLogoTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
+
+app.put(
+  '/api/clients/:id/logo',
+  secureMutations,
+  requireAuth,
+  express.raw({ type: [...clientLogoTypes], limit: '2mb' }),
+  async (request, response) => {
+    const id = String(request.params.id || '')
+    if (!/^clt_[a-z0-9_-]{8,80}$/i.test(id)) {
+      throw new HttpError(400, 'A valid client id is required.')
+    }
+    const contentType = String(request.get('Content-Type') || '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase()
+    if (!clientLogoTypes.has(contentType)) {
+      throw new HttpError(415, 'Use a JPEG, PNG, or WebP client logo.')
+    }
+    if (!Buffer.isBuffer(request.body) || request.body.byteLength === 0) {
+      throw new HttpError(400, 'Choose a non-empty client logo.')
+    }
+    const logoUrl = `data:${contentType};base64,${request.body.toString('base64')}`
+    const result = await executeIdempotentMutation({
+      request,
+      route: `PUT /api/clients/${id}/logo`,
+      input: { contentType, imageHash: hashSecret(request.body.toString('base64')) },
+      operation: async () => {
+        const updated = await database.updateClient(
+          request.auth.context.workspace.id,
+          id,
+          { logoUrl },
+        )
+        if (!updated) throw new HttpError(404, 'Client not found.')
+        return { status: 200, response: updated }
+      },
+    })
+    sendMutationResponse(response, result)
+  },
+)
+
+app.delete('/api/clients/:id/logo', secureMutations, requireAuth, async (request, response) => {
+  const id = String(request.params.id || '')
+  if (!/^clt_[a-z0-9_-]{8,80}$/i.test(id)) {
+    throw new HttpError(400, 'A valid client id is required.')
+  }
+  const result = await executeIdempotentMutation({
+    request,
+    route: `DELETE /api/clients/${id}/logo`,
+    input: { id },
+    operation: async () => {
+      const updated = await database.updateClient(
+        request.auth.context.workspace.id,
+        id,
+        { logoUrl: '' },
+      )
+      if (!updated) throw new HttpError(404, 'Client not found.')
+      return { status: 200, response: updated }
+    },
+  })
+  sendMutationResponse(response, result)
+})
+
 app.delete('/api/clients/:id', secureMutations, requireAuth, async (request, response) => {
   const id = String(request.params.id || '')
   if (!/^clt_[a-z0-9_-]{8,80}$/i.test(id)) {
@@ -5292,6 +5432,120 @@ app.patch('/api/projects/:id', secureMutations, requireAuth, async (request, res
     },
   })
   sendMutationResponse(response, result)
+})
+
+function projectTaskId(value) {
+  const id = String(value || '').trim()
+  if (!/^tsk_[a-f0-9-]{36}$/i.test(id)) {
+    throw new HttpError(400, 'A valid task id is required.')
+  }
+  return id
+}
+
+function projectTaskBucketId(value) {
+  const bucketId = String(value || '').trim().toLowerCase()
+  if (!/^[a-z0-9][a-z0-9_-]{0,80}$/.test(bucketId)) {
+    throw new HttpError(400, 'A valid task bucket is required.')
+  }
+  return bucketId
+}
+
+function projectTaskTitle(value) {
+  const title = String(value || '').trim()
+  if (title.length < 1 || title.length > 160) {
+    throw new HttpError(400, 'Task titles must be between 1 and 160 characters.')
+  }
+  return title
+}
+
+function projectTaskNotes(value) {
+  const notes = String(value || '').trim()
+  if (notes.length > 2_000) {
+    throw new HttpError(400, 'Task notes must be 2,000 characters or fewer.')
+  }
+  return notes
+}
+
+app.get('/api/projects/:id/tasks', requireAuth, async (request, response) => {
+  const projectId = String(request.params.id || '')
+  if (!/^prj_[a-z0-9_-]{6,80}$/i.test(projectId)) {
+    throw new HttpError(400, 'A valid project id is required.')
+  }
+  response.json({
+    tasks: await database.listProjectTasks(request.auth.context.workspace.id, projectId),
+  })
+})
+
+app.post('/api/projects/:id/tasks', secureMutations, requireAuth, async (request, response) => {
+  const projectId = String(request.params.id || '')
+  if (!/^prj_[a-z0-9_-]{6,80}$/i.test(projectId)) {
+    throw new HttpError(400, 'A valid project id is required.')
+  }
+  const title = projectTaskTitle(request.body?.title)
+  const notes = projectTaskNotes(request.body?.notes)
+  const bucketId = projectTaskBucketId(request.body?.bucketId || 'backlog')
+  const result = await executeIdempotentMutation({
+    request,
+    route: `POST /api/projects/${projectId}/tasks`,
+    input: { projectId, title, notes, bucketId },
+    operation: async () => {
+      const task = await database.createProjectTask({
+        workspaceId: request.auth.context.workspace.id,
+        projectId,
+        bucketId,
+        title,
+        notes,
+      })
+      if (!task) throw new HttpError(404, 'Project not found.')
+      return { status: 201, response: { task } }
+    },
+  })
+  sendMutationResponse(response, result)
+})
+
+app.patch('/api/projects/:id/tasks/:taskId', secureMutations, requireAuth, async (request, response) => {
+  const projectId = String(request.params.id || '')
+  if (!/^prj_[a-z0-9_-]{6,80}$/i.test(projectId)) {
+    throw new HttpError(400, 'A valid project id is required.')
+  }
+  const taskId = projectTaskId(request.params.taskId)
+  const fields = {}
+  if (Object.hasOwn(request.body || {}, 'title')) fields.title = projectTaskTitle(request.body.title)
+  if (Object.hasOwn(request.body || {}, 'notes')) fields.notes = projectTaskNotes(request.body.notes)
+  if (Object.hasOwn(request.body || {}, 'bucketId')) fields.bucketId = projectTaskBucketId(request.body.bucketId)
+  if (!Object.keys(fields).length) throw new HttpError(400, 'Provide at least one task field to update.')
+  const existingTask = (await database.listProjectTasks(request.auth.context.workspace.id, projectId))
+    .find((item) => item.id === taskId)
+  if (!existingTask) throw new HttpError(404, 'Task not found.')
+  const result = await executeIdempotentMutation({
+    request,
+    route: `PATCH /api/projects/${projectId}/tasks/${taskId}`,
+    input: { projectId, taskId, ...fields },
+    operation: async () => {
+      const task = await database.updateProjectTask(
+        request.auth.context.workspace.id,
+        taskId,
+        fields,
+      )
+      if (!task || task.projectId !== existingTask.projectId) throw new HttpError(404, 'Task not found.')
+      return { status: 200, response: { task } }
+    },
+  })
+  sendMutationResponse(response, result)
+})
+
+app.delete('/api/projects/:id/tasks/:taskId', secureMutations, requireAuth, async (request, response) => {
+  const projectId = String(request.params.id || '')
+  if (!/^prj_[a-z0-9_-]{6,80}$/i.test(projectId)) {
+    throw new HttpError(400, 'A valid project id is required.')
+  }
+  const taskId = projectTaskId(request.params.taskId)
+  const task = (await database.listProjectTasks(request.auth.context.workspace.id, projectId))
+    .find((item) => item.id === taskId)
+  if (!task) throw new HttpError(404, 'Task not found.')
+  const deleted = await database.deleteProjectTask(request.auth.context.workspace.id, taskId)
+  if (!deleted) throw new HttpError(404, 'Task not found.')
+  response.status(204).end()
 })
 
 app.delete('/api/projects/:id', secureMutations, requireAuth, async (request, response) => {
@@ -6762,10 +7016,22 @@ app.post(
       request,
       route: 'POST /api/mail/send',
       input: request.body || {},
-      operation: async () => ({
-        status: 201,
-        response: await sendMailMessage(account, password, request.body),
-      }),
+      operation: async () => {
+        const sent = await sendMailMessage(account, password, request.body)
+        const recipients = Array.isArray(request.body?.to)
+          ? request.body.to.map((value) => String(value || '').trim()).filter(Boolean)
+          : []
+        const subject = String(request.body?.subject || '').trim() || '(No subject)'
+        await database.createWorkspaceNotification({
+          workspaceId: request.auth.context.workspace.id,
+          kind: 'mail.sent',
+          title: 'Message sent',
+          body: `${subject} · ${recipients.join(', ') || 'recipient recorded'}.`,
+          entityType: 'mail',
+          entityId: sent.messageId || null,
+        })
+        return { status: 201, response: sent }
+      },
     })
     sendMutationResponse(response, result)
   },

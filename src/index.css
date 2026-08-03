@@ -639,7 +639,9 @@ kbd {
   top: 43px;
   right: -46px;
   width: 320px;
+  max-height: min(560px, calc(100vh - 90px));
   overflow: hidden;
+  overflow-y: auto;
   background: white;
   border: 1px solid var(--line);
   border-radius: 14px;

@@ -854,7 +854,9 @@
 }
 
 .clients-list > button > i,
-.client-detail-panel__hero > i {
+.client-detail-panel__hero > i,
+.clients-list > button > img,
+.client-detail-panel__hero > img {
   display: grid;
   width: 38px;
   height: 38px;
@@ -865,6 +867,10 @@
   font-size: 12px;
   font-style: normal;
   font-weight: 750;
+}
+
+.client-avatar-image {
+  object-fit: cover;
 }
 
 .clients-list > button > span {
@@ -922,6 +928,12 @@
   font-size: 18px;
 }
 
+.client-detail-panel__hero > img {
+  width: 58px;
+  height: 58px;
+  border-radius: 15px;
+}
+
 .client-detail-panel__hero span {
   color: #65d88d;
   font-size: 9px;
@@ -945,7 +957,12 @@
 .client-detail-panel__actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.client-logo-upload {
+  cursor: pointer;
 }
 
 .client-contact-grid {
@@ -999,35 +1016,129 @@
   font-size: 9px;
 }
 
-.client-projects article {
+.client-projects article,
+.client-project-link {
   display: grid;
   grid-template-columns: 4px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   min-height: 56px;
+  width: 100%;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
   border-top: 1px solid #273143;
 }
 
-.client-projects article > i {
+.client-projects article > i,
+.client-project-link > i {
   width: 4px;
   height: 30px;
   border-radius: 5px;
 }
 
 .client-projects article strong,
-.client-projects article small {
+.client-projects article small,
+.client-project-link strong,
+.client-project-link small {
   display: block;
 }
 
-.client-projects article strong {
+.client-projects article strong,
+.client-project-link strong {
   color: #dfe5ee;
   font-size: 11px;
 }
 
-.client-projects article small {
+.client-projects article small,
+.client-project-link small {
   margin-top: 4px;
   color: #7b8699;
   font-size: 9px;
+}
+
+.client-project-link:hover {
+  background: rgba(69, 111, 210, .08);
+}
+
+.client-history {
+  padding: 0 24px 28px;
+}
+
+.client-history__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 0 10px;
+  border-top: 1px solid #273143;
+}
+
+.client-history__heading h3 {
+  margin: 0;
+  color: #eff3f9;
+  font-size: 13px;
+}
+
+.client-history__heading span,
+.client-history__heading em {
+  display: block;
+  margin-top: 4px;
+  color: #7f899c;
+  font-size: 9px;
+  font-style: normal;
+}
+
+.client-history__heading em {
+  color: #8fb2ff;
+}
+
+.client-history__group {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.client-history__group > strong {
+  color: #9ba6b8;
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.client-history__group > button {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  color: #dfe5ee;
+  text-align: left;
+  background: #151d2a;
+  border: 1px solid #273143;
+  border-radius: 8px;
+}
+
+.client-history__group > button:hover {
+  border-color: #4d79dd;
+  background: #1b2638;
+}
+
+.client-history__group > button span {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.client-history__group > button small,
+.client-history__empty {
+  color: #7f899c;
+  font-size: 9px;
+}
+
+.client-history__empty {
+  margin: 4px 0 0;
 }
 
 .clients-empty {
@@ -1141,7 +1252,8 @@
     grid-template-columns: 48px 1fr;
   }
 
-  .client-detail-panel__hero > i {
+  .client-detail-panel__hero > i,
+  .client-detail-panel__hero > img {
     width: 48px;
     height: 48px;
   }
@@ -1370,16 +1482,50 @@ html[data-theme='light'] .client-projects h3 {
   color: var(--ink);
 }
 
-html[data-theme='light'] .client-projects article {
+html[data-theme='light'] .client-projects article,
+html[data-theme='light'] .client-project-link {
   border-top-color: var(--line);
 }
 
-html[data-theme='light'] .client-projects article strong {
+html[data-theme='light'] .client-projects article strong,
+html[data-theme='light'] .client-project-link strong {
   color: var(--ink-soft);
 }
 
-html[data-theme='light'] .client-projects article small {
+html[data-theme='light'] .client-projects article small,
+html[data-theme='light'] .client-project-link small {
   color: var(--muted);
+}
+
+html[data-theme='light'] .client-project-link:hover {
+  background: rgba(110, 140, 255, .08);
+}
+
+html[data-theme='light'] .client-history__heading {
+  border-top-color: var(--line);
+}
+
+html[data-theme='light'] .client-history__heading h3 {
+  color: var(--ink);
+}
+
+html[data-theme='light'] .client-history__heading span,
+html[data-theme='light'] .client-history__heading em,
+html[data-theme='light'] .client-history__group > strong,
+html[data-theme='light'] .client-history__group > button small,
+html[data-theme='light'] .client-history__empty {
+  color: var(--muted);
+}
+
+html[data-theme='light'] .client-history__group > button {
+  color: var(--ink-soft);
+  background: var(--surface-soft);
+  border-color: var(--line);
+}
+
+html[data-theme='light'] .client-history__group > button:hover {
+  background: #ffffff;
+  border-color: var(--accent);
 }
 
 html[data-theme='light'] .clients-empty {

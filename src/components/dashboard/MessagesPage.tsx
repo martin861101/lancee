@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useEffectEvent, useMemo, useState, type FormEvent } from 'react'
 import {
   api,
   type Automation,
@@ -120,10 +120,14 @@ export default function MessagesPage({
   automations,
   canManageConnection,
   onToast,
+  focusMessage,
+  onMessageFocusHandled,
 }: {
   automations: Automation[]
   canManageConnection: boolean
   onToast: (message: string) => void
+  focusMessage?: { folder: string; uid: number } | null
+  onMessageFocusHandled?: () => void
 }) {
   const [account, setAccount] = useState<MailAccount | null>(null)
   const [loading, setLoading] = useState(true)
@@ -156,6 +160,7 @@ export default function MessagesPage({
   )
   const selectedAutomation = nativeAutomations.find((automation) => automation.id === rule.automationId)
   const canCreateProjectFromEmail = selectedAutomation?.tools.includes('projects.create') || false
+  const handleMessageFocusHandled = useEffectEvent(() => onMessageFocusHandled?.())
 
   const loadAccount = useCallback(async () => {
     const status = await api.mail.getAccount()
@@ -195,7 +200,22 @@ export default function MessagesPage({
     loadAccount()
       .then((mailAccount) => {
         if (!active || !mailAccount) return
-        void Promise.all([loadMailbox('INBOX', ''), loadRules()])
+        const initialFolder = focusMessage?.folder || 'INBOX'
+        setFolder(initialFolder)
+        setSearch('')
+        void Promise.all([
+          loadMailbox(initialFolder, '').then(() => {
+            if (!active || !focusMessage) return
+            return api.mail.getMessage(focusMessage.folder, focusMessage.uid)
+              .then((message) => {
+                if (!active) return
+                setSelected(message)
+                setTab('mail')
+                handleMessageFocusHandled()
+              })
+          }),
+          loadRules(),
+        ])
       })
       .catch((caught) => {
         if (active) setError(caught instanceof Error ? caught.message : 'Unable to load Messages.')
@@ -204,7 +224,7 @@ export default function MessagesPage({
         if (active) setLoading(false)
       })
     return () => { active = false }
-  }, [loadAccount, loadMailbox, loadRules])
+  }, [focusMessage, loadAccount, loadMailbox, loadRules])
 
   const discover = async (event: FormEvent) => {
     event.preventDefault()
@@ -295,8 +315,8 @@ export default function MessagesPage({
     try {
       const result = await api.mail.sync()
       await loadMailbox(folder, search)
-      onToast(result.triggered
-        ? `${result.newMessages} new message${result.newMessages === 1 ? '' : 's'} · ${result.triggered} automation${result.triggered === 1 ? '' : 's'} started`
+      onToast(result.newMessages
+        ? `${result.newMessages} new message${result.newMessages === 1 ? '' : 's'}${result.triggered ? ` · ${result.triggered} automation${result.triggered === 1 ? '' : 's'} started` : ''}`
         : 'Messages are up to date.')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to refresh messages.')

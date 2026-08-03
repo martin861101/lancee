@@ -314,6 +314,13 @@ export type MailMessageSummary = {
   snippet: string
 }
 
+export type ClientHistory = {
+  projects: Project[]
+  messages: MailMessageSummary[]
+  domain: string | null
+  mailConnected: boolean
+}
+
 export type MailMessage = MailMessageSummary & {
   replyTo: MailAddress[]
   text: string
@@ -417,6 +424,17 @@ export type Project = {
   updatedAt?: string
 }
 
+export type ProjectTask = {
+  id: string
+  workspaceId: string
+  projectId: string
+  bucketId: string
+  title: string
+  notes: string
+  createdAt: string
+  updatedAt: string
+}
+
 export type ProjectInput = {
   name: string
   client: string
@@ -482,6 +500,7 @@ export type Client = {
   company: string
   status: 'active' | 'archived'
   notes: string
+  logoUrl: string
   projectCount: number
   createdAt: string
   updatedAt: string
@@ -2413,6 +2432,17 @@ export const api = {
       }
       return payload.clients
     },
+    async history(id: string): Promise<ClientHistory> {
+      const response = await fetch(`/api/clients/${encodeURIComponent(id)}/history`, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+      })
+      const payload = (await response.json()) as ClientHistory & { error?: string }
+      if (!response.ok || !payload.projects || !payload.messages) {
+        throw new Error(payload.error || 'Unable to load client history.')
+      }
+      return payload
+    },
     async create(input: {
       name: string
       email?: string
@@ -2441,6 +2471,34 @@ export const api = {
       const payload = (await response.json()) as Client & { error?: string }
       if (!response.ok || !payload.id) {
         throw new Error(payload.error || 'Unable to update client.')
+      }
+      return payload as Client
+    },
+    async uploadLogo(id: string, file: File): Promise<Client> {
+      const response = await fetch(`/api/clients/${encodeURIComponent(id)}/logo`, {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': file.type,
+          'Idempotency-Key': crypto.randomUUID(),
+        },
+        body: file,
+      })
+      const payload = (await response.json()) as Client & { error?: string }
+      if (!response.ok || !payload.id) {
+        throw new Error(payload.error || 'Unable to upload the client logo.')
+      }
+      return payload as Client
+    },
+    async removeLogo(id: string): Promise<Client> {
+      const response = await fetch(`/api/clients/${encodeURIComponent(id)}/logo`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: mutationHeaders(),
+      })
+      const payload = (await response.json()) as Client & { error?: string }
+      if (!response.ok || !payload.id) {
+        throw new Error(payload.error || 'Unable to remove the client logo.')
       }
       return payload as Client
     },
@@ -2581,6 +2639,55 @@ export const api = {
         throw new Error(payload.error || 'Unable to update project.')
       }
       return payload as Project
+    },
+    tasks: {
+      async list(projectId: string): Promise<ProjectTask[]> {
+        const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tasks`, {
+          credentials: 'same-origin',
+        })
+        const payload = (await response.json()) as { tasks?: ProjectTask[]; error?: string }
+        if (!response.ok || !payload.tasks) {
+          throw new Error(payload.error || 'Unable to load project tasks.')
+        }
+        return payload.tasks
+      },
+      async create(projectId: string, input: { bucketId: string; title: string; notes: string }): Promise<ProjectTask> {
+        const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tasks`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: mutationHeaders(true),
+          body: JSON.stringify(input),
+        })
+        const payload = (await response.json()) as { task?: ProjectTask; error?: string }
+        if (!response.ok || !payload.task) {
+          throw new Error(payload.error || 'Unable to create project task.')
+        }
+        return payload.task
+      },
+      async update(projectId: string, taskId: string, fields: Partial<Pick<ProjectTask, 'bucketId' | 'title' | 'notes'>>): Promise<ProjectTask> {
+        const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`, {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: mutationHeaders(true),
+          body: JSON.stringify(fields),
+        })
+        const payload = (await response.json()) as { task?: ProjectTask; error?: string }
+        if (!response.ok || !payload.task) {
+          throw new Error(payload.error || 'Unable to update project task.')
+        }
+        return payload.task
+      },
+      async remove(projectId: string, taskId: string): Promise<void> {
+        const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`, {
+          method: 'DELETE',
+          credentials: 'same-origin',
+          headers: mutationHeaders(),
+        })
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => ({}))) as { error?: string }
+          throw new Error(payload.error || 'Unable to delete project task.')
+        }
+      },
     },
     async remove(id: string) {
       const response = await fetch(`/api/projects/${encodeURIComponent(id)}`, {

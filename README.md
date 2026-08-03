@@ -46,6 +46,9 @@ product surfaces, API route families, `.env.example` configuration, and PM2/
 reverse-proxy deployment shape. The deployed static copy is kept at
 [`public/lancee.html`](public/lancee.html).
 
+The documented automation inventory is available in [`auto.md`](auto.md), with
+the supporting automation documentation in [`automations/`](automations/).
+
 ## Product areas
 
 - **Public landing page** — freelancer-focused product narrative, workflow
@@ -55,13 +58,15 @@ reverse-proxy deployment shape. The deployed static copy is kept at
   recent activity, and one quick-task entry point.
 - **Clients** — a sidebar-accessible client directory with search, contact
   details, status controls, project counts, confirmed deletion, and a focused
-  client workspace.
+  client workspace. Client records can be edited, branded with a logo, and
+  reviewed through linked project and matching mailbox history.
 - **Projects** — a searchable, filterable table of every client project with
   status badges, due and created dates, ownership, pagination, quick actions,
   Drive relationships, deliverables, and authenticated project attachments.
   Selecting a project opens its full Kanban workspace with stage controls,
   persistent drag-and-drop status movement, progress, deadline, owner, files,
-  external links, and Drive resources.
+  external links, Drive resources, and persisted tasks with per-task notes in
+  any project bucket.
 - **Ideas** — an MIT-licensed Excalidraw workspace for freehand drawing,
   shapes, arrows, text, images, embeddable content, reusable libraries, export,
   and keyboard/touch editing. Named boards remain attached to the lancee
@@ -116,8 +121,8 @@ reverse-proxy deployment shape. The deployed static copy is kept at
 - **Money** — durable ZAR invoices, real Paystack hosted payment links, and
   verified, duplicate-safe webhook reconciliation.
 - **Notifications** — workspace-scoped activity with unread indicators, a
-  readable notification popover, navigation to related work, and mark-as-read
-  controls.
+  readable notification popover, current mail and automation events,
+  navigation to related work, and mark-as-read controls.
 - **Settings** — workspace, authentication, notification configuration, profile
   image upload/removal, and explicit logout controls.
 

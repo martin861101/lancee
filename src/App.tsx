@@ -5317,6 +5317,8 @@ function WorkspaceApp() {
   const [automations, setAutomations] = useState<Automation[]>([])
   const [runs, setRuns] = useState<Run[]>([])
   const [workspaceNotifications, setWorkspaceNotifications] = useState<WorkspaceNotification[]>([])
+  const [workProjectId, setWorkProjectId] = useState('')
+  const [messageFocus, setMessageFocus] = useState<{ folder: string; uid: number } | null>(null)
   const [integrations, setIntegrations] = useState<Integration[]>([])
   const [n8nConfig, setN8nConfig] = useState<N8nConfig | null>(null)
   const [paystackConnection, setPaystackConnection] =
@@ -5349,6 +5351,16 @@ function WorkspaceApp() {
 
   const visibleNotifications = workspaceNotifications
   const unreadNotifications = visibleNotifications.filter((notification) => !notification.readAt)
+
+  const openClientProject = (projectId: string) => {
+    setWorkProjectId(projectId)
+    setActivePage('work')
+  }
+
+  const openClientMessage = (target: { folder: string; uid: number }) => {
+    setMessageFocus(target)
+    setActivePage('messages')
+  }
 
   useEffect(() => {
     applyTheme(theme)
@@ -6033,6 +6045,7 @@ function WorkspaceApp() {
               onToast={setToast}
               ownerName={user.name}
               ownerInitials={user.initials}
+              initialProjectId={workProjectId || undefined}
             />
           </Suspense>
         )
@@ -6040,7 +6053,11 @@ function WorkspaceApp() {
       case 'clients':
         page = (
           <Suspense fallback={<EmptySkeleton />}>
-            <ClientsPage onToast={setToast} />
+            <ClientsPage
+              onToast={setToast}
+              onOpenProject={openClientProject}
+              onOpenMessage={openClientMessage}
+            />
           </Suspense>
         )
         break
@@ -6160,6 +6177,8 @@ function WorkspaceApp() {
               automations={automations}
               canManageConnection={user.role === 'owner'}
               onToast={setToast}
+              focusMessage={messageFocus}
+              onMessageFocusHandled={() => setMessageFocus(null)}
             />
           </Suspense>
         )
@@ -6253,7 +6272,14 @@ function WorkspaceApp() {
               <button
                 className="icon-button"
                 aria-label="Notifications"
-                onClick={() => setNotificationsOpen((open) => !open)}
+                aria-expanded={notificationsOpen}
+                onClick={() => {
+                  const nextOpen = !notificationsOpen
+                  setNotificationsOpen(nextOpen)
+                  if (nextOpen) {
+                    void api.notifications.list().then(setWorkspaceNotifications).catch(() => undefined)
+                  }
+                }}
               >
                 <Icon name="bell" size={18} />
                 {unreadNotifications.length > 0 && <span className="notification-dot" />}
@@ -6281,7 +6307,7 @@ function WorkspaceApp() {
                       <button type="button" onClick={() => setNotificationsOpen(false)}>Close</button>
                     </div>
                   </div>
-                  {visibleNotifications.slice(0, 8).map((notification) => (
+                  {visibleNotifications.slice(0, 20).map((notification) => (
                     <button
                       key={notification.id}
                       onClick={() => {
@@ -6292,13 +6318,32 @@ function WorkspaceApp() {
                             ? 'work'
                             : notification.entityType === 'invoice'
                               ? 'money'
-                              : 'overview',
+                              : notification.entityType === 'draft_invoice'
+                                ? 'money'
+                                : notification.entityType === 'mail'
+                                  ? 'messages'
+                                  : notification.entityType === 'automation_run'
+                                    ? 'runs'
+                                    : notification.entityType === 'client'
+                                      ? 'clients'
+                                      : 'overview',
                         )
                         setNotificationsOpen(false)
                       }}
                     >
-                      <span className={`notification-icon notification-icon--${notification.kind.includes('comment') ? 'coral' : 'lime'}`}>
-                        <Icon name={notification.kind.includes('comment') ? 'messages' : 'check'} size={14} />
+                      <span className={`notification-icon notification-icon--${notification.kind.includes('failed') ? 'coral' : 'lime'}`}>
+                        <Icon
+                          name={notification.entityType === 'mail'
+                            ? 'messages'
+                            : notification.entityType === 'automation_run'
+                              ? 'sparkles'
+                              : notification.kind.includes('comment')
+                                ? 'messages'
+                                : notification.entityType === 'project'
+                                  ? 'briefcase'
+                                  : 'check'}
+                          size={14}
+                        />
                       </span>
                       <span>
                         <strong>{notification.title}</strong>

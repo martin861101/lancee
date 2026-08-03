@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useEffectEvent,
   useState,
   type ChangeEvent,
   type DragEvent,
@@ -9,6 +10,7 @@ import type {
   Client,
   GoogleDriveResourceLink,
   Project,
+  ProjectTask,
   ProjectLink,
   ProjectFile,
   ProjectComment,
@@ -23,10 +25,12 @@ export default function WorkPanel({
   onToast,
   ownerName,
   ownerInitials,
+  initialProjectId,
 }: {
   onToast: (message: string) => void
   ownerName: string
   ownerInitials: string
+  initialProjectId?: string
 }) {
   const [projects, setProjects] = useState<Project[]>([])
   const [clients, setClients] = useState<Client[]>([])
@@ -73,11 +77,18 @@ export default function WorkPanel({
   const [teamMembers, setTeamMembers] = useState<Array<{ id: string; name: string }>>([])
   const [customBuckets, setCustomBuckets] = useState<Array<{ id: string; label: string }>>([])
   const [bucketAssignees, setBucketAssignees] = useState<Record<string, string>>({})
+  const [tasks, setTasks] = useState<ProjectTask[]>([])
+  const [taskDialogOpen, setTaskDialogOpen] = useState(false)
+  const [editingTask, setEditingTask] = useState<ProjectTask | null>(null)
+  const [taskDraft, setTaskDraft] = useState({ bucketId: 'backlog', title: '', notes: '' })
+  const [taskSaving, setTaskSaving] = useState(false)
+  const [taskDeletingId, setTaskDeletingId] = useState('')
   const [reviewComments, setReviewComments] = useState<ProjectComment[]>([])
   const [draftInvoice, setDraftInvoice] = useState<DraftInvoice | null>(null)
   const [draftAmount, setDraftAmount] = useState('')
   const [approvalBusy, setApprovalBusy] = useState(false)
   const [lastReviewUrl, setLastReviewUrl] = useState('')
+  const openRequestedProject = useEffectEvent((project: Project) => openProjectWorkspace(project))
 
   useEffect(() => {
     let active = true
@@ -90,12 +101,16 @@ export default function WorkPanel({
           setSelectedClientId((current) => current || firstClient?.id || '')
           setNewProjectClientId((current) => current || firstClient?.id || '')
           setTeamMembers(members.filter((member) => member.status === 'active'))
+          const requestedProject = initialProjectId
+            ? data.find((project) => project.id === initialProjectId)
+            : null
+          if (requestedProject) openRequestedProject(requestedProject)
         }
       })
       .catch(() => setError('Unable to load clients and projects'))
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [])
+  }, [initialProjectId])
 
   const deleteProject = async (project: Project) => {
     if (
@@ -200,15 +215,18 @@ export default function WorkPanel({
     setLinks([])
     setFiles([])
     setProjectDriveLinks([])
+    setTasks([])
     try {
-      const [projectLinks, projectFiles, driveLinks] = await Promise.all([
+      const [projectLinks, projectFiles, driveLinks, projectTasks] = await Promise.all([
         api.projects.links.list(project.id),
         api.projects.files.list(project.id),
         api.googleDrive.resourceLinks.list({ projectId: project.id }),
+        api.projects.tasks.list(project.id),
       ])
       setLinks(projectLinks)
       setFiles(projectFiles)
       setProjectDriveLinks(driveLinks)
+      setTasks(projectTasks)
       const review = await api.projectsWorkflow.approvals(project.id)
       setReviewComments(review.comments)
       setDraftInvoice(review.draftInvoice)
@@ -217,6 +235,7 @@ export default function WorkPanel({
       setLinks([])
       setFiles([])
       setProjectDriveLinks([])
+      setTasks([])
       onToast('Some project details could not be loaded.')
     } finally {
       setWorkspaceLoading(false)
@@ -288,6 +307,11 @@ export default function WorkPanel({
       return
     }
     const label = window.prompt('Rename this bucket. Leave blank to delete it.', bucket.label)
+    if (label === null) return
+    if (!label.trim() && tasks.some((task) => task.bucketId === bucket.id)) {
+      onToast('Move or delete the tasks in this bucket before removing it.')
+      return
+    }
     const next = label?.trim()
       ? customBuckets.map((item) => item.id === bucket.id ? { ...item, label: label.trim().slice(0, 60) } : item)
       : customBuckets.filter((item) => item.id !== bucket.id)
@@ -301,6 +325,70 @@ export default function WorkPanel({
     if (!memberId) delete next[bucketId]
     setBucketAssignees(next)
     localStorage.setItem(`lancee:bucket-assignees:${selectedProject.id}`, JSON.stringify(next))
+  }
+
+  const openTaskComposer = (bucketId: string, task: ProjectTask | null = null) => {
+    setEditingTask(task)
+    setTaskDraft({
+      bucketId: task?.bucketId || bucketId,
+      title: task?.title || '',
+      notes: task?.notes || '',
+    })
+    setTaskDialogOpen(true)
+  }
+
+  const closeTaskComposer = () => {
+    if (taskSaving) return
+    setTaskDialogOpen(false)
+    setEditingTask(null)
+  }
+
+  const saveTask = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!selectedProject || taskSaving) return
+    const title = taskDraft.title.trim()
+    if (!title) return
+    setTaskSaving(true)
+    try {
+      if (editingTask) {
+        const updated = await api.projects.tasks.update(selectedProject.id, editingTask.id, {
+          bucketId: taskDraft.bucketId,
+          title,
+          notes: taskDraft.notes.trim(),
+        })
+        setTasks((current) => current.map((task) => task.id === updated.id ? updated : task))
+        onToast('Task updated.')
+      } else {
+        const created = await api.projects.tasks.create(selectedProject.id, {
+          bucketId: taskDraft.bucketId,
+          title,
+          notes: taskDraft.notes.trim(),
+        })
+        setTasks((current) => [...current, created])
+        onToast('Task added.')
+      }
+      setTaskDialogOpen(false)
+      setEditingTask(null)
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : 'Unable to save task.')
+    } finally {
+      setTaskSaving(false)
+    }
+  }
+
+  const deleteTask = async (task: ProjectTask) => {
+    if (!selectedProject || taskDeletingId) return
+    if (!window.confirm(`Delete “${task.title}”?`)) return
+    setTaskDeletingId(task.id)
+    try {
+      await api.projects.tasks.remove(selectedProject.id, task.id)
+      setTasks((current) => current.filter((item) => item.id !== task.id))
+      onToast('Task deleted.')
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : 'Unable to delete task.')
+    } finally {
+      setTaskDeletingId('')
+    }
   }
 
   const moveProject = async (
@@ -700,8 +788,9 @@ export default function WorkPanel({
                 <div className="project-kanban">
                   {projectLanes.map((lane) => {
                     const isCurrent = lane.status === selectedProject.status
+                    const laneTasks = tasks.filter((task) => task.bucketId === lane.id)
                     const laneAssetCount =
-                      lane.id === 'backlog'
+                      laneTasks.length + (lane.id === 'backlog'
                         ? 1 + (selectedProject.boardId ? 1 : 0)
                         : lane.id === 'in-progress'
                           ? files.length + (isCurrent ? 1 : 0)
@@ -711,7 +800,7 @@ export default function WorkPanel({
                               ? projectDriveLinks.length + (isCurrent ? 1 : 0)
                               : lane.id === 'client-comments'
                                 ? reviewComments.length + (draftInvoice ? 1 : 0)
-                              : isCurrent ? 1 : 0
+                              : isCurrent ? 1 : 0)
                     return (
                       <section
                         key={lane.id}
@@ -730,7 +819,10 @@ export default function WorkPanel({
                             <strong>{lane.label}</strong>
                             <span>{laneAssetCount}</span>
                           </div>
-                          <button type="button" aria-label={`${lane.label} actions`} onClick={() => manageBucket(lane)}>⋮</button>
+                          <div className="project-lane__header-actions">
+                            <button type="button" className="project-lane__add-task" onClick={() => openTaskComposer(lane.id)}>＋ Task</button>
+                            <button type="button" aria-label={`${lane.label} actions`} onClick={() => manageBucket(lane)}>⋮</button>
+                          </div>
                         </header>
                         <label className="project-lane__assignee">
                           <span>Assigned to</span>
@@ -740,6 +832,20 @@ export default function WorkPanel({
                           </select>
                         </label>
                         <div className="project-lane__body">
+                          {laneTasks.map((task) => (
+                            <article key={task.id} className="project-kanban-card project-task-card">
+                              <span>Task</span>
+                              <h3>{task.title}</h3>
+                              <p>{task.notes || 'No notes added yet.'}</p>
+                              <footer>
+                                <em>{task.notes ? 'Notes added' : 'Add notes'}</em>
+                                <div className="project-task-card__actions">
+                                  <button type="button" onClick={() => openTaskComposer(lane.id, task)}>Edit</button>
+                                  <button type="button" onClick={() => void deleteTask(task)} disabled={taskDeletingId === task.id}>Delete</button>
+                                </div>
+                              </footer>
+                            </article>
+                          ))}
                           {lane.id === 'backlog' && (
                             <>
                               <article className="project-kanban-card project-kanban-card--brief" role="button" tabIndex={0} onClick={() => setActiveProjectTab('details')}>
@@ -1308,6 +1414,59 @@ export default function WorkPanel({
             <div className="work-dialog__actions">
               <button className="button button--secondary" type="button" onClick={() => setEditingProject(null)}>Cancel</button>
               <button className="button button--primary" type="submit">Save</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {taskDialogOpen && selectedProject && (
+        <div className="work-dialog-backdrop" onMouseDown={closeTaskComposer}>
+          <form
+            className="work-dialog work-dialog--task"
+            onSubmit={(event) => void saveTask(event)}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="work-dialog__header">
+              <span>{editingTask ? 'Edit task' : 'New task'}</span>
+              <button type="button" onClick={closeTaskComposer} aria-label="Close">×</button>
+            </div>
+            <h2>{editingTask ? 'Update this task' : 'Add a task to the project'}</h2>
+            <p>Keep the task in the bucket where the work belongs. Notes stay with the task for the whole team.</p>
+            <label>
+              <span>Task title</span>
+              <input
+                value={taskDraft.title}
+                onChange={(event) => setTaskDraft((current) => ({ ...current, title: event.target.value }))}
+                placeholder="e.g. Prepare final print files"
+                autoFocus
+                required
+                maxLength={160}
+              />
+            </label>
+            <label>
+              <span>Bucket</span>
+              <select
+                value={taskDraft.bucketId}
+                onChange={(event) => setTaskDraft((current) => ({ ...current, bucketId: event.target.value }))}
+              >
+                {projectLanes.map((lane) => <option key={lane.id} value={lane.id}>{lane.label}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Notes <small>Optional</small></span>
+              <textarea
+                value={taskDraft.notes}
+                onChange={(event) => setTaskDraft((current) => ({ ...current, notes: event.target.value }))}
+                placeholder="Add context, handoff details, or a checklist…"
+                rows={5}
+                maxLength={2_000}
+              />
+            </label>
+            <div className="work-dialog__actions">
+              <button className="button button--secondary" type="button" onClick={closeTaskComposer} disabled={taskSaving}>Cancel</button>
+              <button className="button button--primary" type="submit" disabled={taskSaving || !taskDraft.title.trim()}>
+                {taskSaving ? 'Saving…' : editingTask ? 'Save task' : 'Add task'}
+              </button>
             </div>
           </form>
         </div>

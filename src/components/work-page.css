@@ -528,6 +528,10 @@
   box-shadow: 0 24px 80px rgba(20, 19, 17, .24);
 }
 
+.work-dialog--task {
+  width: min(520px, 100%);
+}
+
 .work-dialog > div:first-child {
   display: flex;
   align-items: center;
@@ -569,7 +573,8 @@
   font-weight: 650;
 }
 
-.work-dialog input {
+.work-dialog :is(input, select, textarea) {
+  width: 100%;
   padding: 12px 13px;
   border: 1px solid var(--work-line);
   border-radius: 11px;
@@ -579,7 +584,12 @@
   outline: none;
 }
 
-.work-dialog input:focus {
+.work-dialog textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.work-dialog :is(input, select, textarea):focus {
   border-color: #7567e8;
   box-shadow: 0 0 0 3px rgba(117,103,232,.12);
 }
@@ -1431,6 +1441,13 @@
   gap: 7px;
 }
 
+.project-lane__header-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
 .project-lane > header i {
   width: 8px;
   height: 8px;
@@ -1468,6 +1485,20 @@
   color: #788398;
   background: transparent;
   border: 0;
+}
+
+.project-lane > header .project-lane__add-task {
+  padding: 4px 6px;
+  color: #8fb2ff;
+  border: 1px solid #344566;
+  border-radius: 5px;
+  font-size: 8px;
+}
+
+.project-lane > header .project-lane__add-task:hover {
+  color: #e6efff;
+  background: rgba(77, 128, 238, .16);
+  border-color: #5579bd;
 }
 
 .project-lane__body {
@@ -1508,6 +1539,32 @@
 
 .project-kanban-card--brief {
   border-top: 2px solid #8b79ed;
+}
+
+.project-task-card {
+  border-top: 2px solid #54c9a0;
+}
+
+.project-task-card footer {
+  align-items: flex-start;
+}
+
+.project-task-card__actions {
+  display: flex;
+  gap: 7px;
+}
+
+.project-task-card__actions button {
+  padding: 2px 0;
+  color: #8fb2ff;
+  background: transparent;
+  border: 0;
+  font-size: 8px;
+}
+
+.project-task-card__actions button:hover {
+  color: #e7efff;
+  text-decoration: underline;
 }
 
 .project-kanban-card > span {
@@ -1988,6 +2045,17 @@ html[data-theme='light'] .project-lane > header button {
   color: var(--muted);
 }
 
+html[data-theme='light'] .project-lane > header .project-lane__add-task {
+  color: var(--accent);
+  border-color: var(--line-strong);
+}
+
+html[data-theme='light'] .project-lane > header .project-lane__add-task:hover {
+  color: var(--ink);
+  background: rgba(110, 140, 255, .08);
+  border-color: var(--accent);
+}
+
 html[data-theme='light'] .project-kanban-card {
   color: var(--ink-soft);
   background:
@@ -2006,6 +2074,14 @@ html[data-theme='light'] .project-kanban-card--primary {
 
 html[data-theme='light'] .project-kanban-card--brief {
   border-top-color: #8b79ed;
+}
+
+html[data-theme='light'] .project-task-card {
+  border-top-color: #3da27f;
+}
+
+html[data-theme='light'] .project-task-card__actions button {
+  color: var(--accent);
 }
 
 html[data-theme='light'] .project-kanban-card > span {

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -153,6 +153,20 @@ function mapIdeaNote(row) {
     content: row.content,
     version: row.version,
     createdBy: row.created_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function mapProjectTask(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    projectId: row.project_id,
+    bucketId: row.bucket_id,
+    title: row.title,
+    notes: row.notes,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -994,10 +1008,12 @@ export async function openDatabase({
       company TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
       notes TEXT NOT NULL DEFAULT '',
+      logo_url TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE (workspace_id, name)
     )`,
+    `ALTER TABLE clients ADD COLUMN IF NOT EXISTS logo_url TEXT NOT NULL DEFAULT ''`,
     `CREATE TABLE IF NOT EXISTS storefront_domains (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1024,6 +1040,16 @@ export async function openDatabase({
     )`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS client_id TEXT REFERENCES clients(id) ON DELETE SET NULL`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS board_id TEXT`,
+    `CREATE TABLE IF NOT EXISTS project_tasks (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      bucket_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS job_cards (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1213,6 +1239,8 @@ export async function openDatabase({
       ON workspace_notifications (workspace_id, read_at, created_at)`,
     `CREATE INDEX IF NOT EXISTS idx_projects_workspace_status
       ON projects (workspace_id, status)`,
+    `CREATE INDEX IF NOT EXISTS idx_project_tasks_workspace_project_bucket
+      ON project_tasks (workspace_id, project_id, bucket_id, updated_at)`,
     `CREATE INDEX IF NOT EXISTS idx_clients_workspace_name
       ON clients (workspace_id, name)`,
     `CREATE INDEX IF NOT EXISTS idx_clients_workspace_email
@@ -3152,7 +3180,18 @@ export async function openDatabase({
           id,
         ],
       )
-      return await this.getAutomationRun(selectedWorkspaceId, id)
+      const completedRun = await this.getAutomationRun(selectedWorkspaceId, id)
+      if (completedRun && ['completed', 'failed'].includes(status)) {
+        await this.createWorkspaceNotification({
+          workspaceId: selectedWorkspaceId,
+          kind: status === 'completed' ? 'automation.completed' : 'automation.failed',
+          title: status === 'completed' ? 'Automation completed' : 'Automation failed',
+          body: `${completedRun.automationName || 'Automation'} ${status === 'completed' ? 'completed successfully' : `failed${errorCode ? ` · ${errorCode}` : ''}`}.`,
+          entityType: 'automation_run',
+          entityId: id,
+        })
+      }
+      return completedRun
     },
 
     async getMailAccount(selectedWorkspaceId, includeSecret = false) {
@@ -3778,7 +3817,7 @@ export async function openDatabase({
           AND projects.workspace_id = clients.workspace_id
          WHERE clients.workspace_id = $1
          GROUP BY clients.id, clients.workspace_id, clients.name, clients.email,
-                  clients.company, clients.status, clients.notes,
+                  clients.company, clients.status, clients.notes, clients.logo_url,
                   clients.created_at, clients.updated_at
          ORDER BY clients.status ASC, clients.name ASC`,
         [selectedWorkspaceId],
@@ -3791,6 +3830,7 @@ export async function openDatabase({
         company: row.company,
         status: row.status,
         notes: row.notes,
+        logoUrl: row.logo_url || '',
         projectCount: Number(row.project_count || 0),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -3820,6 +3860,7 @@ export async function openDatabase({
         company: updated.company,
         status: updated.status,
         notes: updated.notes,
+        logoUrl: updated.logo_url || '',
         projectCount: 0,
         createdAt: updated.created_at,
         updatedAt: updated.updated_at,
@@ -3836,6 +3877,7 @@ export async function openDatabase({
         ['company', 'company'],
         ['status', 'status'],
         ['notes', 'notes'],
+        ['logoUrl', 'logo_url'],
       ]) {
         if (Object.hasOwn(fields, field)) {
           sets.push(`${column} = $${idx++}`)
@@ -3867,6 +3909,7 @@ export async function openDatabase({
             company: row.company,
             status: row.status,
             notes: row.notes,
+            logoUrl: row.logo_url || '',
             createdAt: row.created_at,
             updatedAt: row.updated_at,
           }
@@ -3988,6 +4031,84 @@ export async function openDatabase({
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       }))
+    },
+
+    async listProjectTasks(selectedWorkspaceId, projectId) {
+      const rows = await query(
+        `SELECT id, workspace_id, project_id, bucket_id, title, notes, created_at, updated_at
+         FROM project_tasks
+         WHERE workspace_id = $1 AND project_id = $2
+         ORDER BY created_at ASC`,
+        [selectedWorkspaceId, projectId],
+      )
+      return rows.map(mapProjectTask)
+    },
+
+    async createProjectTask({ workspaceId, projectId, bucketId, title, notes = '' }) {
+      const projects = await query(
+        `SELECT id FROM projects WHERE workspace_id = $1 AND id = $2`,
+        [workspaceId, projectId],
+      )
+      if (!projects[0]) return null
+      const timestamp = nowIso()
+      const id = `tsk_${randomUUID()}`
+      await query(
+        `INSERT INTO project_tasks (
+           id, workspace_id, project_id, bucket_id, title, notes, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [id, workspaceId, projectId, bucketId, title, notes, timestamp, timestamp],
+      )
+      const rows = await query(
+        `SELECT id, workspace_id, project_id, bucket_id, title, notes, created_at, updated_at
+         FROM project_tasks WHERE workspace_id = $1 AND id = $2`,
+        [workspaceId, id],
+      )
+      return mapProjectTask(rows[0])
+    },
+
+    async updateProjectTask(selectedWorkspaceId, id, fields) {
+      const sets = []
+      const params = []
+      let index = 1
+      for (const [field, column] of [
+        ['bucketId', 'bucket_id'],
+        ['title', 'title'],
+        ['notes', 'notes'],
+      ]) {
+        if (Object.hasOwn(fields, field)) {
+          sets.push(`${column} = $${index++}`)
+          params.push(fields[field])
+        }
+      }
+      if (!sets.length) {
+        const rows = await query(
+          `SELECT id, workspace_id, project_id, bucket_id, title, notes, created_at, updated_at
+           FROM project_tasks WHERE workspace_id = $1 AND id = $2`,
+          [selectedWorkspaceId, id],
+        )
+        return mapProjectTask(rows[0])
+      }
+      sets.push(`updated_at = $${index++}`)
+      params.push(nowIso(), selectedWorkspaceId, id)
+      await query(
+        `UPDATE project_tasks SET ${sets.join(', ')}
+         WHERE workspace_id = $${index++} AND id = $${index}`,
+        params,
+      )
+      const rows = await query(
+        `SELECT id, workspace_id, project_id, bucket_id, title, notes, created_at, updated_at
+         FROM project_tasks WHERE workspace_id = $1 AND id = $2`,
+        [selectedWorkspaceId, id],
+      )
+      return mapProjectTask(rows[0])
+    },
+
+    async deleteProjectTask(selectedWorkspaceId, id) {
+      const rows = await query(
+        `DELETE FROM project_tasks WHERE workspace_id = $1 AND id = $2 RETURNING id`,
+        [selectedWorkspaceId, id],
+      )
+      return rows.length > 0
     },
 
     async createProject({ workspaceId, name, clientId, client, clientEmail = '', scope = 'New project · add deliverables', due = 'Set date', status = 'In progress', progress = 0, accent = '#6854e8', boardId, idempotencyKey = null }) {
