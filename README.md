@@ -1,14 +1,39 @@
 # lancee
 
-lancee is a portable operating workspace for freelancers and small business
-owners. It keeps client work, ideas, lightweight automations, connected tools,
-invoices, and payments in one calm place. AI is optional and appears only where
-it removes meaningful effort from an existing workflow.
+<p align="center">
+  <a href="https://agents.hygridtech.co.za">
+    <img src="docs/assets/lancee-readme-header.svg" alt="lancee — a calm operating workspace for client work" width="1200">
+  </a>
+</p>
 
-The application is built with React, TypeScript, Vite, and a small Express
-backend.
+<p align="center">
+  <a href="https://agents.hygridtech.co.za"><img src="https://img.shields.io/website?url=https%3A%2F%2Fagents.hygridtech.co.za&style=flat-square&label=live%20platform" alt="Live platform status"></a>
+  <a href="https://github.com/martin861101/lancee"><img src="https://img.shields.io/github/stars/martin861101/lancee?style=flat-square&logo=github&label=stars" alt="GitHub stars"></a>
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=101828" alt="React 19">
+  <img src="https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript 6">
+  <img src="https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite&logoColor=white" alt="Vite 8">
+  <img src="https://img.shields.io/badge/Express-5-111827?style=flat-square&logo=express&logoColor=white" alt="Express 5">
+</p>
 
-Live platform: [https://agents.hygridtech.co.za](https://agents.hygridtech.co.za)
+<p align="center">
+  <a href="docs/GETTING_STARTED.md">Get started</a> ·
+  <a href="docs/PRODUCT_VISION.md">Product vision</a> ·
+  <a href="docs/PLATFORM.md">Platform architecture</a> ·
+  <a href="docs/AUTH_AND_NOTIFICATIONS.md">Security model</a>
+</p>
+
+> A calm, portable operating workspace for freelancers and small business
+> owners — bringing client work, ideas, automations, connected tools, invoices,
+> and payments into one focused place.
+
+Built with React, TypeScript, Vite, and a small Express backend. AI is optional
+and appears only where it removes meaningful effort from an existing workflow.
+
+## Why lancee
+
+| Focus | Flow | Craft | Control |
+| --- | --- | --- | --- |
+| Clients, projects, deadlines, and invoices in one workspace | Native automations, mail, Drive, n8n, and MCP connections | Offline idea boards, document workspaces, and optional storefronts | Server-side sessions, approvals, encrypted secrets, and durable audit trails |
 
 ## Start here
 
