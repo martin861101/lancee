@@ -361,7 +361,15 @@ export async function listGoogleDriveFiles({
   if (folderId) q.push(`'${String(folderId)}' in parents`)
   if (Array.isArray(fileIds)) {
     if (fileIds.length === 0) return { files: [], nextPageToken: null }
-    q.push(`id in (${fileIds.map((id) => `'${String(id)}'`).join(',')})`)
+    const metas = await Promise.all(
+      fileIds.map((id) =>
+        getGoogleDriveFileMetadata({ accessToken, fileId: String(id) }),
+      ),
+    )
+    return {
+      files: metas.map(normalizeDriveListFile),
+      nextPageToken: null,
+    }
   }
   if (query && String(query).trim()) q.push(`(${String(query).trim()})`)
   url.searchParams.set('q', q.join(' and '))
@@ -387,28 +395,32 @@ export async function listGoogleDriveFiles({
   }
 
   return {
-    files: (data.files || []).map((file) => ({
-      id: file.id,
-      name: file.name,
-      mimeType: file.mimeType || 'application/octet-stream',
-      webViewLink: file.webViewLink || null,
-      iconLink: file.iconLink || null,
-      modifiedTime: file.modifiedTime || null,
-      parents: Array.isArray(file.parents) ? file.parents : [],
-      size: file.size ? Number(file.size) : null,
-      shared: Boolean(file.shared),
-      canEdit: Boolean(file.capabilities?.canEdit),
-      canDownload: file.capabilities?.canDownload !== false,
-      canListChildren: Boolean(file.capabilities?.canListChildren),
-      canDelete: Boolean(file.capabilities?.canDelete),
-      owners: Array.isArray(file.owners)
-        ? file.owners.map((owner) => ({
-            displayName: owner.displayName || null,
-            emailAddress: owner.emailAddress || null,
-          }))
-        : [],
-    })),
+    files: (data.files || []).map(normalizeDriveListFile),
     nextPageToken: data.nextPageToken || null,
+  }
+}
+
+function normalizeDriveListFile(file) {
+  return {
+    id: file.id,
+    name: file.name,
+    mimeType: file.mimeType || 'application/octet-stream',
+    webViewLink: file.webViewLink || null,
+    iconLink: file.iconLink || null,
+    modifiedTime: file.modifiedTime || null,
+    parents: Array.isArray(file.parents) ? file.parents : [],
+    size: file.size ? Number(file.size) : null,
+    shared: Boolean(file.shared),
+    canEdit: Boolean(file.capabilities?.canEdit),
+    canDownload: file.capabilities?.canDownload !== false,
+    canListChildren: Boolean(file.capabilities?.canListChildren),
+    canDelete: Boolean(file.capabilities?.canDelete),
+    owners: Array.isArray(file.owners)
+      ? file.owners.map((owner) => ({
+          displayName: owner.displayName || null,
+          emailAddress: owner.emailAddress || null,
+        }))
+      : [],
   }
 }
 
@@ -418,10 +430,13 @@ function fileMetadataFields() {
     'name',
     'mimeType',
     'webViewLink',
+    'iconLink',
     'modifiedTime',
     'version',
     'size',
     'parents',
+    'shared',
+    'owners(displayName,emailAddress)',
     'capabilities(canEdit,canDownload,canListChildren,canDelete)',
   ].join(',')
 }
@@ -483,10 +498,18 @@ export async function getGoogleDriveFileMetadata({ accessToken, fileId }) {
     name: String(file.name || 'Untitled'),
     mimeType: String(file.mimeType || 'application/octet-stream'),
     webViewLink: file.webViewLink || null,
+    iconLink: file.iconLink || null,
     modifiedTime: file.modifiedTime || null,
     parents: Array.isArray(file.parents) ? file.parents : [],
     version: file.version ? String(file.version) : null,
     size: file.size ? Number(file.size) : null,
+    shared: Boolean(file.shared),
+    owners: Array.isArray(file.owners)
+      ? file.owners.map((owner) => ({
+          displayName: owner.displayName || null,
+          emailAddress: owner.emailAddress || null,
+        }))
+      : [],
     canEdit: Boolean(file.capabilities?.canEdit),
     canDownload: file.capabilities?.canDownload !== false,
     canListChildren: Boolean(file.capabilities?.canListChildren),

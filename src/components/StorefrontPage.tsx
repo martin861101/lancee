@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, type StorefrontDomain } from '../lib/api'
+import StorefrontEditor, { type StorefrontMode, type StorefrontTemplateId } from './StorefrontEditor'
 import './storefront-page.css'
 
 const storefrontScreenshot = new URL(
   '../../storefront/storefront_black_white/public/screenshot.png',
   import.meta.url,
 ).href
-
-type StorefrontTemplateId = 'black-white' | 'blue-splash' | 'gold-dune' | 'red-tech' | 'gsap-flowish'
 
 const templates: Array<{
   id: StorefrontTemplateId
@@ -59,12 +58,39 @@ const templates: Array<{
   },
 ]
 
+const storefrontModes: Array<{
+  id: StorefrontMode
+  name: string
+  label: string
+  description: string
+  icon: string
+}> = [
+  {
+    id: 'store',
+    name: 'Store with checkout',
+    label: 'Full commerce experience',
+    description: 'Show products, cart, checkout, and a complete shopping journey.',
+    icon: '▣',
+  },
+  {
+    id: 'basic',
+    name: 'Basic page',
+    label: 'Content-first page',
+    description: 'Share your story, services, and links without products or checkout.',
+    icon: '▤',
+  },
+]
+
 function storefrontStorageKey(workspaceId: string) {
   return `lancee:storefront-enabled:${workspaceId}`
 }
 
 function storefrontTemplateStorageKey(workspaceId: string) {
   return `lancee:storefront-template:${workspaceId}`
+}
+
+function storefrontModeStorageKey(workspaceId: string) {
+  return `lancee:storefront-mode:${workspaceId}`
 }
 
 function readStoredChoice(workspaceId: string) {
@@ -78,9 +104,16 @@ function readStoredTemplate(workspaceId: string): StorefrontTemplateId {
   return templates.some((template) => template.id === value) ? value as StorefrontTemplateId : 'black-white'
 }
 
+function readStoredMode(workspaceId: string): StorefrontMode {
+  if (typeof window === 'undefined') return 'store'
+  return window.localStorage.getItem(storefrontModeStorageKey(workspaceId)) === 'basic' ? 'basic' : 'store'
+}
+
 export default function StorefrontPage({ workspaceId }: { workspaceId: string }) {
   const [enabled, setEnabled] = useState(() => readStoredChoice(workspaceId))
   const [selectedTemplate, setSelectedTemplate] = useState<StorefrontTemplateId>(() => readStoredTemplate(workspaceId))
+  const [storefrontMode, setStorefrontMode] = useState<StorefrontMode>(() => readStoredMode(workspaceId))
+  const [editorOpen, setEditorOpen] = useState(false)
   const [domains, setDomains] = useState<StorefrontDomain[]>([])
   const [domainInput, setDomainInput] = useState('')
   const [domainLoading, setDomainLoading] = useState(true)
@@ -94,6 +127,8 @@ export default function StorefrontPage({ workspaceId }: { workspaceId: string })
   useEffect(() => {
     setEnabled(readStoredChoice(workspaceId))
     setSelectedTemplate(readStoredTemplate(workspaceId))
+    setStorefrontMode(readStoredMode(workspaceId))
+    setEditorOpen(false)
   }, [workspaceId])
 
   useEffect(() => {
@@ -109,6 +144,12 @@ export default function StorefrontPage({ workspaceId }: { workspaceId: string })
     setPreviewPlaying(false)
     setPreviewError('')
   }, [selectedTemplate, workspaceId])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(storefrontModeStorageKey(workspaceId), storefrontMode)
+    }
+  }, [storefrontMode, workspaceId])
 
   useEffect(() => {
     let active = true
@@ -146,6 +187,11 @@ export default function StorefrontPage({ workspaceId }: { workspaceId: string })
 
   const chooseTemplate = (templateId: StorefrontTemplateId) => {
     setSelectedTemplate(templateId)
+    void setStorefrontEnabled(true)
+  }
+
+  const chooseMode = (mode: StorefrontMode) => {
+    setStorefrontMode(mode)
     void setStorefrontEnabled(true)
   }
 
@@ -230,16 +276,16 @@ export default function StorefrontPage({ workspaceId }: { workspaceId: string })
     <div className="dashboard-page storefront-page">
       <header className="dashboard-page__header storefront-page__header">
         <div>
-          <span className="storefront-eyebrow">Client-facing commerce</span>
+          <span className="storefront-eyebrow">Client-facing presence</span>
           <h1 className="dashboard-page__title">Storefront</h1>
           <p className="dashboard-page__description">
-            Give clients a polished place to browse products, add to cart, and check out.
+            Give clients a polished place to browse products and check out, or publish a focused basic page.
             Start with one considered template and turn it on when you need it.
           </p>
         </div>
         <div className={`storefront-status${enabled ? ' is-enabled' : ''}`}>
           <span className="storefront-status__dot" />
-          <span>{enabled ? 'Storefront in use' : 'Storefront not in use'}</span>
+          <span>{enabled ? (storefrontMode === 'store' ? 'Storefront in use' : 'Basic page in use') : 'Storefront not in use'}</span>
         </div>
       </header>
 
@@ -247,12 +293,14 @@ export default function StorefrontPage({ workspaceId }: { workspaceId: string })
         <div>
           <span className="storefront-eyebrow">Workspace preference</span>
           <h2 id="storefront-choice-title">
-            {enabled ? 'Your clients can use a storefront.' : 'Do you want to use a storefront?'}
+            {enabled
+              ? storefrontMode === 'store' ? 'Your clients can use a storefront.' : 'Your clients can use a basic page.'
+              : 'Do you want to publish a client-facing page?'}
           </h2>
           <p>
             {enabled
-              ? `${activeTemplate.name} is ready for client-facing product experiences.`
-              : 'Turn this on when a client needs a simple, focused shop alongside their project work.'}
+              ? `${activeTemplate.name} ${storefrontMode === 'store' ? 'storefront' : 'basic page'} is ready for your clients.`
+              : 'Turn this on when a client needs a focused shop or a simple page alongside their project work.'}
           </p>
         </div>
         <button
@@ -264,17 +312,54 @@ export default function StorefrontPage({ workspaceId }: { workspaceId: string })
           disabled={domainBusy === 'storefront'}
         >
           <span className="storefront-toggle__track"><span /></span>
-          <span>{enabled ? 'Using storefront' : 'Keep storefront off'}</span>
+          <span>{enabled ? (storefrontMode === 'store' ? 'Using storefront' : 'Using basic page') : 'Keep storefront off'}</span>
         </button>
+      </section>
+
+      <section className="storefront-mode-section" aria-labelledby="storefront-mode-title">
+        <div className="storefront-section-heading">
+          <div>
+            <span className="storefront-eyebrow">Storefront setup</span>
+            <h2 id="storefront-mode-title">Choose the kind of experience you need</h2>
+            <p>You can launch a full shop or a polished basic page without commerce.</p>
+          </div>
+          <span className="storefront-template-count">{storefrontMode === 'store' ? 'Commerce enabled' : 'No checkout'}</span>
+        </div>
+        <div className="storefront-mode-grid" role="radiogroup" aria-label="Storefront experience type">
+          {storefrontModes.map((mode) => {
+            const isSelected = storefrontMode === mode.id && enabled
+            return (
+              <button
+                type="button"
+                role="radio"
+                aria-checked={isSelected}
+                className={`storefront-mode-card${isSelected ? ' is-selected' : ''}`}
+                key={mode.id}
+                onClick={() => chooseMode(mode.id)}
+              >
+                <span className="storefront-mode-card__icon">{mode.icon}</span>
+                <span className="storefront-mode-card__copy">
+                  <span className="storefront-eyebrow">{mode.label}</span>
+                  <strong>{mode.name}</strong>
+                  <small>{mode.description}</small>
+                </span>
+                <span className="storefront-mode-card__check">{isSelected ? '✓' : ''}</span>
+              </button>
+            )
+          })}
+        </div>
       </section>
 
       <section className="storefront-template-section" aria-labelledby="storefront-template-title">
         <div className="storefront-section-heading">
           <div>
-            <span className="storefront-eyebrow">Available template</span>
-            <h2 id="storefront-template-title">Choose a storefront style</h2>
+            <span className="storefront-eyebrow">Available styles</span>
+            <h2 id="storefront-template-title">Choose a {storefrontMode === 'store' ? 'storefront' : 'page'} style</h2>
           </div>
-          <span className="storefront-template-count">{templates.length} templates</span>
+          <div className="storefront-section-heading__actions">
+            <span className="storefront-template-count">{templates.length} templates</span>
+            {enabled && <button type="button" className="button button--primary" onClick={() => setEditorOpen(true)}>Edit {storefrontMode === 'store' ? 'storefront' : 'page'}</button>}
+          </div>
         </div>
         <div className="storefront-template-grid">
           {templates.map((template) => {
@@ -282,23 +367,23 @@ export default function StorefrontPage({ workspaceId }: { workspaceId: string })
             return (
               <article className={`storefront-template-card${isSelected ? ' is-selected' : ''}`} key={template.id}>
                 <div className={`storefront-template-card__preview storefront-template-card__preview--${template.id}`}>
-                  {template.id === 'black-white' ? (
+                  {template.id === 'black-white' && storefrontMode === 'store' ? (
                     <img src={storefrontScreenshot} alt={`${template.name} storefront template preview`} />
                   ) : (
                     <div className="storefront-template-mockup">
                       <span>{template.previewSubtitle}</span>
                       <strong>{template.previewTitle}</strong>
                       <i />
-                      <small>Scroll to explore · Add to cart · Checkout</small>
+                      <small>{storefrontMode === 'store' ? 'Scroll to explore · Add to cart · Checkout' : 'Explore · Read the story · Get in touch'}</small>
                     </div>
                   )}
                   <span className="storefront-template-card__badge">{isSelected ? 'Selected' : 'Preview'}</span>
                 </div>
                 <div className="storefront-template-card__body">
                   <div>
-                    <span className="storefront-eyebrow">{template.label}</span>
+                    <span className="storefront-eyebrow">{storefrontMode === 'store' ? template.label : `${template.name} page style`}</span>
                     <h3>{template.name}</h3>
-                    <p>{template.description}</p>
+                    <p>{storefrontMode === 'store' ? template.description : 'A polished, content-first page for your story, services, and key links.'}</p>
                   </div>
                   <button
                     type="button"
@@ -306,7 +391,7 @@ export default function StorefrontPage({ workspaceId }: { workspaceId: string })
                     onClick={() => chooseTemplate(template.id)}
                     aria-pressed={isSelected}
                   >
-                    {isSelected ? 'Selected template' : 'Use this template'}
+                    {isSelected ? 'Selected style' : `Use this ${storefrontMode === 'store' ? 'storefront' : 'page'} style`}
                   </button>
                 </div>
               </article>
@@ -315,7 +400,9 @@ export default function StorefrontPage({ workspaceId }: { workspaceId: string })
         </div>
       </section>
 
-      <section className="storefront-motion" aria-labelledby="storefront-motion-title">
+      {editorOpen && <StorefrontEditor key={`${workspaceId}:${storefrontMode}:${selectedTemplate}`} workspaceId={workspaceId} template={selectedTemplate} mode={storefrontMode} templateName={activeTemplate.name} onClose={() => setEditorOpen(false)} />}
+
+      {storefrontMode === 'store' && <section className="storefront-motion" aria-labelledby="storefront-motion-title">
         <div className="storefront-section-heading">
           <div>
             <span className="storefront-eyebrow">Product tour</span>
@@ -357,7 +444,7 @@ export default function StorefrontPage({ workspaceId }: { workspaceId: string })
             Download MP4
           </a>
         </div>
-      </section>
+      </section>}
 
       <section className="storefront-domain-section" aria-labelledby="storefront-domain-title">
         <div className="storefront-section-heading">

@@ -383,9 +383,9 @@ const groups: FeatureGroup[] = [
     id: 'ai',
     number: '05',
     icon: 'bot',
-    title: 'AI & Codex',
+    title: 'AI integration',
     description:
-      'Helpful intelligence that stays optional — a workspace assistant, an embedded Codex runtime, and a Codex plugin.',
+      'Helpful intelligence that stays optional — a workspace assistant with typed tools that approves every action before it runs.',
     accent: '#c25bd6',
     features: [
       {
@@ -394,20 +394,6 @@ const groups: FeatureGroup[] = [
         description:
           'A floating assistant with workspace-scoped data tools that proposes actions and always asks before running.',
         tags: ['Approve & run', 'Typed tools', 'No SQL in browser'],
-      },
-      {
-        icon: 'bot',
-        title: 'Codex Workspace',
-        description:
-          'Run Codex inside lancee with isolated auth state, sandboxed repository work, and streamed output over SSE.',
-        tags: ['OpenAI login', 'Sandbox', 'Thread streaming'],
-      },
-      {
-        icon: 'code',
-        title: 'lancee AI for Codex',
-        description:
-          'A Codex plugin with a bundled MCP bridge for workspace AI and automation tools, secured by device approval.',
-        tags: ['Device codes', 'Scoped tokens', 'Disconnect devices'],
       },
       {
         icon: 'file',
@@ -558,7 +544,7 @@ export default function FeaturesPage({
           <button className="landing-sign-in" onClick={onSignIn}>
             Sign in
           </button>
-          <button className="button button--primary" onClick={handleSignUp}>
+          <button className="button button--primary btn-shine" onClick={handleSignUp}>
             Sign Up
           </button>
         </div>
@@ -657,7 +643,7 @@ export default function FeaturesPage({
         <span className="landing-eyebrow">A lighter way to run your business</span>
         <h2>Carry the whole studio. Not the whole workload.</h2>
         <div className="features-cta__actions">
-          <button className="button button--primary" onClick={handleSignUp}>
+          <button className="button button--primary btn-shine" onClick={handleSignUp}>
             Sign Up
           </button>
           <button className="features-cta__back" onClick={onBack}>

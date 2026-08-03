@@ -86,7 +86,12 @@ reverse-proxy deployment shape. The deployed static copy is kept at
   workspace-scoped opt-in, and guided custom-domain setup. The preview remains
   visible while the storefront is off, so users can decide before enabling it.
   Users enter a domain, copy the displayed DNS records, and use **Check DNS
-  connection** when ready.
+  connection** when ready. Storefront settings also separate a full **Store
+  with checkout** experience from a **Basic page** without products or checkout.
+  The **Edit storefront/page** action opens a drag-and-drop section editor for
+  hero and text copy, logos, product sections, calls to action, and section
+  order. Editor documents are saved automatically in browser storage per
+  workspace, mode, and template until a server-side content API is connected.
 - **Automations** — plain-language routines for repetitive work, schedules,
   connected tools, confirmed deletion, and a dedicated **Results** screen. The
   newest run opens automatically; each completed step is shown as a readable
@@ -234,6 +239,12 @@ remembered per workspace in the dashboard. The copied source templates live in
 [`storefront/templates`](storefront/templates). Video and byte-range requests
 bypass the offline shell cache so browser playback controls receive valid MP4
 range responses instead of cached partial responses.
+
+The dashboard editor is available from **Storefront → Edit storefront/page**.
+Use the left content-block palette to add sections, drag sections to reorder
+them, and select a section to edit its text, logo, or products. **Basic page**
+mode starts without a product block and does not show the commerce motion
+preview; its editor palette also omits product sections.
 
 ## Embedded Codex Workspace
 
@@ -389,9 +400,13 @@ content, compose/reply, and automatic polling every 60 seconds.
 
 Message automation rules can match sender, recipient, subject, and body/subject
 keywords using all/any semantics. Each match dispatches an active native Core
-automation once per message and rule. Edge/n8n automations are rejected by both
-the UI and API. See [`docs/MAIL_CONNECTOR.md`](docs/MAIL_CONNECTOR.md) for setup,
-security, API, rule-template fields, limits, and troubleshooting.
+automation once per message and rule. The built-in **Create a project from this
+email** action resolves the sender to a workspace client by email, creates the
+project/job card/draft invoice bundle, and uses the message id as an idempotency
+key. Edge/n8n automations are rejected by both the UI and API. See
+[`docs/AUTOMATIONS.md`](docs/AUTOMATIONS.md) and
+[`docs/MAIL_CONNECTOR.md`](docs/MAIL_CONNECTOR.md) for setup, security, API,
+rule-template fields, limits, and troubleshooting.
 
 ## Core automations, Redis, and Phase 3 workflow
 
@@ -410,7 +425,8 @@ approved run finishes.
 
 Core tools are bounded to workspace-scoped reads and explicit project actions:
 `workspace.summary`, `projects.list`, `clients.list`, `invoices.list`,
-`projects.update_status`, and `projects.create_draft_invoice`. Every tool,
+`projects.update_status`, `projects.create`, and `projects.create_draft_invoice`.
+Every tool,
 including reads, must be enabled on the saved automation before it can run.
 The Workflows recipe cards now create active, persisted Core automations rather
 than showing a selection-only toast. Edge automations

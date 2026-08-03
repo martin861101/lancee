@@ -47,9 +47,14 @@ import {
 } from './ai.mjs'
 import {
   coreToolCatalog,
+  automationPlan,
   executeCoreAutomation,
   CoreAutomationError,
 } from './core.mjs'
+import {
+  mailRuleInstruction,
+  mailRuleMatches,
+} from './mail-automation.mjs'
 import { createRedisRuntime } from './redis.mjs'
 import {
   createLanceeMcpRuntime,
@@ -1070,24 +1075,34 @@ async function performN8nOutboundDelivery(context, delivery) {
   }
 }
 
-async function executeAutomationRun(context, automation, run, provider) {
+async function executeAutomationRun(context, automation, run, provider, options = {}) {
   const startedAt = performance.now()
   const selectedWorkspaceId = context.workspace.id
+  const mailEventId = options.mailEventId || null
   try {
+    let result
     if (automation.execution === 'edge') {
-      return await executeEdgeAutomationRun(
+      result = await executeEdgeAutomationRun(
         context,
         automation,
         run,
         provider,
       )
+    } else {
+      result = await executeCoreAutomationRun(
+        context,
+        automation,
+        run,
+        startedAt,
+      )
     }
-    return await executeCoreAutomationRun(
-      context,
-      automation,
-      run,
-      startedAt,
-    )
+    if (mailEventId) {
+      await database.completeMailRuleEvent(selectedWorkspaceId, mailEventId, {
+        status: 'completed',
+        runId: run.id,
+      }).catch(() => {})
+    }
+    return result
   } catch (error) {
     await database.appendAutomationRunEvent({
       workspaceId: selectedWorkspaceId,
@@ -1108,6 +1123,13 @@ async function executeAutomationRun(context, automation, run, provider) {
       steps: 1,
       errorCode: error?.code || 'AUTOMATION_EXECUTION_FAILED',
     })
+    if (mailEventId) {
+      await database.completeMailRuleEvent(selectedWorkspaceId, mailEventId, {
+        status: 'failed',
+        runId: run.id,
+        error: error?.message || 'Automation execution failed.',
+      }).catch(() => {})
+    }
     throw error
   }
 }
@@ -1170,36 +1192,6 @@ function normalizeMailRuleInput(input) {
   return normalized
 }
 
-function mailRuleMatches(rule, message) {
-  const senders = (message.from || []).map((address) => address.address || '').join(' ').toLowerCase()
-  const recipients = [...(message.to || []), ...(message.cc || [])]
-    .map((address) => address.address || '')
-    .join(' ')
-    .toLowerCase()
-  const subject = String(message.subject || '').toLowerCase()
-  const searchable = `${subject}\n${message.text || ''}`.toLowerCase()
-  const checks = []
-  if (rule.sender) checks.push(senders.includes(rule.sender))
-  if (rule.recipient) checks.push(recipients.includes(rule.recipient))
-  if (rule.subject) checks.push(subject.includes(rule.subject))
-  if (rule.keywords.length) {
-    const keywordChecks = rule.keywords.map((keyword) => searchable.includes(keyword))
-    checks.push(rule.matchMode === 'all' ? keywordChecks.every(Boolean) : keywordChecks.some(Boolean))
-  }
-  return rule.matchMode === 'all' ? checks.every(Boolean) : checks.some(Boolean)
-}
-
-function mailRuleInstruction(rule, message) {
-  const values = {
-    sender: (message.from || []).map((address) => address.address).filter(Boolean).join(', '),
-    recipient: [...(message.to || []), ...(message.cc || [])].map((address) => address.address).filter(Boolean).join(', '),
-    subject: message.subject || '',
-    body: String(message.text || '').slice(0, 3_000),
-    messageId: message.messageId || `uid:${message.uid}`,
-  }
-  return rule.instruction.replace(/\{\{(sender|recipient|subject|body|messageId)\}\}/g, (_match, key) => values[key]).slice(0, 5_000)
-}
-
 const mailSyncInFlight = new Set()
 
 async function syncMailWorkspace(account) {
@@ -1245,16 +1237,16 @@ async function syncMailWorkspace(account) {
               execution: 'core',
             },
           })
-          await database.completeMailRuleEvent(account.workspaceId, eventId, { status: 'completed', runId: run.id })
           const queued = await coreRedis.enqueue({
             workspaceId: account.workspaceId,
             userId: rule.createdBy,
             automationId: automation.id,
             runId: run.id,
             provider: null,
+            mailEventId: eventId,
           })
           if (!queued) {
-            void executeAutomationRun(context, automation, run, null).catch((error) => {
+            void executeAutomationRun(context, automation, run, null, { mailEventId: eventId }).catch((error) => {
               console.error('Mail-triggered automation failed:', error)
             })
           }
@@ -6794,13 +6786,37 @@ app.get('/api/mail/rules', requireAuth, async (request, response) => {
   response.json({ rules: await database.listMailAutomationRules(request.auth.context.workspace.id) })
 })
 
-async function assertNativeMailAutomation(selectedWorkspaceId, automationId) {
+async function assertNativeMailAutomation(selectedWorkspaceId, automationId, { requireActive = false } = {}) {
   const automation = await database.getAutomation(selectedWorkspaceId, automationId)
   if (!automation) throw new HttpError(404, 'Automation not found.')
   if (automation.execution !== 'core') {
     throw new HttpError(400, 'Message rules can only run native Core automations; n8n workflows are not supported.')
   }
+  if (requireActive && automation.status !== 'active') {
+    throw new HttpError(409, 'Activate the selected Core automation before enabling this message rule.')
+  }
   return automation
+}
+
+function validateMailRuleAutomationInstruction(automation, instruction) {
+  let plan
+  try {
+    plan = automationPlan(instruction, automation)
+  } catch (error) {
+    if (error instanceof CoreAutomationError) {
+      throw new HttpError(error.status || 422, error.message)
+    }
+    throw error
+  }
+  const permittedTools = new Set(Array.isArray(automation.tools) ? automation.tools : [])
+  const unauthorized = plan.steps.find((step) => !permittedTools.has(step.tool))
+  if (unauthorized) {
+    throw new HttpError(
+      403,
+      `The selected automation does not have permission to use ${unauthorized.tool}. Enable that tool first.`,
+    )
+  }
+  return plan
 }
 
 app.post(
@@ -6810,7 +6826,8 @@ app.post(
   async (request, response) => {
     const selectedWorkspaceId = request.auth.context.workspace.id
     const input = normalizeMailRuleInput(request.body)
-    await assertNativeMailAutomation(selectedWorkspaceId, input.automationId)
+    const automation = await assertNativeMailAutomation(selectedWorkspaceId, input.automationId, { requireActive: input.enabled })
+    validateMailRuleAutomationInstruction(automation, input.instruction)
     const rule = await database.createMailAutomationRule({
       workspaceId: selectedWorkspaceId,
       createdBy: request.auth.context.user.id,
@@ -6827,7 +6844,8 @@ app.put(
   async (request, response) => {
     const selectedWorkspaceId = request.auth.context.workspace.id
     const input = normalizeMailRuleInput(request.body)
-    await assertNativeMailAutomation(selectedWorkspaceId, input.automationId)
+    const automation = await assertNativeMailAutomation(selectedWorkspaceId, input.automationId, { requireActive: input.enabled })
+    validateMailRuleAutomationInstruction(automation, input.instruction)
     const rule = await database.updateMailAutomationRule(
       selectedWorkspaceId,
       String(request.params.id),
@@ -7092,8 +7110,23 @@ if (coreRedis.connected) {
     const context = await database.getContextByIds(job.userId, job.workspaceId)
     const automation = await database.getAutomation(job.workspaceId, job.automationId)
     const run = await database.getAutomationRun(job.workspaceId, job.runId)
-    if (!context || !automation || !run || run.status !== 'running') return
-    await executeAutomationRun(context, automation, run, job.provider || null)
+    if (!context || !automation || !run || run.status !== 'running') {
+      if (job.mailEventId) {
+        await database.completeMailRuleEvent(job.workspaceId, job.mailEventId, {
+          status: 'failed',
+          runId: job.runId,
+          error: 'The queued automation run could not be restored.',
+        }).catch(() => {})
+      }
+      return
+    }
+    await executeAutomationRun(
+      context,
+      automation,
+      run,
+      job.provider || null,
+      { mailEventId: job.mailEventId || null },
+    )
   })
 }
 

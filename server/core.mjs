@@ -4,6 +4,7 @@ export const CORE_TOOL_CATALOG = [
   { id: 'clients.list', label: 'Read clients', mutating: false },
   { id: 'invoices.list', label: 'Read invoices', mutating: false },
   { id: 'projects.update_status', label: 'Update project status', mutating: true },
+  { id: 'projects.create', label: 'Create projects', mutating: true },
   { id: 'projects.create_draft_invoice', label: 'Create draft invoice', mutating: true },
 ]
 
@@ -40,14 +41,57 @@ function projectFromInput(projects, input) {
   return project
 }
 
+function projectCreationInput(input) {
+  const name = String(input?.name || '').trim().slice(0, 160)
+  const clientId = String(input?.clientId || '').trim() || null
+  const clientEmail = String(input?.clientEmail || '').trim().toLowerCase()
+  const clientName = String(input?.clientName || input?.client || '').trim().slice(0, 160)
+  const scope = String(input?.scope || 'Created from an automation.').trim().slice(0, 500)
+  const due = String(input?.due || 'Set date').trim().slice(0, 40)
+  const rawStatus = String(input?.status || 'In progress').trim()
+  const status = projectStatus(rawStatus)
+  const sourceKey = String(input?.sourceKey || '').trim().slice(0, 320) || null
+
+  if (!name) {
+    throw new CoreAutomationError('CORE_PROJECT_NAME_REQUIRED', 'A project name is required.')
+  }
+  if (!clientId && !clientEmail && !clientName) {
+    throw new CoreAutomationError(
+      'CORE_CLIENT_REQUIRED',
+      'A client id, client email, or client name is required to create a project.',
+    )
+  }
+  if (clientEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail)) {
+    throw new CoreAutomationError('CORE_CLIENT_EMAIL_INVALID', 'The client email is invalid.')
+  }
+  if (!status) {
+    throw new CoreAutomationError('CORE_INVALID_STATUS', 'Use a supported project status.')
+  }
+
+  return {
+    name,
+    clientId,
+    clientEmail,
+    clientName: clientName || clientEmail || clientId,
+    scope,
+    due,
+    status,
+    sourceKey,
+  }
+}
+
 function inferPlan(instruction, permittedTools = []) {
   const text = String(instruction || '').trim()
   const jsonStart = text.indexOf('{')
   if (jsonStart === 0) {
     try {
       const parsed = JSON.parse(text)
-      if (Array.isArray(parsed.steps)) return parsed
-    } catch {
+      if (!Array.isArray(parsed?.steps)) {
+        throw new CoreAutomationError('CORE_INVALID_PLAN', 'A JSON automation plan must contain a steps array.')
+      }
+      return parsed
+    } catch (error) {
+      if (error instanceof CoreAutomationError) throw error
       throw new CoreAutomationError('CORE_INVALID_PLAN', 'The JSON automation plan is invalid.')
     }
   }
@@ -165,6 +209,13 @@ export async function executeCoreAutomation({ context, automation, run, database
       const status = projectStatus(step.input.status)
       if (!status) throw new CoreAutomationError('CORE_INVALID_STATUS', 'Use a supported project status.')
       output = await database.updateProjectStatus(context.workspace.id, project.id, status)
+    } else if (step.tool === 'projects.create') {
+      const input = projectCreationInput(step.input)
+      output = await database.createAutomationProject({
+        workspaceId: context.workspace.id,
+        createdBy: context.user.id,
+        ...input,
+      })
     } else if (step.tool === 'projects.create_draft_invoice') {
       const projects = await database.listProjects(context.workspace.id)
       const project = projectFromInput(projects, step.input)

@@ -14,6 +14,7 @@
     "verify:paystack": "node scripts/verify-paystack-flow.mjs",
     "verify:n8n": "node scripts/verify-n8n-bridge.mjs",
     "verify:core-edge": "node scripts/verify-core-edge.mjs",
+    "verify:mail-automation": "node scripts/verify-mail-automation.mjs",
     "verify:offline": "node scripts/verify-offline-sync.mjs",
     "verify:postgres": "node scripts/verify-postgresql.mjs",
     "verify:ai": "node scripts/verify-ai-providers.mjs",

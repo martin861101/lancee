@@ -1215,6 +1215,8 @@ export async function openDatabase({
       ON projects (workspace_id, status)`,
     `CREATE INDEX IF NOT EXISTS idx_clients_workspace_name
       ON clients (workspace_id, name)`,
+    `CREATE INDEX IF NOT EXISTS idx_clients_workspace_email
+      ON clients (workspace_id, email)`,
     `CREATE INDEX IF NOT EXISTS idx_drive_resource_links_client
       ON google_drive_resource_links (workspace_id, client_id)`,
     `CREATE INDEX IF NOT EXISTS idx_drive_resource_links_project
@@ -1600,12 +1602,24 @@ export async function openDatabase({
     return rows[0] || null
   }
 
-  async function ensureClient({ selectedWorkspaceId, clientId, name }) {
+  async function ensureClient({ selectedWorkspaceId, clientId, name, email = '' }) {
     if (clientId) {
       const existing = await getClientById(selectedWorkspaceId, clientId)
       if (existing) return existing
     }
-    const normalizedName = String(name || '').trim()
+    const normalizedEmail = String(email || '').trim().toLowerCase()
+    if (normalizedEmail) {
+      const emailMatches = await query(
+        `SELECT * FROM clients
+         WHERE workspace_id = $1 AND LOWER(TRIM(email)) = LOWER($2)
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [selectedWorkspaceId, normalizedEmail],
+      )
+      if (emailMatches[0]) return emailMatches[0]
+    }
+    const normalizedName = String(name || normalizedEmail || '').trim()
+    if (!normalizedName) throw new Error('A client name or email is required.')
     const matches = await query(
       `SELECT * FROM clients
        WHERE workspace_id = $1 AND LOWER(name) = LOWER($2)
@@ -1616,14 +1630,14 @@ export async function openDatabase({
     const timestamp = nowIso()
     const id = stableId(
       'clt',
-      `${selectedWorkspaceId}:${normalizedName.toLowerCase()}`,
+      `${selectedWorkspaceId}:${(normalizedEmail || normalizedName).toLowerCase()}`,
     )
     await query(
       `INSERT INTO clients (
          id, workspace_id, name, email, company, status, notes, created_at, updated_at
-       ) VALUES ($1, $2, $3, '', '', 'active', '', $4, $5)
+       ) VALUES ($1, $2, $3, $4, '', 'active', '', $5, $6)
        ON CONFLICT(id) DO NOTHING`,
-      [id, selectedWorkspaceId, normalizedName, timestamp, timestamp],
+      [id, selectedWorkspaceId, normalizedName, normalizedEmail, timestamp, timestamp],
     )
     return await getClientById(selectedWorkspaceId, id)
   }
@@ -3976,21 +3990,26 @@ export async function openDatabase({
       }))
     },
 
-    async createProject({ workspaceId, name, clientId, client, scope = 'New project · add deliverables', due = 'Set date', status = 'In progress', progress = 0, accent = '#6854e8', boardId }) {
+    async createProject({ workspaceId, name, clientId, client, clientEmail = '', scope = 'New project · add deliverables', due = 'Set date', status = 'In progress', progress = 0, accent = '#6854e8', boardId, idempotencyKey = null }) {
       const clientRecord = await ensureClient({
         selectedWorkspaceId: workspaceId,
         clientId,
         name: client,
+        email: clientEmail,
       })
+      const normalizedIdempotencyKey = String(idempotencyKey || '').trim()
       const id = `prj_${createHash('sha256')
-        .update(`${workspaceId}:${name}:${nowIso()}`)
+        .update(normalizedIdempotencyKey
+          ? `${workspaceId}:automation:${normalizedIdempotencyKey}`
+          : `${workspaceId}:${name}:${nowIso()}`)
         .digest('hex')
         .slice(0, 12)}`
       const timestamp = nowIso()
       await query(
         `INSERT INTO projects (
            id, workspace_id, client_id, name, client, scope, due, status, progress, accent, created_at, updated_at, board_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         ON CONFLICT(id) DO NOTHING`,
         [id, workspaceId, clientRecord.id, name, clientRecord.name, scope, due, status, progress, accent, timestamp, timestamp, boardId || null],
       )
       const rows = await query(`SELECT * FROM projects WHERE workspace_id = $1 AND id = $2`, [workspaceId, id])
@@ -4010,6 +4029,47 @@ export async function openDatabase({
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       }
+    },
+
+    async createAutomationProject({
+      workspaceId,
+      createdBy,
+      name,
+      clientId = null,
+      clientName,
+      clientEmail = '',
+      scope = 'Created from an automation.',
+      due = 'Set date',
+      status = 'In progress',
+      sourceKey = null,
+    }) {
+      return await this.transaction(async () => {
+        const project = await this.createProject({
+          workspaceId,
+          name,
+          clientId,
+          client: clientName || clientEmail || clientId,
+          clientEmail,
+          scope,
+          due,
+          status,
+          idempotencyKey: sourceKey,
+        })
+        const jobCard = await this.ensureJobCard({
+          workspaceId,
+          projectId: project.id,
+          createdBy,
+        })
+        const draftInvoice = await this.createDraftInvoiceForProject({
+          workspaceId,
+          projectId: project.id,
+        })
+        return {
+          ...project,
+          jobCardId: jobCard?.id || null,
+          draftInvoice,
+        }
+      })
     },
 
     async ensureJobCard({ workspaceId, projectId, createdBy }) {

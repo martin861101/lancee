@@ -29,18 +29,16 @@ area.
 16. [n8n integration](#n8n-integration)
 17. [Services (MCP gateway)](#services-mcp-gateway)
 18. [PDF Studio](#pdf-studio)
-19. [Codex Workspace](#codex-workspace)
-20. [lancee AI for Codex](#lancee-ai-for-codex)
-21. [Workspace AI assistant](#workspace-ai-assistant)
-22. [Analytics](#analytics)
-23. [Team & roles](#team--roles)
-24. [API keys](#api-keys)
-25. [Notifications](#notifications)
-26. [Settings](#settings)
-27. [Command palette & navigation](#command-palette--navigation)
-28. [PWA & offline support](#pwa--offline-support)
-29. [MCP server development plugin](#mcp-server-development-plugin)
-30. [Platform backend](#platform-backend)
+19. [Workspace AI assistant](#workspace-ai-assistant)
+20. [Analytics](#analytics)
+21. [Team & roles](#team--roles)
+22. [API keys](#api-keys)
+23. [Notifications](#notifications)
+24. [Settings](#settings)
+25. [Command palette & navigation](#command-palette--navigation)
+26. [PWA & offline support](#pwa--offline-support)
+27. [MCP server development plugin](#mcp-server-development-plugin)
+28. [Platform backend](#platform-backend)
 
 ---
 
@@ -267,8 +265,7 @@ The Connections page manages all third-party and platform integrations:
 - **Paystack** — encrypted workspace payment credentials.
 - **n8n** — signed webhook connection with bidirectional test.
 - **MCP gateway** — browser automation and utility tools only.
-- **Codex Workspace** — embedded Codex App Server connection.
-- **lancee AI for Codex** — plugin device-authorization card.
+- **AI integration** — provider-backed workspace AI with approvals.
 - Integration catalog with toggles and connection status.
 - Connection cards for Automation, Communication, Design, Payments, and Storage
   categories.
@@ -323,33 +320,6 @@ The Connections page manages all third-party and platform integrations:
   page format (e.g. A4).
 - Produces a styled PDF artifact with download link.
 - Powered through the browser MCP service (`modern_document_pdf` tool).
-
-## Codex Workspace
-
-- Embedded Codex App Server running inside lancee.
-- Backend launches `codex app-server` over private JSONL stdio.
-- Native OpenAI device-code login flow.
-- Streamed thread events to the authenticated browser over SSE.
-- Isolated per-user/server-side `CODEX_HOME`.
-- Managed `lancee-workspace` permission profile limited to the fixed workspace
-  root, minimal runtime reads, no tool network access, and no automatic
-  privilege escalation.
-- Start/stop sessions, run turns, and interrupt active turns.
-- Sandboxed repository work with bubblewrap sandboxing in Docker.
-- Device authorization approval/deny screen for the AI connector.
-
-## lancee AI for Codex
-
-- Repo-local Codex plugin with a bundled MCP bridge.
-- Lets Codex use the workspace's AI provider and automations.
-- Exposes `connect`, `ai_status`, `complete`, and the nine Lancee MCP tools.
-- Eight-character device code entry and explicit approval screen.
-- Review and approve requested `ai:invoke mcp:invoke` scopes.
-- Check active device status and disconnect every authorized Codex device.
-- Ten-minute device codes; one-time thirty-day scoped tokens.
-- Device codes and tokens hashed in the database; provider keys server-only.
-- Plugin stores its token only in the Codex plugin data directory.
-- Does not modify a developer's personal Codex marketplace or global config.
 
 ## Workspace AI assistant
 

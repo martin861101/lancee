@@ -389,6 +389,143 @@ try {
     'Ready',
   )
 
+  const createProjectAutomation = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/automations',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'project-automation-create-0001',
+      },
+      body: JSON.stringify({
+        name: 'Create projects from email',
+        description: 'Creates an idempotent project and links it to the sender client.',
+        execution: 'core',
+        tools: ['projects.create'],
+      }),
+    },
+  )
+  assert.equal(createProjectAutomation.status, 201)
+  const projectAutomation = await createProjectAutomation.json()
+  const activateProjectAutomation = await sessionRequest(
+    application.origin,
+    cookie,
+    `/api/automations/${projectAutomation.id}/toggle`,
+    {
+      method: 'POST',
+      headers: { 'Idempotency-Key': 'project-automation-active-0001' },
+    },
+  )
+  assert.equal((await activateProjectAutomation.json()).status, 'active')
+
+  const mailRule = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/mail/rules',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        automationId: projectAutomation.id,
+        name: 'Create project for new packaging mail',
+        sender: client.email,
+        subject: 'new project',
+        keywords: ['packaging'],
+        matchMode: 'all',
+        instruction: JSON.stringify({
+          steps: [{
+            tool: 'projects.create',
+            input: {
+              name: '{{subject}}',
+              clientName: '{{senderName}}',
+              clientEmail: '{{senderEmail}}',
+              scope: '{{body}}',
+              sourceKey: 'mail:{{ruleId}}:{{messageId}}',
+            },
+          }],
+        }),
+      }),
+    },
+  )
+  assert.equal(mailRule.status, 201)
+
+  const projectFromMailInstruction = JSON.stringify({
+    steps: [{
+      tool: 'projects.create',
+      input: {
+        name: 'Email project: packaging refresh',
+        clientName: 'Incoming display name',
+        clientEmail: client.email,
+        scope: 'Packaging details from the incoming message.',
+        status: 'In progress',
+        sourceKey: 'mail:rule-test:message-test-001',
+      },
+    }],
+  })
+  const runProjectFromMail = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/automations/runs',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'project-from-mail-run-0001',
+      },
+      body: JSON.stringify({
+        automationId: projectAutomation.id,
+        instruction: projectFromMailInstruction,
+      }),
+    },
+  )
+  assert.equal(runProjectFromMail.status, 201)
+  const projectFromMailRun = await waitForRun(
+    application.origin,
+    cookie,
+    (await runProjectFromMail.json()).id,
+  )
+  assert.equal(projectFromMailRun.status, 'completed')
+  assert(projectFromMailRun.events.some((event) => event.toolId === 'projects.create'))
+
+  const projectsAfterMail = await sessionRequest(application.origin, cookie, '/api/projects')
+  const projectsAfterMailPayload = await projectsAfterMail.json()
+  const createdFromMail = projectsAfterMailPayload.projects.find(
+    (item) => item.name === 'Email project: packaging refresh',
+  )
+  assert(createdFromMail, 'the Core project action must create a project')
+  assert.equal(createdFromMail.clientId, client.id)
+
+  const duplicateMailRun = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/automations/runs',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'project-from-mail-run-0002',
+      },
+      body: JSON.stringify({
+        automationId: projectAutomation.id,
+        instruction: projectFromMailInstruction,
+      }),
+    },
+  )
+  assert.equal(duplicateMailRun.status, 201)
+  const duplicateMailRunPayload = await waitForRun(
+    application.origin,
+    cookie,
+    (await duplicateMailRun.json()).id,
+  )
+  assert.equal(duplicateMailRunPayload.status, 'completed')
+  const projectsAfterDuplicateMail = await sessionRequest(application.origin, cookie, '/api/projects')
+  const duplicateMatches = (await projectsAfterDuplicateMail.json()).projects.filter(
+    (item) => item.name === 'Email project: packaging refresh',
+  )
+  assert.equal(duplicateMatches.length, 1)
+
   const sendApproval = await sessionRequest(
     application.origin,
     cookie,

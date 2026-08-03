@@ -26,6 +26,31 @@ type SetupValues = {
   smtpSecure: boolean
 }
 
+type MailRuleAction = 'custom' | 'create-project-from-email'
+
+const projectFromEmailInstruction = JSON.stringify({
+  steps: [{
+    tool: 'projects.create',
+    input: {
+      name: '{{subject}}',
+      clientName: '{{senderName}}',
+      clientEmail: '{{senderEmail}}',
+      scope: '{{body}}',
+      status: 'In progress',
+      sourceKey: 'mail:{{ruleId}}:{{messageId}}',
+    },
+  }],
+}, null, 2)
+
+function isProjectFromEmailInstruction(instruction: string) {
+  try {
+    const parsed = JSON.parse(instruction)
+    return parsed?.steps?.length === 1 && parsed.steps[0]?.tool === 'projects.create'
+  } catch {
+    return false
+  }
+}
+
 const emptySetup: SetupValues = {
   email: '',
   displayName: '',
@@ -122,12 +147,15 @@ export default function MessagesPage({
   const [ruleOpen, setRuleOpen] = useState(false)
   const [editingRuleId, setEditingRuleId] = useState('')
   const [rule, setRule] = useState<MailAutomationRuleInput>(emptyRule)
+  const [ruleAction, setRuleAction] = useState<MailRuleAction>('custom')
   const [ruleKeywords, setRuleKeywords] = useState('')
   const [savingRule, setSavingRule] = useState(false)
   const nativeAutomations = useMemo(
     () => automations.filter((automation) => automation.execution === 'core'),
     [automations],
   )
+  const selectedAutomation = nativeAutomations.find((automation) => automation.id === rule.automationId)
+  const canCreateProjectFromEmail = selectedAutomation?.tools.includes('projects.create') || false
 
   const loadAccount = useCallback(async () => {
     const status = await api.mail.getAccount()
@@ -313,10 +341,12 @@ export default function MessagesPage({
         instruction: existing.instruction,
         enabled: existing.enabled,
       })
+      setRuleAction(isProjectFromEmailInstruction(existing.instruction) ? 'create-project-from-email' : 'custom')
       setRuleKeywords(existing.keywords.join(', '))
     } else {
       setEditingRuleId('')
       setRule({ ...emptyRule, automationId: nativeAutomations[0]?.id || '' })
+      setRuleAction('custom')
       setRuleKeywords('')
     }
     setRuleOpen(true)
@@ -328,6 +358,9 @@ export default function MessagesPage({
     setError('')
     const input = {
       ...rule,
+      instruction: ruleAction === 'create-project-from-email'
+        ? projectFromEmailInstruction
+        : rule.instruction,
       keywords: ruleKeywords.split(',').map((keyword) => keyword.trim()).filter(Boolean),
     }
     try {
@@ -572,6 +605,32 @@ export default function MessagesPage({
               <label>Rule name<input value={rule.name} onChange={(event) => setRule({ ...rule, name: event.target.value })} placeholder="New sales enquiry" required /></label>
               <label>Run automation<select value={rule.automationId} onChange={(event) => setRule({ ...rule, automationId: event.target.value })} required><option value="">Choose a native automation</option>{nativeAutomations.map((automation) => <option value={automation.id} key={automation.id}>{automation.name}{automation.status !== 'active' ? ` (${automation.status})` : ''}</option>)}</select></label>
             </div>
+            <label className="mail-rule-instruction">Action
+              <select
+                value={ruleAction}
+                onChange={(event) => {
+                  const nextAction = event.target.value as MailRuleAction
+                  setRuleAction(nextAction)
+                  setRule({
+                    ...rule,
+                    instruction: nextAction === 'create-project-from-email'
+                      ? projectFromEmailInstruction
+                      : isProjectFromEmailInstruction(rule.instruction)
+                        ? emptyRule.instruction
+                        : rule.instruction,
+                  })
+                }}
+              >
+                <option value="custom">Run a custom Core instruction</option>
+                <option value="create-project-from-email" disabled={!canCreateProjectFromEmail}>Create a project from this email</option>
+              </select>
+              {ruleAction === 'create-project-from-email' ? (
+                <small>Uses the subject as the project name, the email body as the scope, and matches the sender email to an existing client or creates one.</small>
+              ) : (
+                <small>Choose a structured Core action when possible. Custom plans may use the available template fields.</small>
+              )}
+              {!canCreateProjectFromEmail && <small>Enable “Create projects” on the selected automation to use this action.</small>}
+            </label>
             <div className="mail-rule-match"><span>Run when</span><select value={rule.matchMode} onChange={(event) => setRule({ ...rule, matchMode: event.target.value as 'all' | 'any' })}><option value="all">all conditions match</option><option value="any">any condition matches</option></select></div>
             <div className="messages-field-grid">
               <label>Sender contains<input value={rule.sender} onChange={(event) => setRule({ ...rule, sender: event.target.value })} placeholder="@important-client.com" /></label>
@@ -579,7 +638,15 @@ export default function MessagesPage({
               <label>Subject contains<input value={rule.subject} onChange={(event) => setRule({ ...rule, subject: event.target.value })} placeholder="New project" /></label>
               <label>Body or subject keywords<input value={ruleKeywords} onChange={(event) => setRuleKeywords(event.target.value)} placeholder="quote, urgent, website" /><small>Separate keywords with commas.</small></label>
             </div>
-            <label className="mail-rule-instruction">Automation instruction<textarea value={rule.instruction} onChange={(event) => setRule({ ...rule, instruction: event.target.value })} required /><small>Available fields: {'{{sender}}'}, {'{{recipient}}'}, {'{{subject}}'}, {'{{body}}'}, {'{{messageId}}'}</small></label>
+            {ruleAction === 'create-project-from-email' ? (
+              <div className="mail-rule-instruction">
+                <span>Automation instruction</span>
+                <pre>{projectFromEmailInstruction}</pre>
+                <small>Each matching message is processed once using its message id as the project idempotency key.</small>
+              </div>
+            ) : (
+              <label className="mail-rule-instruction">Automation instruction<textarea value={rule.instruction} onChange={(event) => setRule({ ...rule, instruction: event.target.value })} required /><small>Available fields: {'{{sender}}'}, {'{{senderEmail}}'}, {'{{senderName}}'}, {'{{recipient}}'}, {'{{subject}}'}, {'{{body}}'}, {'{{messageId}}'}, {'{{ruleId}}'}</small></label>
+            )}
             <label className="messages-checkbox"><input type="checkbox" checked={rule.enabled} onChange={(event) => setRule({ ...rule, enabled: event.target.checked })} /> Enable this rule</label>
             <footer><span>Only new incoming messages are evaluated. Each message can trigger this rule once.</span><button className="button button--primary" disabled={savingRule}>{savingRule ? 'Saving…' : 'Save rule'}</button></footer>
           </form>

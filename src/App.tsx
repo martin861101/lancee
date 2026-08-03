@@ -3209,7 +3209,7 @@ if (policyView !== 'landing') {
           <button className="landing-sign-in" onClick={onSignIn}>
             Sign in
           </button>
-          <button className="button button--primary" onClick={handleSignUp}>
+          <button className="button button--primary btn-shine" onClick={handleSignUp}>
             Sign Up <BrandMark compact />
           </button>
         </div>
@@ -3236,7 +3236,7 @@ if (policyView !== 'landing') {
             invoices, and payments, wherever you happen to be working.
           </p>
           <div className="landing-hero__actions">
-            <button className="button button--primary" onClick={handleSignUp}>
+            <button className="button button--primary btn-shine" onClick={handleSignUp}>
               Start your workspace <Icon name="arrow-right" size={15} />
             </button>
             <a href="#platform">
@@ -3568,7 +3568,7 @@ if (policyView !== 'landing') {
         <BrandMark />
         <span className="landing-eyebrow">A lighter way to run your business</span>
         <h2>Carry the whole studio. Not the whole workload.</h2>
-        <button className="button button--primary" onClick={handleSignUp}>
+        <button className="button button--primary btn-shine" onClick={handleSignUp}>
           Sign Up <BrandMark compact />
         </button>
       </section>
@@ -4082,6 +4082,7 @@ function CreateAutomationForm({
             ['clients.list', 'Read clients'],
             ['invoices.list', 'Read invoices'],
             ['projects.update_status', 'Update project status'],
+            ['projects.create', 'Create projects'],
             ['projects.create_draft_invoice', 'Create draft invoices'],
           ].map(([id, label]) => (
             <label key={id}><input type="checkbox" checked={tools.includes(id)} onChange={() => setTools((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} disabled={execution === 'edge'} /><span>{label}</span></label>
