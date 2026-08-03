@@ -11,6 +11,11 @@ type Props = {
   onToast: (message: string) => void
 }
 
+function safeTestTool(service: McpService) {
+  return service.tools.find((tool) => ['connections_list', 'search_workflows'].includes(tool.id)) ||
+    service.tools.find((tool) => !Array.isArray(tool.inputSchema?.required) || tool.inputSchema.required.length === 0)
+}
+
 export default function ServicesPage({ connection, services, onRequestAccess, onSync, onToggle, onInvoke, onToast }: Props) {
   const [busy, setBusy] = useState('')
   const [result, setResult] = useState<McpInvocationResult | null>(null)
@@ -39,14 +44,18 @@ export default function ServicesPage({ connection, services, onRequestAccess, on
             <div className="automation-card__top"><span className="automation-avatar automation-avatar--violet">{service.category.slice(0, 1)}</span><span className={`status-pill status-pill--${service.status === 'live' ? 'active' : 'paused'}`}>{service.status}</span></div>
             <div className="automation-card__body"><h3>{service.name}</h3><p>{service.description}</p><div className="tool-stack">{service.tools.map((tool) => <span key={tool.id}>{tool.name}</span>)}</div></div>
             <div className="automation-card__footer">
-              <button className="button button--secondary button--small" disabled={!connection?.connected || service.status !== 'live' || busy !== ''} onClick={() => void run(service.id, async () => { await onToggle(service); onToast(`${service.name} ${service.active ? 'paused' : 'activated'}.`) })}>{service.active ? 'Pause' : 'Activate'}</button>
-              {service.active && service.tools[0] && <button className="button button--dark button--small" disabled={busy !== ''} onClick={() => void run(`${service.id}:invoke`, async () => setResult(await onInvoke(service, service.tools[0].id, {})))}>Test tool</button>}
+              <button className="button button--secondary button--small" disabled={service.id === 'lancee' || !connection?.connected || service.status !== 'live' || busy !== ''} onClick={() => void run(service.id, async () => { await onToggle(service); onToast(`${service.name} ${service.active ? 'paused' : 'activated'}.`) })}>{service.id === 'lancee' ? 'Built in' : service.active ? 'Pause' : 'Activate'}</button>
+              {service.active && safeTestTool(service) && <button className="button button--dark button--small" disabled={busy !== ''} onClick={() => void run(`${service.id}:invoke`, async () => {
+                const tool = safeTestTool(service)
+                if (!tool) return
+                setResult(await onInvoke(service, tool.id, {}))
+              })}>Test tool</button>}
             </div>
           </article>
         ))}
         {services.length === 0 && <div className="panel"><h2>No live services</h2><p className="panel-copy">Request MCP access or configure the server-side MCP gateway to discover Playwright, web search, research, and utility services.</p></div>}
       </section>
-      {result && <section className="panel" style={{ marginTop: 20 }}><div className="panel-heading"><h2>Latest invocation</h2><button className="text-button" onClick={() => setResult(null)}>Dismiss</button></div><p>{result.message} · {result.duration}ms</p></section>}
+      {result && <section className="panel service-invocation-result" style={{ marginTop: 20 }}><div className="panel-heading"><h2>Latest invocation</h2><button className="text-button" onClick={() => setResult(null)}>Dismiss</button></div><p>{result.message} · {result.duration}ms</p>{result.data !== undefined && <pre>{JSON.stringify(result.data, null, 2)}</pre>}</section>}
     </div>
   )
 }

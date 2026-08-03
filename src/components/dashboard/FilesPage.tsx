@@ -9,6 +9,7 @@ import {
   type WorkspaceDocument,
 } from '../../lib/api'
 import DriveFileWorkspace from './DriveFileWorkspace'
+import PdfStudio from './PdfStudio'
 import { driveWorkspaceMode, isDriveFolder } from './driveFileUtils'
 import './dashboard-page.css'
 
@@ -756,6 +757,8 @@ export default function FilesPage({
           </button>
         </form>
       )}
+
+      <PdfStudio onToast={onToast} />
 
       <section className="dashboard-document-library" aria-label="Documents stored in lancee">
         <div className="dashboard-drive-browser__header">

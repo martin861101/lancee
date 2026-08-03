@@ -9,6 +9,7 @@ import {
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { Readable } from 'node:stream'
+import { resolveCname, resolveTxt } from 'node:dns/promises'
 import { fileURLToPath } from 'node:url'
 import express from 'express'
 import { openDatabase } from './database.mjs'
@@ -42,14 +43,36 @@ import {
 } from './core.mjs'
 import { createRedisRuntime } from './redis.mjs'
 import {
+  createLanceeMcpRuntime,
+  LanceeMcpError,
+  lanceeMcpScope,
+  lanceeMcpToolDefinitions,
+} from './lancee-mcp.mjs'
+import {
   createMcpGatewayClient,
   McpGatewayError,
 } from './mcp.mjs'
+import {
+  createBaseboxMcpClient,
+  BaseboxMcpError,
+  defaultBaseboxMcpUrl,
+} from './basebox-mcp.mjs'
 import {
   decryptToken,
   encryptToken,
   VaultError,
 } from './vault.mjs'
+import {
+  discoverMailSettings,
+  fetchNewMailMessages,
+  getMailMessage,
+  listMailFolders,
+  listMailMessages,
+  MailConnectorError,
+  normalizeMailSettings,
+  sendMailMessage,
+  testMailAccount,
+} from './mail.mjs'
 import {
   createCodexAppServerManager,
   CodexAppServerError,
@@ -103,6 +126,7 @@ const production =
 const registrationEnabled =
   process.env.ALLOW_REGISTRATION !== 'false'
 const publicOrigin = process.env.PUBLIC_ORIGIN || 'https://agents.hygridtech.co.za'
+const publicHostname = new URL(publicOrigin).hostname
 const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase()
 const adminName = (process.env.ADMIN_NAME || 'Workspace Admin').trim()
 const workspaceId = (process.env.WORKSPACE_ID || 'wsp_primary').trim()
@@ -140,8 +164,50 @@ const deviceAuthorizationAttempts = new Map()
 const apiKeyPermissions = new Set(['workspace:read', 'mcp:read', 'ai:invoke'])
 const codexClientId = 'lancee-codex-plugin'
 const codexAiScope = 'ai:invoke'
+const codexScopes = new Set([codexAiScope, lanceeMcpScope])
 const deviceCodeTtlSeconds = 10 * 60
 const codexTokenTtlSeconds = 30 * 24 * 60 * 60
+
+function normalizeStorefrontDomain(value) {
+  const candidate = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\.$/, '')
+  if (
+    !candidate ||
+    candidate.length > 253 ||
+    candidate.includes('/') ||
+    candidate.includes(':') ||
+    candidate === publicHostname
+  ) {
+    throw new HttpError(400, 'Enter a custom domain, such as shop.example.com.')
+  }
+  const labels = candidate.split('.')
+  if (
+    labels.length < 2 ||
+    labels.some((label) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))
+  ) {
+    throw new HttpError(400, 'Enter a valid domain without spaces or a path.')
+  }
+  return candidate
+}
+
+function storefrontDomainResponse(record) {
+  return {
+    id: record.id,
+    domain: record.domain,
+    status: record.status,
+    createdAt: record.createdAt,
+    verifiedAt: record.verifiedAt,
+    dns: {
+      txtName: `_lancee.${record.domain}`,
+      txtValue: `lancee-verify=${record.verificationToken}`,
+      cnameName: record.domain,
+      cnameTarget: publicHostname,
+    },
+  }
+}
 const codexBinary = (process.env.CODEX_BINARY || 'codex').trim()
 const configuredCodexWorkspaceRoot = (
   process.env.CODEX_WORKSPACE_ROOT || projectDirectory
@@ -200,6 +266,20 @@ const mcpGateway = createMcpGatewayClient({
     ? configuredMcpTimeout
     : 30_000,
 })
+const baseboxMcp = createBaseboxMcpClient({
+  mcpUrl: process.env.BASEBOX_MCP_URL || defaultBaseboxMcpUrl,
+  token:
+    process.env.BASEBOX_MCP_ACCESS_KEY ||
+    process.env.MCP_ACCESS_KEY ||
+    process.env.BASEBOX_BEARER_KEY,
+  allowInsecure: !production,
+  timeoutMilliseconds: Number.isFinite(configuredMcpTimeout)
+    ? configuredMcpTimeout
+    : 30_000,
+})
+const mcpProvidersConfigured = mcpGateway.configured || baseboxMcp.configured
+const primaryMcpUrl = mcpGateway.configured ? mcpGateway.gatewayUrl : baseboxMcp.mcpUrl
+const primaryMcpCapabilityEndpoint = mcpGateway.configured ? '/api/v1/capabilities' : '/mcp'
 const codexAppServer = createCodexAppServerManager({
   binary: codexBinary,
   dataDirectory: codexRuntimeDirectory,
@@ -318,6 +398,7 @@ async function createWorkspaceAccount({ email, password, name, workspaceName }) 
       { id: 'mcp-grid', connected: 0 },
       { id: 'codex-ai', connected: 0 },
       { id: 'codex-runtime', connected: 0 },
+      { id: 'mail', connected: 0 },
     ]
     for (const integration of defaultIntegrations) {
       await database.query(
@@ -549,9 +630,9 @@ async function mcpAccessResponse(context) {
   return {
     platformFeature: true,
     status: access.status,
-    gatewayUrl: mcpGatewayUrl,
+    gatewayUrl: primaryMcpUrl,
     requestedAt: access.requestedAt,
-    approvalMode: mcpGateway.configured ? 'automatic' : 'manual',
+    approvalMode: mcpProvidersConfigured ? 'automatic' : 'manual',
     serviceActivationEnabled: access.status === 'approved',
   }
 }
@@ -1020,6 +1101,174 @@ async function executeAutomationRun(context, automation, run, provider) {
   }
 }
 
+function mailPassword(account) {
+  if (!account?.passwordCiphertext || !account?.passwordIv || !account?.passwordTag) {
+    throw new MailConnectorError('MAIL_CREDENTIAL_UNAVAILABLE', 'The saved mailbox credential is unavailable.', 500)
+  }
+  return decryptToken({
+    encrypted_access_token: account.passwordCiphertext,
+    iv: account.passwordIv,
+    auth_tag: account.passwordTag,
+  })
+}
+
+function mailAccountResponse(account) {
+  if (!account) return { connected: false, account: null }
+  return {
+    connected: account.status === 'connected',
+    account: {
+      email: account.email,
+      displayName: account.displayName,
+      username: account.username,
+      provider: account.provider,
+      imapHost: account.imapHost,
+      imapPort: account.imapPort,
+      imapSecure: account.imapSecure,
+      smtpHost: account.smtpHost,
+      smtpPort: account.smtpPort,
+      smtpSecure: account.smtpSecure,
+      status: account.status,
+      lastSyncedAt: account.lastSyncedAt,
+      lastError: account.lastError,
+      updatedAt: account.updatedAt,
+    },
+  }
+}
+
+function normalizeMailRuleInput(input) {
+  const keywords = Array.isArray(input?.keywords)
+    ? input.keywords
+    : String(input?.keywords || '').split(',')
+  const normalized = {
+    automationId: String(input?.automationId || '').trim(),
+    name: String(input?.name || '').trim().slice(0, 120),
+    sender: String(input?.sender || '').trim().toLowerCase().slice(0, 320),
+    recipient: String(input?.recipient || '').trim().toLowerCase().slice(0, 320),
+    subject: String(input?.subject || '').trim().toLowerCase().slice(0, 500),
+    keywords: [...new Set(keywords.map((keyword) => String(keyword).trim().toLowerCase()).filter(Boolean))].slice(0, 20),
+    matchMode: input?.matchMode === 'any' ? 'any' : 'all',
+    instruction: String(input?.instruction || '').trim().slice(0, 5_000),
+    enabled: input?.enabled !== false,
+  }
+  if (!normalized.automationId || !normalized.name || !normalized.instruction) {
+    throw new HttpError(400, 'Rule name, native automation, and instruction are required.')
+  }
+  if (!normalized.sender && !normalized.recipient && !normalized.subject && !normalized.keywords.length) {
+    throw new HttpError(400, 'Add at least one sender, recipient, subject, or keyword condition.')
+  }
+  return normalized
+}
+
+function mailRuleMatches(rule, message) {
+  const senders = (message.from || []).map((address) => address.address || '').join(' ').toLowerCase()
+  const recipients = [...(message.to || []), ...(message.cc || [])]
+    .map((address) => address.address || '')
+    .join(' ')
+    .toLowerCase()
+  const subject = String(message.subject || '').toLowerCase()
+  const searchable = `${subject}\n${message.text || ''}`.toLowerCase()
+  const checks = []
+  if (rule.sender) checks.push(senders.includes(rule.sender))
+  if (rule.recipient) checks.push(recipients.includes(rule.recipient))
+  if (rule.subject) checks.push(subject.includes(rule.subject))
+  if (rule.keywords.length) {
+    const keywordChecks = rule.keywords.map((keyword) => searchable.includes(keyword))
+    checks.push(rule.matchMode === 'all' ? keywordChecks.every(Boolean) : keywordChecks.some(Boolean))
+  }
+  return rule.matchMode === 'all' ? checks.every(Boolean) : checks.some(Boolean)
+}
+
+function mailRuleInstruction(rule, message) {
+  const values = {
+    sender: (message.from || []).map((address) => address.address).filter(Boolean).join(', '),
+    recipient: [...(message.to || []), ...(message.cc || [])].map((address) => address.address).filter(Boolean).join(', '),
+    subject: message.subject || '',
+    body: String(message.text || '').slice(0, 3_000),
+    messageId: message.messageId || `uid:${message.uid}`,
+  }
+  return rule.instruction.replace(/\{\{(sender|recipient|subject|body|messageId)\}\}/g, (_match, key) => values[key]).slice(0, 5_000)
+}
+
+const mailSyncInFlight = new Set()
+
+async function syncMailWorkspace(account) {
+  if (!account || mailSyncInFlight.has(account.workspaceId)) return { newMessages: 0, triggered: 0, skipped: true }
+  mailSyncInFlight.add(account.workspaceId)
+  try {
+    const password = mailPassword(account)
+    const result = await fetchNewMailMessages(account, password, account.lastSeenUid, 50)
+    const rules = (await database.listMailAutomationRules(account.workspaceId)).filter((rule) => rule.enabled)
+    let triggered = 0
+    for (const message of result.messages) {
+      for (const rule of rules) {
+        if (!mailRuleMatches(rule, message)) continue
+        const automation = await database.getAutomation(account.workspaceId, rule.automationId)
+        if (!automation || automation.status !== 'active' || automation.execution !== 'core') continue
+        const messageKey = `${account.email}:${message.messageId || `uid:${message.uid}`}`
+        const eventId = await database.claimMailRuleEvent({
+          workspaceId: account.workspaceId,
+          ruleId: rule.id,
+          messageKey,
+        })
+        if (!eventId) continue
+        try {
+          const context = await database.getContextByIds(rule.createdBy, account.workspaceId)
+          if (!context) throw new Error('The rule owner no longer has access to this workspace.')
+          const run = await database.createAutomationRun({
+            workspaceId: account.workspaceId,
+            automationId: automation.id,
+            triggeredBy: rule.createdBy,
+            instruction: mailRuleInstruction(rule, message),
+          })
+          await database.appendAutomationRunEvent({
+            workspaceId: account.workspaceId,
+            runId: run.id,
+            eventType: 'mail.triggered',
+            message: `Triggered by mail rule “${rule.name}”.`,
+            output: {
+              ruleId: rule.id,
+              messageId: message.messageId || null,
+              sender: (message.from || []).map((address) => address.address).filter(Boolean),
+              recipient: [...(message.to || []), ...(message.cc || [])].map((address) => address.address).filter(Boolean),
+              subject: message.subject,
+              execution: 'core',
+            },
+          })
+          await database.completeMailRuleEvent(account.workspaceId, eventId, { status: 'completed', runId: run.id })
+          const queued = await coreRedis.enqueue({
+            workspaceId: account.workspaceId,
+            userId: rule.createdBy,
+            automationId: automation.id,
+            runId: run.id,
+            provider: null,
+          })
+          if (!queued) {
+            void executeAutomationRun(context, automation, run, null).catch((error) => {
+              console.error('Mail-triggered automation failed:', error)
+            })
+          }
+          triggered += 1
+        } catch (error) {
+          await database.completeMailRuleEvent(account.workspaceId, eventId, {
+            status: 'failed',
+            error: error?.message || 'Unable to create the automation run.',
+          })
+        }
+      }
+    }
+    await database.updateMailSyncState(account.workspaceId, { lastSeenUid: result.maximumUid })
+    return { newMessages: result.messages.length, triggered, skipped: false }
+  } catch (error) {
+    await database.updateMailSyncState(account.workspaceId, {
+      lastSeenUid: account.lastSeenUid,
+      error: error?.message || 'Mailbox sync failed.',
+    }).catch(() => {})
+    throw error
+  } finally {
+    mailSyncInFlight.delete(account.workspaceId)
+  }
+}
+
 async function executeCoreAutomationRun(context, automation, run, startedAt) {
   const selectedWorkspaceId = context.workspace.id
   const log = (event) => database.appendAutomationRunEvent({
@@ -1147,13 +1396,35 @@ async function applyN8nAutomationCallback(selectedWorkspaceId, event) {
   const errorCode = status === 'failed'
     ? String(event.errorCode || 'EDGE_EXECUTION_FAILED').slice(0, 120)
     : null
-  return await database.completeAutomationRun({
-    selectedWorkspaceId,
-    id: runId,
-    status,
-    durationSeconds,
-    steps,
-    errorCode,
+  const callbackOutput = event.output !== undefined
+    ? event.output
+    : event.result !== undefined
+      ? event.result
+      : event.summary !== undefined
+        ? { summary: event.summary }
+        : status === 'failed'
+          ? { code: errorCode }
+          : { status, steps }
+  return await database.transaction(async () => {
+    await database.appendAutomationRunEvent({
+      workspaceId: selectedWorkspaceId,
+      runId,
+      level: status === 'failed' ? 'error' : 'info',
+      eventType: status === 'failed' ? 'run.failed' : 'run.completed',
+      message: status === 'failed'
+        ? 'The connected automation reported a failure.'
+        : 'The connected automation completed successfully.',
+      output: callbackOutput,
+      durationMs: durationSeconds * 1_000,
+    })
+    return await database.completeAutomationRun({
+      selectedWorkspaceId,
+      id: runId,
+      status,
+      durationSeconds,
+      steps,
+      errorCode,
+    })
   })
 }
 
@@ -1546,7 +1817,7 @@ app.get('/.well-known/oauth-authorization-server', (_request, response) => {
     grant_types_supported: [
       'urn:ietf:params:oauth:grant-type:device_code',
     ],
-    scopes_supported: [codexAiScope],
+    scopes_supported: [...codexScopes],
     token_endpoint_auth_methods_supported: ['none'],
   })
 })
@@ -1562,10 +1833,12 @@ app.post(
       oauthError(response, 'invalid_client', 'Unknown device client.', 401)
       return
     }
-    if (scope !== codexAiScope) {
-      oauthError(response, 'invalid_scope', `Supported scope: ${codexAiScope}.`)
+    const requestedScopes = [...new Set(scope.split(/\s+/).filter(Boolean))]
+    if (!requestedScopes.length || requestedScopes.some((requestedScope) => !codexScopes.has(requestedScope))) {
+      oauthError(response, 'invalid_scope', `Supported scopes: ${[...codexScopes].join(' ')}.`)
       return
     }
+    const normalizedScope = requestedScopes.join(' ')
 
     const deviceCode = randomBytes(32).toString('base64url')
     const userCode = createDeviceUserCode()
@@ -1576,7 +1849,7 @@ app.post(
       deviceCodeHash: hashSecret(deviceCode),
       userCodeHash: hashSecret(userCode),
       clientId,
-      scope,
+      scope: normalizedScope,
       expiresAt,
     })
     const verificationUri = `${publicOrigin}/?device=${encodeURIComponent(userCode)}`
@@ -2761,38 +3034,111 @@ function mcpCategory(serviceId, tools) {
 }
 
 async function liveMcpServices(selectedWorkspaceId) {
-  if (!mcpGateway.configured) return []
-  const [capabilities, states] = await Promise.all([
-    mcpGateway.capabilities(),
-    database.listMcpServiceStates(selectedWorkspaceId),
-  ])
+  const builtInService = {
+    id: 'lancee',
+    name: 'Lancee workflows',
+    description: `${lanceeMcpToolDefinitions.length} workspace-scoped workflow, scheduling, code, log, and API tools.`,
+    category: 'Utilities',
+    status: 'live',
+    active: true,
+    credentialMode: 'Credential-free',
+    builtIn: true,
+    tools: lanceeMcpToolDefinitions.map((tool) => ({
+      id: tool.name,
+      runtimeName: tool.name,
+      name: tool.title,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+      tags: ['lancee', 'automation'],
+    })),
+  }
+  const states = await database.listMcpServiceStates(selectedWorkspaceId)
   const stateMap = new Map(states.map((state) => [state.serviceId, state.active]))
-  return capabilities.services.map((service) => {
-    const serviceTools = capabilities.tools.filter(
-      (tool) => tool.service_id === service.service_id,
-    )
-    return {
-      id: service.service_id,
-      name: service.display_name || service.service_id,
-      description:
-        service.status === 'available'
-          ? `${serviceTools.length} runtime-verified tool${serviceTools.length === 1 ? '' : 's'} from revision ${service.revision || 'unknown'}.`
-          : 'The service is registered but its runtime tools are currently unreachable.',
-      category: mcpCategory(service.service_id, serviceTools),
-      status: service.status === 'available' ? 'live' : 'unreachable',
-      active:
-        service.status === 'available' && Boolean(stateMap.get(service.service_id)),
-      credentialMode: 'Workspace vault',
-      tools: serviceTools.map((tool) => ({
-        id: tool.catalog_id || tool.name,
-        runtimeName: tool.name,
-        name: tool.title || tool.catalog_id || tool.name,
-        description: tool.description || '',
-        inputSchema: tool.input_schema || {},
-        tags: tool.tags || [],
-      })),
+  const services = [builtInService]
+
+  if (!baseboxMcp.configured) {
+    services.push({
+      id: 'basebox',
+      name: 'Basebox',
+      description: 'The Basebox MCP access key still needs to be added by the platform administrator.',
+      category: 'Utilities',
+      status: 'unreachable',
+      active: false,
+      credentialMode: 'Server-side access key',
+      tools: [],
+    })
+  } else {
+    try {
+      const catalog = await baseboxMcp.listTools()
+      services.push({
+        id: 'basebox',
+        name: 'Basebox',
+        description: `${catalog.tools.length} live Basebox tool${catalog.tools.length === 1 ? '' : 's'} discovered through authenticated MCP.`,
+        category: 'Utilities',
+        status: 'live',
+        active: Boolean(stateMap.get('basebox')),
+        credentialMode: 'Server-side access key',
+        tools: catalog.tools.map((tool) => ({
+          id: tool.name,
+          runtimeName: tool.name,
+          name: tool.title,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+          tags: ['basebox', 'mcp'],
+        })),
+      })
+    } catch (error) {
+      console.error('Basebox MCP catalog unavailable:', error.message)
+      services.push({
+        id: 'basebox',
+        name: 'Basebox',
+        description: error instanceof BaseboxMcpError && error.code === 'BASEBOX_MCP_UNAUTHORIZED'
+          ? 'Basebox rejected the configured access key. Replace it and sync again.'
+          : 'Basebox is configured but its MCP endpoint is currently unreachable.',
+        category: 'Utilities',
+        status: 'unreachable',
+        active: false,
+        credentialMode: 'Server-side access key',
+        tools: [],
+      })
     }
-  }).filter((service) => allowedMcpCategories.has(service.category))
+  }
+
+  if (mcpGateway.configured) {
+    try {
+      const capabilities = await mcpGateway.capabilities()
+      const externalServices = capabilities.services.map((service) => {
+        const serviceTools = capabilities.tools.filter(
+          (tool) => tool.service_id === service.service_id,
+        )
+        return {
+          id: service.service_id,
+          name: service.display_name || service.service_id,
+          description:
+            service.status === 'available'
+              ? `${serviceTools.length} runtime-verified tool${serviceTools.length === 1 ? '' : 's'} from revision ${service.revision || 'unknown'}.`
+              : 'The service is registered but its runtime tools are currently unreachable.',
+          category: mcpCategory(service.service_id, serviceTools),
+          status: service.status === 'available' ? 'live' : 'unreachable',
+          active:
+            service.status === 'available' && Boolean(stateMap.get(service.service_id)),
+          credentialMode: 'Workspace vault',
+          tools: serviceTools.map((tool) => ({
+            id: tool.catalog_id || tool.name,
+            runtimeName: tool.name,
+            name: tool.title || tool.catalog_id || tool.name,
+            description: tool.description || '',
+            inputSchema: tool.input_schema || {},
+            tags: tool.tags || [],
+          })),
+        }
+      }).filter((service) => allowedMcpCategories.has(service.category))
+      services.push(...externalServices)
+    } catch (error) {
+      console.error('External MCP gateway catalog unavailable; other services remain available:', error.message)
+    }
+  }
+  return services
 }
 
 app.get('/api/mcp/access', requireAuth, async (request, response) => {
@@ -2801,7 +3147,7 @@ app.get('/api/mcp/access', requireAuth, async (request, response) => {
 
 app.get('/api/mcp/services', requireAuth, async (request, response) => {
   response.json({
-    configured: mcpGateway.configured,
+    configured: mcpProvidersConfigured,
     services: await liveMcpServices(request.auth.context.workspace.id),
   })
 })
@@ -2816,8 +3162,8 @@ app.post('/api/mcp/sync', secureMutations, requireAuth, async (request, response
   await database.touchMcpAccess(request.auth.context.workspace.id, now)
   response.json({
     connection: {
-      gatewayUrl: mcpGateway.gatewayUrl,
-      capabilityEndpoint: '/api/v1/capabilities',
+      gatewayUrl: primaryMcpUrl,
+      capabilityEndpoint: primaryMcpCapabilityEndpoint,
       authSource: 'Managed bearer grant · server-side only',
       mode: 'DNS gateway',
       accessStatus: access.status,
@@ -2841,8 +3187,9 @@ app.post('/api/mcp/invoke', secureMutations, requireAuth, async (request, respon
   ) {
     throw new HttpError(400, 'MCP tool arguments must be a JSON object.')
   }
+  const builtIn = serviceId === 'lancee'
   const access = await database.getMcpAccess(request.auth.context.workspace.id)
-  if (access.status !== 'approved') {
+  if (!builtIn && access.status !== 'approved') {
     throw new HttpError(409, 'Bearer access must be approved before invoking MCP tools.')
   }
   const services = await liveMcpServices(request.auth.context.workspace.id)
@@ -2858,9 +3205,13 @@ app.post('/api/mcp/invoke', secureMutations, requireAuth, async (request, respon
     input: { serviceId, toolId, arguments: toolArguments },
     operation: async () => {
       const startedAt = performance.now()
-      const invocation = await mcpGateway.invoke(tool.id, toolArguments)
+      const invocation = builtIn
+        ? await lanceeMcp.invoke(tool.runtimeName || tool.id, toolArguments, request.auth.context)
+        : serviceId === 'basebox'
+          ? await baseboxMcp.invoke(tool.runtimeName || tool.id, toolArguments)
+          : await mcpGateway.invoke(tool.runtimeName || tool.id, toolArguments)
       const duration = Math.max(0, Math.round(performance.now() - startedAt))
-      const message = invocation.isError
+      const message = !builtIn && invocation.isError
         ? 'MCP tool returned an error result.'
         : 'MCP tool completed successfully.'
       await database.recordMcpInvocation({
@@ -2871,15 +3222,15 @@ app.post('/api/mcp/invoke', secureMutations, requireAuth, async (request, respon
         message,
       })
       return {
-        status: invocation.isError ? 502 : 200,
+        status: 200,
         response: {
-          ok: !invocation.isError,
-          serviceId: invocation.serviceId,
-          toolId: invocation.toolId,
+          ok: builtIn || !invocation.isError,
+          serviceId: builtIn ? serviceId : invocation.serviceId,
+          toolId: builtIn ? toolId : invocation.toolId,
           requestId: invocation.requestId || randomUUID(),
           duration,
           message,
-          data: invocation.data,
+          data: builtIn ? invocation : invocation.data,
         },
       }
     },
@@ -2903,7 +3254,7 @@ app.post(
           shouldNotify = true
           await database.setMcpAccess(
             request.auth.context.workspace.id,
-            mcpGateway.configured ? 'approved' : 'pending',
+            mcpProvidersConfigured ? 'approved' : 'pending',
           )
         }
         const payload = await mcpAccessResponse(request.auth.context)
@@ -2958,6 +3309,9 @@ app.post(
     const active = request.body?.active
     if (!/^[a-z0-9][a-z0-9._-]{0,79}$/.test(serviceId) || typeof active !== 'boolean') {
       throw new HttpError(400, 'A valid MCP service id and active state are required.')
+    }
+    if (serviceId === 'lancee') {
+      throw new HttpError(409, 'Built-in Lancee tools are always active for authenticated workspace users.')
     }
     if ((await database.getMcpAccess(request.auth.context.workspace.id)).status !== 'approved') {
       throw new HttpError(409, 'Bearer access must be approved before services can change.')
@@ -3413,6 +3767,39 @@ async function workspaceAiSnapshot(selectedWorkspaceId) {
   }
 }
 
+async function aiMcpToolManifest(selectedWorkspaceId) {
+  const services = await liveMcpServices(selectedWorkspaceId)
+  return services
+    .filter((service) => service.active && service.status === 'live')
+    .slice(0, 20)
+    .flatMap((service) =>
+      service.tools.slice(0, 20).map((tool) => ({
+        serviceId: service.id,
+        serviceName: service.name,
+        toolId: tool.id,
+        functionName: service.id === 'lancee'
+          ? `lancee_${tool.id}`
+          : `${`mcp_${service.id}_${tool.id}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50)}_${createHash('sha256').update(`${service.id}:${tool.id}`).digest('hex').slice(0, 10)}`,
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      })),
+    )
+}
+
+function proposedActionFromToolCall(toolCall, manifest) {
+  if (!toolCall?.name) return null
+  const selectedTool = manifest.find((tool) => tool.functionName === toolCall.name)
+  if (!selectedTool) {
+    throw new AiError('AI_UNKNOWN_TOOL_CALL', 'AI provider requested a tool that is not available in this workspace.', 502)
+  }
+  return {
+    serviceId: selectedTool.serviceId,
+    toolId: selectedTool.toolId,
+    arguments: toolCall.arguments || {},
+  }
+}
+
 app.post('/api/ai/chat', secureMutations, requireAuth, async (request, response) => {
   const message = String(request.body?.message || '').trim()
   const history = Array.isArray(request.body?.history) ? request.body.history : []
@@ -3421,22 +3808,34 @@ app.post('/api/ai/chat', secureMutations, requireAuth, async (request, response)
     role: item?.role === 'assistant' ? 'assistant' : 'user',
     content: String(item?.content || '').slice(0, 4_000),
   })).filter((item) => item.content)
-  const snapshot = await workspaceAiSnapshot(request.auth.context.workspace.id)
-  const systemPrompt = `You are the lancee workspace assistant. Answer only from the workspace snapshot below and general reasoning. Never invent records, credentials, payments, or actions. You may explain read-only information and suggest actions. Sending emails, changing records, running SQL, executing external tools, or creating payments requires an explicit human approval and must not be claimed as completed. Keep answers concise. Workspace snapshot (server-provided, workspace-scoped): ${JSON.stringify(snapshot)}`
+  const [snapshot, mcpManifest] = await Promise.all([
+    workspaceAiSnapshot(request.auth.context.workspace.id),
+    aiMcpToolManifest(request.auth.context.workspace.id),
+  ])
+  const systemPrompt = `You are the Lancee workspace assistant. Answer only from the workspace snapshot below and general reasoning. Never invent records, credentials, payments, or completed actions. Use one provided native tool when the user asks you to create, run, schedule, search, inspect, or otherwise operate on a workflow. A native tool call only proposes an action for explicit human approval; never claim it has already run. When creating a workflow, choose only the minimum Core permissions needed and set activate=true unless the user explicitly requests a draft. Keep answers concise. Workspace snapshot (server-provided and workspace-scoped): ${JSON.stringify(snapshot)}`
   try {
     const result = await completeChat({
       messages: [...normalizedHistory, { role: 'user', content: message }],
       systemPrompt,
+      tools: mcpManifest.map((tool) => ({
+        name: tool.functionName,
+        description: `${tool.serviceName} — ${tool.name}: ${tool.description}`,
+        inputSchema: tool.inputSchema,
+      })),
     })
+    const proposedAction = proposedActionFromToolCall(result.toolCall, mcpManifest)
+    const displayContent = result.content.trim() || (proposedAction
+      ? 'I can do that after you approve the tool request below.'
+      : 'I could not produce a response for that request.')
     await database.saveAiConversation({
       workspaceId: request.auth.context.workspace.id,
       userId: request.auth.context.user.id,
       title: message.slice(0, 120),
       model: result.model,
-      messages: [...normalizedHistory, { role: 'user', content: message }, { role: 'assistant', content: result.content }],
+      messages: [...normalizedHistory, { role: 'user', content: message }, { role: 'assistant', content: displayContent }],
       tokensUsed: result.usage.totalTokens,
     })
-    response.json(result)
+    response.json({ ...result, content: displayContent, proposedAction, toolCall: undefined })
   } catch (error) {
     if (error instanceof AiError) {
       response.status(error.status).json({ error: error.message, code: error.code })
@@ -4025,6 +4424,88 @@ app.get('/api/clients', requireAuth, async (request, response) => {
   response.json({
     clients: await database.listClients(request.auth.context.workspace.id),
   })
+})
+
+app.get('/api/storefront/settings', requireAuth, async (request, response) => {
+  const settings = await database.getWorkspaceSettings(request.auth.context.workspace.id)
+  response.json({ enabled: settings.storefrontEnabled })
+})
+
+app.patch('/api/storefront/settings', secureMutations, requireAuth, async (request, response) => {
+  if (typeof request.body?.enabled !== 'boolean') {
+    throw new HttpError(400, 'A boolean storefront setting is required.')
+  }
+  const current = await database.getWorkspaceSettings(request.auth.context.workspace.id)
+  const updated = await database.updateWorkspaceSettings(request.auth.context.workspace.id, {
+    ...current,
+    storefrontEnabled: request.body.enabled,
+  })
+  response.json({ enabled: updated.storefrontEnabled })
+})
+
+app.get('/api/storefront/domains', requireAuth, async (request, response) => {
+  const domains = await database.listStorefrontDomains(request.auth.context.workspace.id)
+  response.json({ domains: domains.map(storefrontDomainResponse), target: publicHostname })
+})
+
+app.post('/api/storefront/domains', secureMutations, requireAuth, async (request, response) => {
+  const domain = normalizeStorefrontDomain(request.body?.domain)
+  const existing = (await database.listStorefrontDomains(request.auth.context.workspace.id))
+    .find((item) => item.domain === domain)
+  if (existing) throw new HttpError(409, 'This domain is already in your storefront settings.')
+  const created = await database.createStorefrontDomain({
+    workspaceId: request.auth.context.workspace.id,
+    domain,
+    verificationToken: randomBytes(18).toString('hex'),
+  })
+  if (!created) throw new HttpError(500, 'Unable to save the custom domain.')
+  response.status(201).json({ domain: storefrontDomainResponse(created), target: publicHostname })
+})
+
+app.post('/api/storefront/domains/:id/verify', secureMutations, requireAuth, async (request, response) => {
+  const id = String(request.params.id || '')
+  if (!/^dom_[a-f0-9]{20}$/i.test(id)) throw new HttpError(400, 'A valid domain id is required.')
+  const domains = await database.listStorefrontDomains(request.auth.context.workspace.id)
+  const domain = domains.find((item) => item.id === id)
+  if (!domain) throw new HttpError(404, 'Custom domain not found.')
+  let txtRecords = []
+  let cnameRecords = []
+  try {
+    txtRecords = await resolveTxt(`_lancee.${domain.domain}`)
+  } catch {
+    txtRecords = []
+  }
+  try {
+    cnameRecords = await resolveCname(domain.domain)
+  } catch {
+    cnameRecords = []
+  }
+  const expected = `lancee-verify=${domain.verificationToken}`
+  const txtVerified = txtRecords.flat().some((value) => String(value).trim() === expected)
+  const cnameVerified = cnameRecords.some((value) => String(value).replace(/\.$/, '').toLowerCase() === publicHostname)
+  const verified = txtVerified && cnameVerified
+  if (!verified) {
+    const missing = [
+      !txtVerified ? 'the TXT record' : '',
+      !cnameVerified ? 'the CNAME record' : '',
+    ].filter(Boolean).join(' and ')
+    response.json({
+      verified: false,
+      domain: storefrontDomainResponse(domain),
+      message: `We could not find ${missing} yet. DNS changes can take a few minutes.`,
+    })
+    return
+  }
+  const updated = await database.verifyStorefrontDomain(request.auth.context.workspace.id, id)
+  response.json({ verified: true, domain: storefrontDomainResponse(updated) })
+})
+
+app.delete('/api/storefront/domains/:id', secureMutations, requireAuth, async (request, response) => {
+  const id = String(request.params.id || '')
+  if (!/^dom_[a-f0-9]{20}$/i.test(id)) throw new HttpError(400, 'A valid domain id is required.')
+  const deleted = await database.deleteStorefrontDomain(request.auth.context.workspace.id, id)
+  if (!deleted) throw new HttpError(404, 'Custom domain not found.')
+  response.status(204).end()
 })
 
 function approvalToken(value) {
@@ -5771,6 +6252,55 @@ app.get('/api/workspace/analytics', requireAuth, async (request, response) => {
   })
 })
 
+const lanceeMcp = createLanceeMcpRuntime({
+  database,
+  coreToolIds: coreToolCatalog().map((tool) => tool.id),
+  executeAutomationRun,
+  enqueueCoreJob: (job) => coreRedis.enqueue(job),
+  prepareAutomationRun: async (context, automation) => {
+    if (automation.execution !== 'edge') return
+    const n8nConnection = await database.getN8nConnection(context.workspace.id)
+    if (!n8nConnection.connected) {
+      throw new LanceeMcpError(
+        'MCP_EDGE_NOT_CONFIGURED',
+        'Custom Edge workflows require a connected n8n integration.',
+        409,
+      )
+    }
+    n8nConnectionSecret(n8nConnection)
+  },
+})
+
+app.post(
+  '/api/codex/lancee-mcp/:tool',
+  secureMutations,
+  requireCodexScope(lanceeMcpScope),
+  async (request, response) => {
+    const tool = String(request.params.tool || '').trim()
+    if (!/^[a-z][a-z0-9_]{1,63}$/.test(tool)) {
+      throw new HttpError(400, 'A valid Lancee MCP tool name is required.')
+    }
+    try {
+      response.json(
+        await lanceeMcp.invoke(
+          tool,
+          request.body || {},
+          request.codexAuth.context,
+        ),
+      )
+    } catch (error) {
+      if (error instanceof LanceeMcpError) {
+        response.status(error.status || 400).json({
+          error: error.code,
+          message: error.message,
+        })
+        return
+      }
+      throw error
+    }
+  },
+)
+
 
 app.get('/api/automations', requireAuth, async (request, response) => {
   response.json({
@@ -5789,7 +6319,7 @@ app.post(
     const execution = request.body?.execution === 'edge' ? 'edge' : 'core'
     const requestedTools = Array.isArray(request.body?.tools)
       ? [...new Set(request.body.tools.map((tool) => String(tool).trim()))]
-      : []
+      : ['workspace.summary']
     const availableTools = new Set(coreToolCatalog().map((tool) => tool.id))
     if (requestedTools.some((tool) => !availableTools.has(tool))) {
       throw new HttpError(400, 'One or more requested Core tools are unavailable.')
@@ -5844,6 +6374,34 @@ app.post(
   },
 )
 
+app.put(
+  '/api/automations/:id/status',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const id = String(request.params.id || '')
+    const status = String(request.body?.status || '')
+    if (!/^aut_[a-f0-9]{12}$/.test(id) || !['active', 'paused', 'draft'].includes(status)) {
+      throw new HttpError(400, 'A valid automation id and status are required.')
+    }
+    const result = await executeIdempotentMutation({
+      request,
+      route: `PUT /api/automations/${id}/status`,
+      input: { status },
+      operation: async () => {
+        const updated = await database.setAutomationStatus(
+          request.auth.context.workspace.id,
+          id,
+          status,
+        )
+        if (!updated) throw new HttpError(404, 'Automation not found.')
+        return { status: 200, response: updated }
+      },
+    })
+    sendMutationResponse(response, result)
+  },
+)
+
 app.delete(
   '/api/automations/:id',
   secureMutations,
@@ -5858,6 +6416,199 @@ app.delete(
       id,
     )
     if (!deleted) throw new HttpError(404, 'Automation not found.')
+    response.status(204).end()
+  },
+)
+
+app.post('/api/mail/discover', requireAuth, async (request, response) => {
+  response.json(await discoverMailSettings(request.body?.email))
+})
+
+app.get('/api/mail/account', requireAuth, async (request, response) => {
+  response.json(mailAccountResponse(
+    await database.getMailAccount(request.auth.context.workspace.id),
+  ))
+})
+
+app.put(
+  '/api/mail/account',
+  secureMutations,
+  requireAuth,
+  requireOwner,
+  async (request, response) => {
+    const selectedWorkspaceId = request.auth.context.workspace.id
+    const existing = await database.getMailAccount(selectedWorkspaceId, true)
+    const settings = await normalizeMailSettings(request.body)
+    const providedPassword = String(request.body?.password || '')
+    const password = providedPassword || (existing ? mailPassword(existing) : '')
+    const tested = await testMailAccount(settings, password)
+    const encrypted = providedPassword || !existing
+      ? encryptToken(password)
+      : {
+          encrypted_access_token: existing.passwordCiphertext,
+          iv: existing.passwordIv,
+          auth_tag: existing.passwordTag,
+        }
+    const result = await executeIdempotentMutation({
+      request,
+      route: 'PUT /api/mail/account',
+      input: { ...settings, credentialFingerprint: hashSecret(password) },
+      operation: async () => {
+        const account = await database.saveMailAccount({
+          workspaceId: selectedWorkspaceId,
+          connectedBy: request.auth.context.user.id,
+          ...settings,
+          passwordCiphertext: encrypted.encrypted_access_token,
+          passwordIv: encrypted.iv,
+          passwordTag: encrypted.auth_tag,
+          lastSeenUid: tested.lastSeenUid,
+        })
+        return { status: 200, response: mailAccountResponse(account) }
+      },
+    })
+    sendMutationResponse(response, result)
+  },
+)
+
+app.delete(
+  '/api/mail/account',
+  secureMutations,
+  requireAuth,
+  requireOwner,
+  async (request, response) => {
+    await database.deleteMailAccount(request.auth.context.workspace.id)
+    response.status(204).end()
+  },
+)
+
+function mailFolder(value) {
+  const folder = String(value || 'INBOX').trim()
+  if (!folder || folder.length > 512 || folder.includes('\u0000') || folder.includes('\r') || folder.includes('\n')) {
+    throw new HttpError(400, 'A valid mail folder is required.')
+  }
+  return folder
+}
+
+async function connectedMailAccount(context) {
+  const account = await database.getMailAccount(context.workspace.id, true)
+  if (!account) throw new HttpError(409, 'Connect a mailbox in Messages settings first.')
+  return { account, password: mailPassword(account) }
+}
+
+app.get('/api/mail/folders', requireAuth, async (request, response) => {
+  const { account, password } = await connectedMailAccount(request.auth.context)
+  response.json({ folders: await listMailFolders(account, password) })
+})
+
+app.get('/api/mail/messages', requireAuth, async (request, response) => {
+  const { account, password } = await connectedMailAccount(request.auth.context)
+  response.json({
+    messages: await listMailMessages(account, password, {
+      folder: mailFolder(request.query.folder),
+      query: String(request.query.query || '').slice(0, 200),
+      limit: Number(request.query.limit || 50),
+    }),
+  })
+})
+
+app.get('/api/mail/messages/:uid', requireAuth, async (request, response) => {
+  const uid = Number(request.params.uid)
+  if (!Number.isInteger(uid) || uid < 1) throw new HttpError(400, 'A valid message UID is required.')
+  const { account, password } = await connectedMailAccount(request.auth.context)
+  response.json(await getMailMessage(account, password, {
+    folder: mailFolder(request.query.folder),
+    uid,
+  }))
+})
+
+app.post(
+  '/api/mail/send',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const { account, password } = await connectedMailAccount(request.auth.context)
+    const result = await executeIdempotentMutation({
+      request,
+      route: 'POST /api/mail/send',
+      input: request.body || {},
+      operation: async () => ({
+        status: 201,
+        response: await sendMailMessage(account, password, request.body),
+      }),
+    })
+    sendMutationResponse(response, result)
+  },
+)
+
+app.post(
+  '/api/mail/sync',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const account = await database.getMailAccount(request.auth.context.workspace.id, true)
+    if (!account) throw new HttpError(409, 'Connect a mailbox in Messages settings first.')
+    response.json(await syncMailWorkspace(account))
+  },
+)
+
+app.get('/api/mail/rules', requireAuth, async (request, response) => {
+  response.json({ rules: await database.listMailAutomationRules(request.auth.context.workspace.id) })
+})
+
+async function assertNativeMailAutomation(selectedWorkspaceId, automationId) {
+  const automation = await database.getAutomation(selectedWorkspaceId, automationId)
+  if (!automation) throw new HttpError(404, 'Automation not found.')
+  if (automation.execution !== 'core') {
+    throw new HttpError(400, 'Message rules can only run native Core automations; n8n workflows are not supported.')
+  }
+  return automation
+}
+
+app.post(
+  '/api/mail/rules',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const selectedWorkspaceId = request.auth.context.workspace.id
+    const input = normalizeMailRuleInput(request.body)
+    await assertNativeMailAutomation(selectedWorkspaceId, input.automationId)
+    const rule = await database.createMailAutomationRule({
+      workspaceId: selectedWorkspaceId,
+      createdBy: request.auth.context.user.id,
+      ...input,
+    })
+    response.status(201).json(rule)
+  },
+)
+
+app.put(
+  '/api/mail/rules/:id',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const selectedWorkspaceId = request.auth.context.workspace.id
+    const input = normalizeMailRuleInput(request.body)
+    await assertNativeMailAutomation(selectedWorkspaceId, input.automationId)
+    const rule = await database.updateMailAutomationRule(
+      selectedWorkspaceId,
+      String(request.params.id),
+      input,
+    )
+    if (!rule) throw new HttpError(404, 'Message rule not found.')
+    response.json(rule)
+  },
+)
+
+app.delete(
+  '/api/mail/rules/:id',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const deleted = await database.deleteMailAutomationRule(
+      request.auth.context.workspace.id,
+      String(request.params.id),
+    )
+    if (!deleted) throw new HttpError(404, 'Message rule not found.')
     response.status(204).end()
   },
 )
@@ -6033,7 +6784,21 @@ app.use((error, _request, response, _next) => {
     })
     return
   }
+  if (error instanceof LanceeMcpError) {
+    response.status(error.status || 400).json({
+      error: error.message,
+      code: error.code,
+    })
+    return
+  }
   if (error instanceof McpGatewayError) {
+    response.status(error.status).json({
+      error: error.message,
+      code: error.code,
+    })
+    return
+  }
+  if (error instanceof BaseboxMcpError) {
     response.status(error.status).json({
       error: error.message,
       code: error.code,
@@ -6061,6 +6826,13 @@ app.use((error, _request, response, _next) => {
     })
     return
   }
+  if (error instanceof MailConnectorError) {
+    response.status(error.status || 502).json({
+      error: error.message,
+      code: error.code,
+    })
+    return
+  }
   if (error?.type === 'entity.too.large') {
     response.status(413).json({ error: 'Document content exceeds the 5 MB editor limit.' })
     return
@@ -6074,6 +6846,8 @@ app.use((error, _request, response, _next) => {
 })
 
 let stopCoreWorker = async () => {}
+let stopLanceeMcpScheduler = async () => {}
+stopLanceeMcpScheduler = await lanceeMcp.startScheduler()
 if (coreRedis.connected) {
   stopCoreWorker = await coreRedis.startWorker(async (job) => {
     const context = await database.getContextByIds(job.userId, job.workspaceId)
@@ -6084,6 +6858,28 @@ if (coreRedis.connected) {
   })
 }
 
+const configuredMailSyncInterval = Number.parseInt(process.env.MAIL_SYNC_INTERVAL_MS || '60000', 10)
+const mailSyncIntervalMs = Number.isFinite(configuredMailSyncInterval)
+  ? Math.max(30_000, configuredMailSyncInterval)
+  : 60_000
+let mailPollBusy = false
+const pollMailAccounts = async () => {
+  if (mailPollBusy) return
+  mailPollBusy = true
+  try {
+    const accounts = await database.listConnectedMailAccounts()
+    for (const account of accounts) {
+      await syncMailWorkspace(account).catch((error) => {
+        console.error(`Mailbox sync failed for workspace ${account.workspaceId}:`, error?.message || error)
+      })
+    }
+  } finally {
+    mailPollBusy = false
+  }
+}
+const mailSyncTimer = setInterval(() => void pollMailAccounts(), mailSyncIntervalMs)
+const initialMailSyncTimer = setTimeout(() => void pollMailAccounts(), 5_000)
+
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(`lancee server listening on port ${port} · Core Redis ${coreRedis.connected ? 'connected' : 'fallback'}`)
 })
@@ -6092,7 +6888,10 @@ let shuttingDown = false
 function shutdown() {
   if (shuttingDown) return
   shuttingDown = true
+  void stopLanceeMcpScheduler()
   void stopCoreWorker()
+  clearInterval(mailSyncTimer)
+  clearTimeout(initialMailSyncTimer)
   codexAppServer.stopAll()
   server.close(async () => {
     try {

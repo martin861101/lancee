@@ -406,8 +406,11 @@ try {
   const approvalPayload = await sendApproval.json()
   assert.equal(approvalPayload.delivery, 'not_configured')
   const approvalUrl = new URL(approvalPayload.approval.reviewUrl)
-  const approvalToken = approvalUrl.pathname.split('/').pop()
-  const approvalPage = await fetch(`${application.origin}${approvalUrl.pathname}`)
+  const approvalToken = approvalUrl.searchParams.get('token')
+  assert.match(approvalToken, /^[A-Za-z0-9_-]{20,}$/)
+  const approvalPage = await fetch(
+    `${application.origin}${approvalUrl.pathname}${approvalUrl.search}`,
+  )
   assert.equal(approvalPage.status, 200)
   const approvalComment = await fetch(`${application.origin}/api/public/approvals/${approvalToken}/comment`, {
     method: 'POST',

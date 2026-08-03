@@ -175,6 +175,56 @@ function mapAutomation(row) {
   }
 }
 
+function mapMailAccount(row, includeSecret = false) {
+  if (!row) return null
+  return {
+    workspaceId: row.workspace_id,
+    connectedBy: row.connected_by,
+    email: row.email,
+    displayName: row.display_name || '',
+    username: row.username,
+    provider: row.provider || 'custom',
+    imapHost: row.imap_host,
+    imapPort: Number(row.imap_port),
+    imapSecure: Boolean(row.imap_secure),
+    smtpHost: row.smtp_host,
+    smtpPort: Number(row.smtp_port),
+    smtpSecure: Boolean(row.smtp_secure),
+    status: row.status,
+    lastSeenUid: Number(row.last_seen_uid || 0),
+    lastSyncedAt: row.last_synced_at,
+    lastError: row.last_error || '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...(includeSecret ? {
+      passwordCiphertext: row.password_ciphertext,
+      passwordIv: row.password_iv,
+      passwordTag: row.password_tag,
+    } : {}),
+  }
+}
+
+function mapMailAutomationRule(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    automationId: row.automation_id,
+    automationName: row.automation_name || '',
+    createdBy: row.created_by,
+    name: row.name,
+    sender: row.sender || '',
+    recipient: row.recipient || '',
+    subject: row.subject || '',
+    keywords: parsePermissions(row.keywords_json),
+    matchMode: row.match_mode,
+    instruction: row.instruction,
+    enabled: Boolean(row.enabled),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
 function mapAutomationRun(row) {
   if (!row) return null
   return {
@@ -189,6 +239,28 @@ function mapAutomationRun(row) {
     steps: row.steps,
     errorCode: row.error_code,
     completedAt: row.completed_at,
+  }
+}
+
+function mapAutomationSchedule(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    workflowId: row.automation_id,
+    workflowName: row.automation_name || '',
+    createdBy: row.created_by,
+    instruction: row.instruction,
+    provider: row.provider,
+    runAt: row.run_at,
+    intervalSeconds: row.interval_seconds === null || row.interval_seconds === undefined
+      ? null
+      : Number(row.interval_seconds),
+    status: row.status,
+    lastRunId: row.last_run_id,
+    lastError: row.last_error,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   }
 }
 
@@ -678,6 +750,29 @@ export async function openDatabase({
       updated_at TEXT NOT NULL,
       PRIMARY KEY (workspace_id, integration_id)
     )`,
+    `CREATE TABLE IF NOT EXISTS mail_accounts (
+      workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+      connected_by TEXT NOT NULL REFERENCES users(id),
+      email TEXT NOT NULL,
+      display_name TEXT NOT NULL DEFAULT '',
+      username TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'custom',
+      password_ciphertext TEXT NOT NULL,
+      password_iv TEXT NOT NULL,
+      password_tag TEXT NOT NULL,
+      imap_host TEXT NOT NULL,
+      imap_port INTEGER NOT NULL,
+      imap_secure ${isSqlite ? 'INTEGER NOT NULL DEFAULT 1 CHECK (imap_secure IN (0, 1))' : 'BOOLEAN NOT NULL DEFAULT TRUE'},
+      smtp_host TEXT NOT NULL,
+      smtp_port INTEGER NOT NULL,
+      smtp_secure ${isSqlite ? 'INTEGER NOT NULL DEFAULT 1 CHECK (smtp_secure IN (0, 1))' : 'BOOLEAN NOT NULL DEFAULT TRUE'},
+      status TEXT NOT NULL DEFAULT 'connected' CHECK (status IN ('connected', 'error')),
+      last_seen_uid INTEGER NOT NULL DEFAULT 0,
+      last_synced_at TEXT,
+      last_error TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS integration_requests (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -697,8 +792,10 @@ export async function openDatabase({
       timezone TEXT NOT NULL DEFAULT 'Africa/Johannesburg',
       travel_mode TEXT NOT NULL DEFAULT 'none',
       travel_location TEXT NOT NULL DEFAULT '',
+      storefront_enabled ${isSqlite ? 'INTEGER NOT NULL DEFAULT 0 CHECK (storefront_enabled IN (0, 1))' : 'BOOLEAN NOT NULL DEFAULT FALSE'},
       updated_at TEXT NOT NULL
     )`,
+    `ALTER TABLE workspace_settings ADD COLUMN IF NOT EXISTS storefront_enabled ${isSqlite ? 'INTEGER NOT NULL DEFAULT 0 CHECK (storefront_enabled IN (0, 1))' : 'BOOLEAN NOT NULL DEFAULT FALSE'}`,
     `CREATE TABLE IF NOT EXISTS idea_notes (
       id TEXT NOT NULL,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -797,6 +894,9 @@ export async function openDatabase({
       updated_at TEXT NOT NULL
     )`,
     `ALTER TABLE automations ADD COLUMN IF NOT EXISTS execution TEXT NOT NULL DEFAULT 'core'`,
+    `UPDATE automations
+     SET tools_json = '["workspace.summary"]'
+     WHERE execution = 'core' AND (tools_json IS NULL OR TRIM(tools_json) = '[]')`,
     `CREATE TABLE IF NOT EXISTS automation_runs (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -825,6 +925,50 @@ export async function openDatabase({
       created_at TEXT NOT NULL,
       UNIQUE (run_id, sequence)
     )`,
+    `CREATE TABLE IF NOT EXISTS mail_automation_rules (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      automation_id TEXT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+      created_by TEXT NOT NULL REFERENCES users(id),
+      name TEXT NOT NULL,
+      sender TEXT NOT NULL DEFAULT '',
+      recipient TEXT NOT NULL DEFAULT '',
+      subject TEXT NOT NULL DEFAULT '',
+      keywords_json TEXT NOT NULL DEFAULT '[]',
+      match_mode TEXT NOT NULL DEFAULT 'all' CHECK (match_mode IN ('all', 'any')),
+      instruction TEXT NOT NULL,
+      enabled ${isSqlite ? 'INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1))' : 'BOOLEAN NOT NULL DEFAULT TRUE'},
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS mail_rule_events (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      rule_id TEXT NOT NULL REFERENCES mail_automation_rules(id) ON DELETE CASCADE,
+      message_key TEXT NOT NULL,
+      run_id TEXT REFERENCES automation_runs(id) ON DELETE SET NULL,
+      status TEXT NOT NULL DEFAULT 'processing' CHECK (status IN ('processing', 'completed', 'failed')),
+      error TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, rule_id, message_key)
+    )`,
+    `CREATE TABLE IF NOT EXISTS automation_schedules (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      automation_id TEXT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+      created_by TEXT NOT NULL REFERENCES users(id),
+      instruction TEXT NOT NULL,
+      provider TEXT,
+      run_at TEXT NOT NULL,
+      interval_seconds INTEGER,
+      status TEXT NOT NULL DEFAULT 'scheduled'
+        CHECK (status IN ('scheduled', 'running', 'completed', 'failed', 'cancelled')),
+      last_run_id TEXT REFERENCES automation_runs(id) ON DELETE SET NULL,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS clients (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -836,6 +980,16 @@ export async function openDatabase({
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE (workspace_id, name)
+    )`,
+    `CREATE TABLE IF NOT EXISTS storefront_domains (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      domain TEXT NOT NULL,
+      verification_token TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'verified')),
+      created_at TEXT NOT NULL,
+      verified_at TEXT,
+      UNIQUE (workspace_id, domain)
     )`,
     `CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
@@ -1022,6 +1176,8 @@ export async function openDatabase({
       ON automation_runs (workspace_id, started_at)`,
     `CREATE INDEX IF NOT EXISTS idx_automation_run_events_run_sequence
       ON automation_run_events (run_id, sequence)`,
+    `CREATE INDEX IF NOT EXISTS idx_automation_schedules_due
+      ON automation_schedules (status, run_at)`,
     `CREATE INDEX IF NOT EXISTS idx_project_comments_workspace_project
       ON project_comments (workspace_id, project_id, created_at)`,
     `CREATE INDEX IF NOT EXISTS idx_workspace_notifications_unread
@@ -1040,6 +1196,10 @@ export async function openDatabase({
       ON idempotency_requests (expires_at)`,
     `CREATE INDEX IF NOT EXISTS idx_n8n_deliveries_workspace_created
       ON n8n_deliveries (workspace_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_mail_rules_workspace_enabled
+      ON mail_automation_rules (workspace_id, enabled)`,
+    `CREATE INDEX IF NOT EXISTS idx_mail_rule_events_workspace_created
+      ON mail_rule_events (workspace_id, created_at)`,
     `CREATE INDEX IF NOT EXISTS idx_team_invitations_token
       ON team_invitations (token_hash, status)`,
     `CREATE INDEX IF NOT EXISTS idx_codex_device_user_code
@@ -1165,6 +1325,14 @@ export async function openDatabase({
        workspace_id, integration_id, connected, updated_at
      )
      SELECT id, 'codex-ai', 0, $1 FROM workspaces WHERE 1 = 1
+     ON CONFLICT (workspace_id, integration_id) DO NOTHING`,
+    [nowIso()],
+  )
+  await query(
+    `INSERT INTO workspace_integrations (
+       workspace_id, integration_id, connected, updated_at
+     )
+     SELECT id, 'mail', 0, $1 FROM workspaces WHERE 1 = 1
      ON CONFLICT (workspace_id, integration_id) DO NOTHING`,
     [nowIso()],
   )
@@ -1313,6 +1481,7 @@ export async function openDatabase({
     { id: 'mcp-grid', connected: 0 },
     { id: 'codex-ai', connected: 0 },
     { id: 'codex-runtime', connected: 0 },
+    { id: 'mail', connected: 0 },
   ]
   for (const integration of defaultIntegrations) {
     await query(
@@ -2612,10 +2781,15 @@ export async function openDatabase({
       const row = await this.getAutomation(selectedWorkspaceId, id)
       if (!row) return null
       const newStatus = row.status === 'active' ? 'paused' : 'active'
+      return await this.setAutomationStatus(selectedWorkspaceId, id, newStatus)
+    },
+
+    async setAutomationStatus(selectedWorkspaceId, id, status) {
+      if (!['active', 'paused', 'draft'].includes(status)) return null
       await query(
         `UPDATE automations SET status = $1, updated_at = $2
          WHERE workspace_id = $3 AND id = $4`,
-        [newStatus, nowIso(), selectedWorkspaceId, id],
+        [status, nowIso(), selectedWorkspaceId, id],
       )
       return await this.getAutomation(selectedWorkspaceId, id)
     },
@@ -2684,6 +2858,121 @@ export async function openDatabase({
         durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
         createdAt: row.created_at,
       }))
+    },
+
+    async listAutomationSchedules(selectedWorkspaceId, automationId = null) {
+      const filters = ['automation_schedules.workspace_id = $1']
+      const params = [selectedWorkspaceId]
+      if (automationId) {
+        params.push(automationId)
+        filters.push(`automation_schedules.automation_id = $${params.length}`)
+      }
+      const rows = await query(
+        `SELECT automation_schedules.*, automations.name AS automation_name
+         FROM automation_schedules
+         JOIN automations ON automations.id = automation_schedules.automation_id
+         WHERE ${filters.join(' AND ')}
+         ORDER BY automation_schedules.run_at ASC`,
+        params,
+      )
+      return rows.map(mapAutomationSchedule)
+    },
+
+    async createAutomationSchedule({ workspaceId, automationId, createdBy, instruction, provider = null, runAt, intervalSeconds = null }) {
+      const createdAt = nowIso()
+      const id = `sch_${createHash('sha256')
+        .update(`${workspaceId}:${automationId}:${instruction}:${runAt}:${createdAt}`)
+        .digest('hex')
+        .slice(0, 20)}`
+      await query(
+        `INSERT INTO automation_schedules (
+           id, workspace_id, automation_id, created_by, instruction, provider,
+           run_at, interval_seconds, status, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'scheduled', $9, $10)`,
+        [id, workspaceId, automationId, createdBy, instruction, provider, runAt, intervalSeconds, createdAt, createdAt],
+      )
+      const rows = await query(
+        `SELECT automation_schedules.*, automations.name AS automation_name
+         FROM automation_schedules
+         JOIN automations ON automations.id = automation_schedules.automation_id
+         WHERE automation_schedules.workspace_id = $1
+           AND automation_schedules.id = $2`,
+        [workspaceId, id],
+      )
+      return mapAutomationSchedule(rows[0])
+    },
+
+    async listDueAutomationSchedules(now = nowIso(), limit = 50) {
+      const rows = await query(
+        `SELECT automation_schedules.*, automations.name AS automation_name
+         FROM automation_schedules
+         JOIN automations ON automations.id = automation_schedules.automation_id
+         WHERE automation_schedules.status = 'scheduled'
+           AND automation_schedules.run_at <= $1
+         ORDER BY automation_schedules.run_at ASC
+         LIMIT $2`,
+        [now, Math.min(100, Math.max(1, Number(limit) || 50))],
+      )
+      return rows.map(mapAutomationSchedule)
+    },
+
+    async recoverAutomationSchedules() {
+      await query(
+        `UPDATE automation_schedules
+         SET status = 'scheduled', updated_at = $1
+         WHERE status = 'running'`,
+        [nowIso()],
+      )
+    },
+
+    async claimAutomationSchedule({ selectedWorkspaceId, id, now = nowIso() }) {
+      const rows = await query(
+        `UPDATE automation_schedules
+         SET status = 'running', updated_at = $1
+         WHERE workspace_id = $2
+           AND id = $3
+           AND status = 'scheduled'
+           AND run_at <= $1
+         RETURNING id`,
+        [now, selectedWorkspaceId, id],
+      )
+      if (!rows.length) return null
+      const schedules = await this.listAutomationSchedules(selectedWorkspaceId)
+      return schedules.find((schedule) => schedule.id === id) || null
+    },
+
+    async completeAutomationSchedule({ selectedWorkspaceId, id, lastRunId }) {
+      const rows = await query(
+        `UPDATE automation_schedules
+         SET status = 'completed', last_run_id = $1, last_error = NULL, updated_at = $2
+         WHERE workspace_id = $3 AND id = $4 AND status = 'running'
+         RETURNING id`,
+        [lastRunId, nowIso(), selectedWorkspaceId, id],
+      )
+      return rows.length > 0
+    },
+
+    async rescheduleAutomationSchedule({ selectedWorkspaceId, id, runAt, lastRunId }) {
+      const rows = await query(
+        `UPDATE automation_schedules
+         SET status = 'scheduled', run_at = $1, last_run_id = $2,
+             last_error = NULL, updated_at = $3
+         WHERE workspace_id = $4 AND id = $5 AND status = 'running'
+         RETURNING id`,
+        [runAt, lastRunId, nowIso(), selectedWorkspaceId, id],
+      )
+      return rows.length > 0
+    },
+
+    async failAutomationSchedule({ selectedWorkspaceId, id, error }) {
+      const rows = await query(
+        `UPDATE automation_schedules
+         SET status = 'failed', last_error = $1, updated_at = $2
+         WHERE workspace_id = $3 AND id = $4 AND status = 'running'
+         RETURNING id`,
+        [String(error || 'Scheduled workflow failed.').slice(0, 1_000), nowIso(), selectedWorkspaceId, id],
+      )
+      return rows.length > 0
     },
 
     async appendAutomationRunEvent({
@@ -2819,6 +3108,247 @@ export async function openDatabase({
       return await this.getAutomationRun(selectedWorkspaceId, id)
     },
 
+    async getMailAccount(selectedWorkspaceId, includeSecret = false) {
+      const rows = await query(
+        `SELECT workspace_id, connected_by, email, display_name, username, provider,
+                password_ciphertext, password_iv, password_tag,
+                imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure,
+                status, last_seen_uid, last_synced_at, last_error, created_at, updated_at
+         FROM mail_accounts
+         WHERE workspace_id = $1`,
+        [selectedWorkspaceId],
+      )
+      return mapMailAccount(rows[0], includeSecret)
+    },
+
+    async listConnectedMailAccounts() {
+      const rows = await query(
+        `SELECT workspace_id, connected_by, email, display_name, username, provider,
+                password_ciphertext, password_iv, password_tag,
+                imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure,
+                status, last_seen_uid, last_synced_at, last_error, created_at, updated_at
+         FROM mail_accounts
+         WHERE status IN ('connected', 'error')
+         ORDER BY updated_at ASC`,
+      )
+      return rows.map((row) => mapMailAccount(row, true))
+    },
+
+    async saveMailAccount({
+      workspaceId,
+      connectedBy,
+      email,
+      displayName = '',
+      username,
+      provider = 'custom',
+      passwordCiphertext,
+      passwordIv,
+      passwordTag,
+      imapHost,
+      imapPort,
+      imapSecure,
+      smtpHost,
+      smtpPort,
+      smtpSecure,
+      lastSeenUid = 0,
+    }) {
+      const timestamp = nowIso()
+      await query(
+        `INSERT INTO mail_accounts (
+           workspace_id, connected_by, email, display_name, username, provider,
+           password_ciphertext, password_iv, password_tag,
+           imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure,
+           status, last_seen_uid, last_synced_at, last_error, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'connected', $16, $17, '', $18, $19)
+         ON CONFLICT (workspace_id) DO UPDATE SET
+           connected_by = EXCLUDED.connected_by,
+           email = EXCLUDED.email,
+           display_name = EXCLUDED.display_name,
+           username = EXCLUDED.username,
+           provider = EXCLUDED.provider,
+           password_ciphertext = EXCLUDED.password_ciphertext,
+           password_iv = EXCLUDED.password_iv,
+           password_tag = EXCLUDED.password_tag,
+           imap_host = EXCLUDED.imap_host,
+           imap_port = EXCLUDED.imap_port,
+           imap_secure = EXCLUDED.imap_secure,
+           smtp_host = EXCLUDED.smtp_host,
+           smtp_port = EXCLUDED.smtp_port,
+           smtp_secure = EXCLUDED.smtp_secure,
+           status = 'connected',
+           last_seen_uid = EXCLUDED.last_seen_uid,
+           last_synced_at = EXCLUDED.last_synced_at,
+           last_error = '',
+           updated_at = EXCLUDED.updated_at`,
+        [
+          workspaceId,
+          connectedBy,
+          email,
+          displayName,
+          username,
+          provider,
+          passwordCiphertext,
+          passwordIv,
+          passwordTag,
+          imapHost,
+          imapPort,
+          isSqlite ? (imapSecure ? 1 : 0) : Boolean(imapSecure),
+          smtpHost,
+          smtpPort,
+          isSqlite ? (smtpSecure ? 1 : 0) : Boolean(smtpSecure),
+          lastSeenUid,
+          timestamp,
+          timestamp,
+          timestamp,
+        ],
+      )
+      return await this.getMailAccount(workspaceId)
+    },
+
+    async updateMailSyncState(selectedWorkspaceId, { lastSeenUid, error = '' }) {
+      const timestamp = nowIso()
+      await query(
+        `UPDATE mail_accounts
+         SET last_seen_uid = CASE WHEN $1 > last_seen_uid THEN $1 ELSE last_seen_uid END,
+             status = $2,
+             last_synced_at = $3,
+             last_error = $4,
+             updated_at = $5
+         WHERE workspace_id = $6`,
+        [lastSeenUid, error ? 'error' : 'connected', timestamp, String(error).slice(0, 1_000), timestamp, selectedWorkspaceId],
+      )
+      return await this.getMailAccount(selectedWorkspaceId)
+    },
+
+    async deleteMailAccount(selectedWorkspaceId) {
+      const rows = await query(
+        `DELETE FROM mail_accounts WHERE workspace_id = $1 RETURNING workspace_id`,
+        [selectedWorkspaceId],
+      )
+      return Boolean(rows.length)
+    },
+
+    async listMailAutomationRules(selectedWorkspaceId) {
+      const rows = await query(
+        `SELECT mail_automation_rules.*, automations.name AS automation_name
+         FROM mail_automation_rules
+         JOIN automations ON automations.id = mail_automation_rules.automation_id
+         WHERE mail_automation_rules.workspace_id = $1
+         ORDER BY mail_automation_rules.created_at DESC`,
+        [selectedWorkspaceId],
+      )
+      return rows.map(mapMailAutomationRule)
+    },
+
+    async getMailAutomationRule(selectedWorkspaceId, id) {
+      const rows = await query(
+        `SELECT mail_automation_rules.*, automations.name AS automation_name
+         FROM mail_automation_rules
+         JOIN automations ON automations.id = mail_automation_rules.automation_id
+         WHERE mail_automation_rules.workspace_id = $1 AND mail_automation_rules.id = $2`,
+        [selectedWorkspaceId, id],
+      )
+      return mapMailAutomationRule(rows[0])
+    },
+
+    async createMailAutomationRule({
+      workspaceId,
+      automationId,
+      createdBy,
+      name,
+      sender = '',
+      recipient = '',
+      subject = '',
+      keywords = [],
+      matchMode = 'all',
+      instruction,
+      enabled = true,
+    }) {
+      const timestamp = nowIso()
+      const id = stableId('mailrule', `${workspaceId}:${name}:${timestamp}`)
+      await query(
+        `INSERT INTO mail_automation_rules (
+           id, workspace_id, automation_id, created_by, name, sender, recipient,
+           subject, keywords_json, match_mode, instruction, enabled, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          id,
+          workspaceId,
+          automationId,
+          createdBy,
+          name,
+          sender,
+          recipient,
+          subject,
+          JSON.stringify(keywords),
+          matchMode,
+          instruction,
+          isSqlite ? (enabled ? 1 : 0) : Boolean(enabled),
+          timestamp,
+          timestamp,
+        ],
+      )
+      return await this.getMailAutomationRule(workspaceId, id)
+    },
+
+    async updateMailAutomationRule(selectedWorkspaceId, id, fields) {
+      const timestamp = nowIso()
+      const rows = await query(
+        `UPDATE mail_automation_rules
+         SET automation_id = $1, name = $2, sender = $3, recipient = $4,
+             subject = $5, keywords_json = $6, match_mode = $7,
+             instruction = $8, enabled = $9, updated_at = $10
+         WHERE workspace_id = $11 AND id = $12
+         RETURNING id`,
+        [
+          fields.automationId,
+          fields.name,
+          fields.sender,
+          fields.recipient,
+          fields.subject,
+          JSON.stringify(fields.keywords),
+          fields.matchMode,
+          fields.instruction,
+          isSqlite ? (fields.enabled ? 1 : 0) : Boolean(fields.enabled),
+          timestamp,
+          selectedWorkspaceId,
+          id,
+        ],
+      )
+      return rows.length ? await this.getMailAutomationRule(selectedWorkspaceId, id) : null
+    },
+
+    async deleteMailAutomationRule(selectedWorkspaceId, id) {
+      const rows = await query(
+        `DELETE FROM mail_automation_rules WHERE workspace_id = $1 AND id = $2 RETURNING id`,
+        [selectedWorkspaceId, id],
+      )
+      return Boolean(rows.length)
+    },
+
+    async claimMailRuleEvent({ workspaceId, ruleId, messageKey }) {
+      const timestamp = nowIso()
+      const id = stableId('mailevt', `${workspaceId}:${ruleId}:${messageKey}`)
+      const rows = await query(
+        `INSERT INTO mail_rule_events (
+           id, workspace_id, rule_id, message_key, status, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, 'processing', $5, $6)
+         ON CONFLICT (workspace_id, rule_id, message_key) DO NOTHING
+         RETURNING id`,
+        [id, workspaceId, ruleId, messageKey, timestamp, timestamp],
+      )
+      return rows.length ? id : null
+    },
+
+    async completeMailRuleEvent(selectedWorkspaceId, id, { status, runId = null, error = '' }) {
+      await query(
+        `UPDATE mail_rule_events
+         SET status = $1, run_id = $2, error = $3, updated_at = $4
+         WHERE workspace_id = $5 AND id = $6`,
+        [status, runId, String(error).slice(0, 1_000), nowIso(), selectedWorkspaceId, id],
+      )
+    },
+
     async listIntegrations(selectedWorkspaceId) {
       const rows = await query(
         `SELECT integration_id, connected FROM workspace_integrations WHERE workspace_id = $1`,
@@ -2830,12 +3360,14 @@ export async function openDatabase({
         driveToken,
         paystackConnection,
         codexConnection,
+        mailAccount,
       ] = await Promise.all([
         this.getMcpAccess(selectedWorkspaceId),
         this.getN8nConnection(selectedWorkspaceId),
         this.getGoogleDriveToken(selectedWorkspaceId),
         this.getPaymentConnection(selectedWorkspaceId, 'paystack'),
         this.getCodexConnection(selectedWorkspaceId),
+        this.getMailAccount(selectedWorkspaceId),
       ])
       const integrationMeta = {
         drive: { name: 'Google Drive', description: 'Link approved client folders, source files, and final delivery packages.', category: 'Storage', icon: 'drive', accent: '#4285f4' },
@@ -2844,6 +3376,7 @@ export async function openDatabase({
         'mcp-grid': { name: 'Automation tool gateway', description: 'Browser automation and approved utility tools for agent workflows.', category: 'Automation', icon: 'mcp', accent: '#786bff' },
         'codex-ai': { name: 'lancee AI for Codex', description: 'Let an external Codex client call this workspace’s configured AI provider.', category: 'Automation', icon: 'codex', accent: '#6c654f' },
         'codex-runtime': { name: 'Codex Workspace', description: 'Run OpenAI Codex inside lancee against the server-configured project workspace.', category: 'Automation', icon: 'codex', accent: '#171a15' },
+        mail: { name: 'Mail', description: 'Read and send workspace email, then trigger native automations from recipients, subjects, and keywords.', category: 'Communication', icon: 'messages', accent: '#6854e8' },
       }
       return rows.filter((row) => Object.hasOwn(integrationMeta, row.integration_id)).map((row) => {
         const meta = integrationMeta[row.integration_id]
@@ -2858,6 +3391,8 @@ export async function openDatabase({
           connected = Boolean(driveToken)
         } else if (row.integration_id === 'paystack') {
           connected = Boolean(paystackConnection.configured)
+        } else if (row.integration_id === 'mail') {
+          connected = mailAccount?.status === 'connected'
         }
         return {
           id: row.integration_id,
@@ -2910,7 +3445,7 @@ export async function openDatabase({
 
     async getWorkspaceSettings(selectedWorkspaceId) {
       const rows = await query(
-        `SELECT name, logo_url, email, timezone, travel_mode, travel_location, updated_at
+        `SELECT name, logo_url, email, timezone, travel_mode, travel_location, storefront_enabled, updated_at
          FROM workspace_settings
          WHERE workspace_id = $1`,
         [selectedWorkspaceId],
@@ -2924,6 +3459,7 @@ export async function openDatabase({
             timezone: row.timezone || 'Africa/Johannesburg',
             travelMode: row.travel_mode || 'none',
             travelLocation: row.travel_location || '',
+            storefrontEnabled: Boolean(row.storefront_enabled),
             updatedAt: row.updated_at || nowIso(),
           }
         : {
@@ -2933,17 +3469,23 @@ export async function openDatabase({
             timezone: 'Africa/Johannesburg',
             travelMode: 'none',
             travelLocation: '',
+            storefrontEnabled: false,
             updatedAt: nowIso(),
           }
     },
 
     async updateWorkspaceSettings(selectedWorkspaceId, settings) {
       const timestamp = nowIso()
+      const current = await this.getWorkspaceSettings(selectedWorkspaceId)
+      const storefrontEnabled = typeof settings.storefrontEnabled === 'boolean'
+        ? settings.storefrontEnabled
+        : current.storefrontEnabled
+      const storefrontEnabledValue = isSqlite ? (storefrontEnabled ? 1 : 0) : storefrontEnabled
       await query(
         `INSERT INTO workspace_settings (
            workspace_id, name, logo_url, email, timezone, travel_mode,
-           travel_location, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           travel_location, storefront_enabled, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (workspace_id) DO UPDATE SET
            name = EXCLUDED.name,
            logo_url = EXCLUDED.logo_url,
@@ -2951,6 +3493,7 @@ export async function openDatabase({
            timezone = EXCLUDED.timezone,
            travel_mode = EXCLUDED.travel_mode,
            travel_location = EXCLUDED.travel_location,
+           storefront_enabled = EXCLUDED.storefront_enabled,
            updated_at = EXCLUDED.updated_at`,
         [
           selectedWorkspaceId,
@@ -2960,6 +3503,7 @@ export async function openDatabase({
           settings.timezone || 'Africa/Johannesburg',
           settings.travelMode || 'none',
           settings.travelLocation || '',
+          storefrontEnabledValue,
           timestamp,
         ],
       )
@@ -3285,6 +3829,88 @@ export async function openDatabase({
     async deleteClient(selectedWorkspaceId, id) {
       const rows = await query(
         `DELETE FROM clients
+         WHERE workspace_id = $1 AND id = $2
+         RETURNING id`,
+        [selectedWorkspaceId, id],
+      )
+      return rows.length > 0
+    },
+
+    async listStorefrontDomains(selectedWorkspaceId) {
+      const rows = await query(
+        `SELECT id, workspace_id, domain, verification_token, status, created_at, verified_at
+         FROM storefront_domains
+         WHERE workspace_id = $1
+         ORDER BY created_at DESC`,
+        [selectedWorkspaceId],
+      )
+      return rows.map((row) => ({
+        id: row.id,
+        workspaceId: row.workspace_id,
+        domain: row.domain,
+        verificationToken: row.verification_token,
+        status: row.status,
+        createdAt: row.created_at,
+        verifiedAt: row.verified_at,
+      }))
+    },
+
+    async createStorefrontDomain({ workspaceId: selectedWorkspaceId, domain, verificationToken }) {
+      const id = stableId('dom', `${selectedWorkspaceId}:${domain}`)
+      const createdAt = nowIso()
+      await query(
+        `INSERT INTO storefront_domains (
+           id, workspace_id, domain, verification_token, status, created_at
+         ) VALUES ($1, $2, $3, $4, 'pending', $5)`,
+        [id, selectedWorkspaceId, domain, verificationToken, createdAt],
+      )
+      const rows = await query(
+        `SELECT id, workspace_id, domain, verification_token, status, created_at, verified_at
+         FROM storefront_domains WHERE workspace_id = $1 AND id = $2`,
+        [selectedWorkspaceId, id],
+      )
+      return rows[0]
+        ? {
+            id: rows[0].id,
+            workspaceId: rows[0].workspace_id,
+            domain: rows[0].domain,
+            verificationToken: rows[0].verification_token,
+            status: rows[0].status,
+            createdAt: rows[0].created_at,
+            verifiedAt: rows[0].verified_at,
+          }
+        : null
+    },
+
+    async verifyStorefrontDomain(selectedWorkspaceId, id) {
+      const verifiedAt = nowIso()
+      await query(
+        `UPDATE storefront_domains
+         SET status = 'verified', verified_at = $1
+         WHERE workspace_id = $2 AND id = $3`,
+        [verifiedAt, selectedWorkspaceId, id],
+      )
+      const rows = await query(
+        `SELECT id, workspace_id, domain, verification_token, status, created_at, verified_at
+         FROM storefront_domains WHERE workspace_id = $1 AND id = $2`,
+        [selectedWorkspaceId, id],
+      )
+      return rows[0]
+        ? {
+            id: rows[0].id,
+            workspaceId: rows[0].workspace_id,
+            domain: rows[0].domain,
+            verificationToken: rows[0].verification_token,
+            status: rows[0].status,
+            createdAt: rows[0].created_at,
+            verifiedAt: rows[0].verified_at,
+          }
+        : null
+    },
+
+    async deleteStorefrontDomain(selectedWorkspaceId, id) {
+      const rows = await query(
+        `DELETE FROM storefront_domains
          WHERE workspace_id = $1 AND id = $2
          RETURNING id`,
         [selectedWorkspaceId, id],

@@ -1,0 +1,261 @@
+import { useEffect, useState, type FormEvent } from 'react'
+import {
+  api,
+  type McpConnection,
+  type McpService,
+} from '../../lib/api'
+
+const THEMES = [
+  { value: 'minimal', label: 'Minimal' },
+  { value: 'executive', label: 'Executive' },
+  { value: 'editorial', label: 'Editorial' },
+  { value: 'midnight', label: 'Midnight' },
+]
+
+const FORMATS = ['A4', 'Letter', 'Legal']
+
+type PdfArtifact = {
+  label?: string
+  filename?: string
+  mime_type?: string
+  bytes?: number
+  url?: string
+  expires_in_seconds?: number
+}
+
+export default function PdfStudio({
+  onToast,
+}: {
+  onToast: (message: string) => void
+}) {
+  const [connection, setConnection] = useState<McpConnection | null>(null)
+  const [services, setServices] = useState<McpService[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const [title, setTitle] = useState('')
+  const [subtitle, setSubtitle] = useState('')
+  const [author, setAuthor] = useState('')
+  const [content, setContent] = useState('')
+  const [theme, setTheme] = useState('executive')
+  const [accent, setAccent] = useState('#6e8cff')
+  const [footer, setFooter] = useState('')
+  const [format, setFormat] = useState('A4')
+
+  const [generating, setGenerating] = useState(false)
+  const [result, setResult] = useState<PdfArtifact | null>(null)
+
+  useEffect(() => {
+    let active = true
+    void Promise.all([api.mcp.getConnection(), api.mcp.listServices()])
+      .then(([conn, list]) => {
+        if (!active) return
+        setConnection(conn)
+        setServices(list)
+      })
+      .catch((caught) => {
+        if (!active) return
+        setError(
+          caught instanceof Error ? caught.message : 'Unable to load MCP access.',
+        )
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const browserService = services.find(
+    (service) =>
+      service.id.includes('browser') ||
+      service.name.toLowerCase().includes('browser'),
+  )
+
+  const generate = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!browserService || !title.trim() || !content.trim()) return
+    setGenerating(true)
+    setError('')
+    setResult(null)
+    try {
+      const invocation = await api.mcp.invoke(
+        browserService.id,
+        'modern_document_pdf',
+        {
+          title: title.trim(),
+          subtitle: subtitle.trim(),
+          author: author.trim(),
+          content: content,
+          theme,
+          accent_color: accent,
+          footer: footer.trim(),
+          format,
+        },
+      )
+      setResult((invocation.data || {}) as PdfArtifact)
+      onToast('Styled PDF generated')
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : 'Unable to generate the PDF.',
+      )
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  if (loading) {
+    return <div className="dashboard-empty">Loading PDF studio…</div>
+  }
+
+  return (
+    <section className="dashboard-pdf-studio" aria-label="Styled PDF generator">
+      <div className="dashboard-drive-browser__header">
+        <div>
+          <h3>PDF studio</h3>
+          <p>
+            Create a polished, branded PDF from Markdown using the document
+            worker. Pick a theme, then download the result.
+          </p>
+        </div>
+        <span className="badge">modern_document_pdf</span>
+      </div>
+
+      {!connection?.connected ? (
+        <div className="dashboard-empty">
+          MCP access is not active. Request access from the Services page first.
+        </div>
+      ) : !browserService ? (
+        <div className="dashboard-empty">
+          The document worker is not available. Sync services from the Services
+          page.
+        </div>
+      ) : !browserService.active ? (
+        <div className="dashboard-empty">
+          The document worker is paused. Activate it from the Services page to
+          generate PDFs.
+        </div>
+      ) : (
+        <form className="pdf-studio__form" onSubmit={generate}>
+          <div className="pdf-studio__grid">
+            <label>
+              Title
+              <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                required
+                maxLength={180}
+              />
+            </label>
+            <label>
+              Subtitle
+              <input
+                value={subtitle}
+                onChange={(event) => setSubtitle(event.target.value)}
+                maxLength={300}
+              />
+            </label>
+            <label>
+              Author
+              <input
+                value={author}
+                onChange={(event) => setAuthor(event.target.value)}
+                maxLength={120}
+              />
+            </label>
+            <label>
+              Theme
+              <select
+                value={theme}
+                onChange={(event) => setTheme(event.target.value)}
+              >
+                {THEMES.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Accent color
+              <span className="pdf-studio__color">
+                <input
+                  type="color"
+                  value={accent}
+                  onChange={(event) => setAccent(event.target.value)}
+                />
+                <code>{accent}</code>
+              </span>
+            </label>
+            <label>
+              Format
+              <select
+                value={format}
+                onChange={(event) => setFormat(event.target.value)}
+              >
+                {FORMATS.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <label>
+            Content (Markdown)
+            <textarea
+              className="pdf-studio__content"
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              placeholder={'# Project Kickoff\n\nWrite the body of the document here in Markdown.'}
+              required
+              maxLength={500000}
+              rows={8}
+            />
+          </label>
+          <label>
+            Footer
+            <input
+              value={footer}
+              onChange={(event) => setFooter(event.target.value)}
+              maxLength={180}
+            />
+          </label>
+          <div className="pdf-studio__actions">
+            <button
+              type="submit"
+              className="button button--primary"
+              disabled={generating || !title.trim() || !content.trim()}
+            >
+              {generating ? 'Generating…' : 'Generate PDF'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {error && <div className="dashboard-alert">{error}</div>}
+
+      {result?.url && (
+        <div className="pdf-studio__result">
+          <div>
+            <strong>{result.label || result.filename}</strong>
+            <small>
+              {result.filename} ·{' '}
+              {result.bytes ? `${(result.bytes / 1024).toFixed(1)} KB` : 'PDF'} ·{' '}
+              link available for ~24 hours
+            </small>
+          </div>
+          <a
+            className="button button--dark button--small"
+            href={result.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Download PDF
+          </a>
+        </div>
+      )}
+    </section>
+  )
+}

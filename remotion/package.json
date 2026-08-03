@@ -1,0 +1,14 @@
+{
+  "name": "lancee-storefront-preview",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "render": "remotion render src/index.tsx StorefrontPreview ../public/storefront-preview.mp4 --codec=h264"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.503",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "remotion": "^4.0.503"
+  }
+}

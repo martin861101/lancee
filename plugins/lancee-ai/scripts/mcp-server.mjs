@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 
 const clientId = 'lancee-codex-plugin'
-const scope = 'ai:invoke'
+const scope = 'ai:invoke mcp:invoke'
 const baseUrl = String(
   process.env.LANCEE_BASE_URL || 'https://agents.hygridtech.co.za',
 ).replace(/\/+$/, '')
@@ -131,6 +131,7 @@ async function connect() {
     const tokenState = {
       accessToken: token.access_token,
       expiresAt: new Date(Date.now() + token.expires_in * 1000).toISOString(),
+      scopes: String(token.scope || scope).split(/\s+/).filter(Boolean),
     }
     await saveState(tokenState)
     const status = await request('/api/codex/ai/status', {
@@ -221,7 +222,182 @@ const tools = [
     },
     annotations: { readOnlyHint: false, idempotentHint: false },
   },
+  {
+    name: 'run_workflow',
+    title: 'Run Lancee workflow',
+    description: 'Queue an active Lancee Core or Edge workflow for execution in the authorized workspace.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow_id: { type: 'string', pattern: '^aut_[a-f0-9]{12}$' },
+        instruction: { type: 'string', minLength: 1, maxLength: 5000 },
+        provider: { type: 'string', maxLength: 50 },
+      },
+      required: ['workflow_id', 'instruction'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  {
+    name: 'create_workflow',
+    title: 'Create Lancee workflow',
+    description: 'Create an active Lancee workflow with bounded Core tool permissions. Set activate false only for a draft.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', minLength: 2, maxLength: 120 },
+        description: { type: 'string', minLength: 2, maxLength: 500 },
+        model: { type: 'string', maxLength: 120 },
+        execution: { type: 'string', enum: ['core', 'edge'] },
+        tools: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: [
+              'workspace.summary',
+              'projects.list',
+              'clients.list',
+              'invoices.list',
+              'projects.update_status',
+              'projects.create_draft_invoice',
+            ],
+          },
+          maxItems: 20,
+        },
+        activate: { type: 'boolean', description: 'Set false only when the user explicitly asks for a draft.' },
+      },
+      required: ['name', 'description'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  {
+    name: 'get_workflow_status',
+    title: 'Get workflow status',
+    description: 'Read workflow or run status with recent activity.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow_id: { type: 'string', pattern: '^aut_[a-f0-9]{12}$' },
+        run_id: { type: 'string', pattern: '^run_[a-f0-9]{12}$' },
+        include_runs: { type: 'boolean' },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'search_workflows',
+    title: 'Search Lancee workflows',
+    description: 'Search workspace workflows by text, status, or execution mode.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', maxLength: 200 },
+        status: { type: 'string', enum: ['all', 'draft', 'active', 'paused'] },
+        execution: { type: 'string', enum: ['all', 'core', 'edge'] },
+        limit: { type: 'integer', minimum: 1, maximum: 50 },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'execute_python',
+    title: 'Execute Python',
+    description: 'Run Python only when explicitly enabled in an isolated Lancee worker.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', minLength: 1, maxLength: 20000 },
+        timeout_ms: { type: 'integer', minimum: 250, maximum: 15000 },
+      },
+      required: ['code'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+  },
+  {
+    name: 'execute_javascript',
+    title: 'Execute JavaScript',
+    description: 'Run JavaScript only when explicitly enabled in an isolated Lancee worker.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', minLength: 1, maxLength: 20000 },
+        timeout_ms: { type: 'integer', minimum: 250, maximum: 15000 },
+      },
+      required: ['code'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+  },
+  {
+    name: 'schedule_job',
+    title: 'Schedule workflow job',
+    description: 'Schedule a one-shot or repeating workflow run in the current Lancee server process.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow_id: { type: 'string', pattern: '^aut_[a-f0-9]{12}$' },
+        instruction: { type: 'string', minLength: 1, maxLength: 5000 },
+        run_at: { type: 'string', format: 'date-time' },
+        interval_seconds: { type: 'integer', minimum: 60, maximum: 2592000 },
+        provider: { type: 'string', maxLength: 50 },
+      },
+      required: ['workflow_id', 'instruction', 'run_at'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  {
+    name: 'get_logs',
+    title: 'Get workflow logs',
+    description: 'Read persisted event logs for a Lancee workflow run.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        run_id: { type: 'string', pattern: '^run_[a-f0-9]{12}$' },
+        level: { type: 'string', enum: ['all', 'info', 'warning', 'warn', 'error'] },
+        event_type: { type: 'string', maxLength: 80 },
+        limit: { type: 'integer', minimum: 1, maximum: 200 },
+      },
+      required: ['run_id'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'call_external_api',
+    title: 'Call external API',
+    description: 'Call a public HTTPS API with bounded time, body, and response size.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', minLength: 1, maxLength: 2048, format: 'uri' },
+        method: { type: 'string', enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'] },
+        headers: { type: 'object', additionalProperties: { type: 'string', maxLength: 500 }, maxProperties: 20 },
+        body: {},
+        timeout_ms: { type: 'integer', minimum: 250, maximum: 15000 },
+      },
+      required: ['url'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
 ]
+
+const lanceeMcpToolNames = new Set([
+  'run_workflow',
+  'create_workflow',
+  'get_workflow_status',
+  'search_workflows',
+  'execute_python',
+  'execute_javascript',
+  'schedule_job',
+  'get_logs',
+  'call_external_api',
+])
 
 async function callTool(name, argumentsValue = {}) {
   if (name === 'connect') {
@@ -260,6 +436,15 @@ async function callTool(name, argumentsValue = {}) {
             messages: [{ role: 'user', content: prompt }],
             ...(systemPrompt ? { systemPrompt } : {}),
           },
+        }),
+      )
+    }
+    if (lanceeMcpToolNames.has(name)) {
+      return toolResult(
+        await request(`/api/codex/lancee-mcp/${encodeURIComponent(name)}`, {
+          token: auth.token,
+          method: 'POST',
+          body: argumentsValue,
         }),
       )
     }

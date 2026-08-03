@@ -1,70 +1,86 @@
 import { useMemo, useState, type CSSProperties } from 'react'
 import './workflows-page.css'
 
-type WorkflowTemplate = {
+export type WorkflowTemplate = {
   id: string
   title: string
   category: string
   description: string
   steps: string[]
   accent: string
+  tools: string[]
+  model: string
 }
 
 const templates: WorkflowTemplate[] = [
   {
-    id: 'approval',
-    title: 'Client approval',
-    category: 'Approvals',
-    description: 'Send finished work for review, collect a decision, and notify the owner.',
-    steps: ['Work marked ready', 'Client reviews', 'Owner notified'],
+    id: 'workspace-health',
+    title: 'Workspace health check',
+    category: 'Reporting',
+    description: 'Summarise current projects, clients, invoices, and draft invoices from live workspace data.',
+    steps: ['Run requested', 'Workspace data counted', 'Result logged'],
     accent: '#8d78ff',
+    tools: ['workspace.summary'],
+    model: 'Core · workspace summary',
   },
   {
-    id: 'notifications',
-    title: 'Team notifications',
-    category: 'Notifications',
-    description: 'Keep the right people informed when a deadline, status, or assignment changes.',
-    steps: ['Change detected', 'Audience selected', 'Message delivered'],
+    id: 'project-list',
+    title: 'Project review',
+    category: 'Reporting',
+    description: 'Load the workspace project list for a repeatable status or deadline review.',
+    steps: ['Run requested', 'Projects loaded', 'Result logged'],
     accent: '#43bdf4',
+    tools: ['projects.list'],
+    model: 'Core · project reporting',
   },
   {
-    id: 'intake',
-    title: 'New client intake',
-    category: 'Business process',
-    description: 'Turn a completed enquiry into a client record, project, and welcome checklist.',
-    steps: ['Form submitted', 'Client created', 'Project prepared'],
+    id: 'client-list',
+    title: 'Client directory review',
+    category: 'Reporting',
+    description: 'Read the current client directory through the workspace-scoped Core runner.',
+    steps: ['Run requested', 'Clients loaded', 'Result logged'],
     accent: '#ff8d70',
+    tools: ['clients.list'],
+    model: 'Core · client reporting',
   },
   {
-    id: 'invoice',
-    title: 'Invoice follow-up',
+    id: 'invoice-review',
+    title: 'Invoice review',
     category: 'Finance',
-    description: 'Remind clients before and after an invoice due date without losing the personal touch.',
-    steps: ['Invoice due', 'Reminder drafted', 'Payment tracked'],
+    description: 'Load live invoice records for a repeatable finance review without changing payment data.',
+    steps: ['Run requested', 'Invoices loaded', 'Result logged'],
     accent: '#61d58a',
+    tools: ['invoices.list'],
+    model: 'Core · invoice reporting',
   },
   {
-    id: 'handoff',
-    title: 'Project hand-off',
-    category: 'Delivery',
-    description: 'Package final files, request approval, and move the project to completed.',
-    steps: ['Files approved', 'Delivery shared', 'Project closed'],
+    id: 'project-status',
+    title: 'Project status update',
+    category: 'Projects',
+    description: 'Move a named project to a supported status after you provide the project and target state.',
+    steps: ['Project selected', 'Permission checked', 'Status updated'],
     accent: '#f2bd50',
+    tools: ['projects.list', 'projects.update_status'],
+    model: 'Core · approved project mutation',
   },
   {
-    id: 'trigger',
-    title: 'Trigger-based flow',
-    category: 'Triggers',
-    description: 'Start a repeatable sequence from a form, webhook, schedule, or project event.',
-    steps: ['Trigger received', 'Rules checked', 'Actions started'],
+    id: 'draft-invoice',
+    title: 'Draft project invoice',
+    category: 'Finance',
+    description: 'Create or load the durable draft invoice for a named project through an approved Core action.',
+    steps: ['Project selected', 'Permission checked', 'Draft prepared'],
     accent: '#70a7ff',
+    tools: ['projects.list', 'projects.create_draft_invoice'],
+    model: 'Core · approved invoice draft',
   },
 ]
 
 export default function WorkflowsPage({
   onUseTemplate,
+  busyTemplateId,
 }: {
-  onUseTemplate: (template: WorkflowTemplate) => void
+  onUseTemplate: (template: WorkflowTemplate) => Promise<void>
+  busyTemplateId: string | null
 }) {
   const [category, setCategory] = useState('All')
   const categories = ['All', ...new Set(templates.map((template) => template.category))]
@@ -79,7 +95,7 @@ export default function WorkflowsPage({
         <div>
           <span className="micro-label">Ready-to-use recipes</span>
           <h1>Everyday <em>workflows</em></h1>
-          <p>Start with a familiar business process and keep its review path separate from reusable automations.</p>
+          <p>Each recipe creates an active Core automation backed by live workspace data and persisted run logs.</p>
         </div>
         <div className="workflows-header__path" aria-label="Workflow process">
           <span>Trigger</span><i>→</i><span>Review</span><i>→</i><span>Action</span>
@@ -110,8 +126,12 @@ export default function WorkflowsPage({
                 <li key={step}><i>{index + 1}</i><span>{step}</span></li>
               ))}
             </ol>
-            <button type="button" onClick={() => onUseTemplate(template)}>
-              Use this workflow <span>↗</span>
+            <button
+              type="button"
+              disabled={busyTemplateId !== null}
+              onClick={() => void onUseTemplate(template)}
+            >
+              {busyTemplateId === template.id ? 'Creating…' : 'Use this workflow'} <span>↗</span>
             </button>
           </article>
         ))}

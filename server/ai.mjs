@@ -15,6 +15,14 @@ function hermesCompletionEndpoint(value) {
   return `${baseUrl}/v1/chat/completions`
 }
 
+function hermesEndpoint() {
+  return (process.env.HERMES_ENDPOINT_URL || process.env.HERMES_API_URL || '').trim()
+}
+
+function hermesApiKey() {
+  return (process.env.HERMES_API_KEY || process.env.HERMESW_API_KEY || '').trim()
+}
+
 function validateMessages(messages) {
   if (!Array.isArray(messages) || messages.length === 0 || messages.length > 50) {
     throw new AiError('AI_INVALID_MESSAGES', 'Provide between 1 and 50 messages.', 400)
@@ -33,51 +41,102 @@ function validateMessages(messages) {
   })
 }
 
-function getAiConfig() {
-  const provider = (
-    process.env.AI_PROVIDER ||
-    (process.env.HERMES_API_URL ? 'hermes' : 'openai')
-  ).trim().toLowerCase()
-  const apiKey = (
-    provider === 'hermes'
-      ? process.env.HERMESW_API_KEY
-      : process.env.AI_API_KEY
-  || '').trim()
+function validateTools(tools) {
+  if (tools === undefined) return []
+  if (!Array.isArray(tools) || tools.length > 64) {
+    throw new AiError('AI_INVALID_TOOLS', 'Provide no more than 64 AI tools.', 400)
+  }
+  const names = new Set()
+  return tools.map((tool) => {
+    const name = String(tool?.name || '').trim()
+    const description = String(tool?.description || '').trim()
+    const inputSchema = tool?.inputSchema
+    if (
+      !/^[a-zA-Z0-9_-]{1,64}$/.test(name) ||
+      !description ||
+      description.length > 1_000 ||
+      !inputSchema ||
+      typeof inputSchema !== 'object' ||
+      Array.isArray(inputSchema)
+    ) {
+      throw new AiError('AI_INVALID_TOOLS', 'Each AI tool needs a unique name, description, and input schema.', 400)
+    }
+    if (names.has(name)) {
+      throw new AiError('AI_INVALID_TOOLS', `Duplicate AI tool name: ${name}`, 400)
+    }
+    names.add(name)
+    return { name, description, inputSchema }
+  })
+}
+
+function geminiSchema(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const schema = {}
+  for (const key of ['type', 'description', 'format', 'enum', 'required']) {
+    if (value[key] !== undefined) schema[key] = value[key]
+  }
+  if (value.properties && typeof value.properties === 'object') {
+    schema.properties = Object.fromEntries(
+      Object.entries(value.properties).map(([key, child]) => [key, geminiSchema(child)]),
+    )
+  }
+  if (value.items) schema.items = geminiSchema(value.items)
+  return schema
+}
+
+function toolArguments(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value
+  if (typeof value !== 'string' || !value.trim()) return {}
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    throw new AiError('AI_INVALID_TOOL_CALL', 'AI provider returned invalid tool arguments.', 502)
+  }
+}
+
+function getProviderConfig(provider, { explicitHermes = false } = {}) {
+  const normalizedProvider = String(provider || '').trim().toLowerCase()
+  const apiKey = normalizedProvider === 'hermes'
+    ? hermesApiKey()
+    : (process.env.AI_API_KEY || '').trim()
   const defaultModels = {
     openai: 'gpt-4o-mini',
     anthropic: 'claude-3-5-haiku-latest',
     gemini: 'gemini-2.0-flash',
     hermes: 'hermes-agent',
   }
-  const model = (process.env.AI_MODEL || defaultModels[provider] || '').trim()
+  const model = (
+    normalizedProvider === 'hermes'
+      ? (explicitHermes ? process.env.AI_MODEL : process.env.HERMES_MODEL) || defaultModels.hermes
+      : process.env.AI_MODEL || defaultModels[normalizedProvider] || ''
+  ).trim()
   const maxTokens = Number.parseInt(process.env.AI_MAX_TOKENS || '2048', 10)
   const temperature = Number.parseFloat(process.env.AI_TEMPERATURE || '0.3')
-  const endpointUrl = (
-    provider === 'hermes'
-      ? process.env.HERMES_API_URL
-      : process.env.AI_ENDPOINT_URL
-  || '').trim()
+  const endpointUrl = normalizedProvider === 'hermes'
+    ? hermesEndpoint()
+    : (process.env.AI_ENDPOINT_URL || '').trim()
   const timeoutMilliseconds = Number.parseInt(process.env.AI_TIMEOUT_MS || '30000', 10)
-  if (!['openai', 'anthropic', 'gemini', 'hermes'].includes(provider)) {
+  if (!['openai', 'anthropic', 'gemini', 'hermes'].includes(normalizedProvider)) {
     return {
       configured: false,
-      provider,
+      provider: normalizedProvider,
       model,
-      configurationError: `Unsupported AI provider: ${provider}`,
+      configurationError: `Unsupported AI provider: ${normalizedProvider}`,
     }
   }
   return {
-    configured: Boolean(apiKey && model && (provider !== 'hermes' || endpointUrl)),
-    provider,
+    configured: Boolean(apiKey && model && (normalizedProvider !== 'hermes' || endpointUrl)),
+    provider: normalizedProvider,
     apiKey,
     model,
     maxTokens: Number.isFinite(maxTokens) ? Math.min(8192, Math.max(128, maxTokens)) : 2048,
     temperature: Number.isFinite(temperature) ? Math.min(2, Math.max(0, temperature)) : 0.3,
     baseUrl:
-      provider === 'hermes'
+      normalizedProvider === 'hermes'
         ? hermesCompletionEndpoint(endpointUrl)
         : normalizedEndpoint(
-            endpointUrl || PROVIDER_ENDPOINTS[provider] || PROVIDER_ENDPOINTS.openai,
+            endpointUrl || PROVIDER_ENDPOINTS[normalizedProvider] || PROVIDER_ENDPOINTS.openai,
           ),
     timeoutMilliseconds: Number.isFinite(timeoutMilliseconds)
       ? Math.min(120_000, Math.max(1_000, timeoutMilliseconds))
@@ -86,27 +145,25 @@ function getAiConfig() {
   }
 }
 
-export async function completeChat({ messages, systemPrompt }) {
-  const config = getAiConfig()
-  if (!config.configured) {
-    throw new AiError(
-      'AI_NOT_CONFIGURED',
-      config.configurationError || 'AI provider is not configured.',
-      503,
-    )
-  }
-  const normalizedMessages = validateMessages(messages)
-  const normalizedSystemPrompt = String(systemPrompt || '').trim()
-  if (normalizedSystemPrompt.length > 20_000) {
-    throw new AiError('AI_INVALID_SYSTEM_PROMPT', 'System prompt is too long.', 400)
-  }
+function getAiConfig() {
+  const explicitProvider = (process.env.AI_PROVIDER || '').trim().toLowerCase()
+  const provider = explicitProvider || (hermesEndpoint() ? 'hermes' : 'openai')
+  const primary = getProviderConfig(provider, { explicitHermes: provider === 'hermes' })
+  const fallback = provider !== 'hermes' && hermesEndpoint() && hermesApiKey()
+    ? getProviderConfig('hermes')
+    : null
+  return { ...primary, fallback }
+}
+
+async function completeWithProvider(config, normalizedMessages, normalizedSystemPrompt, tools) {
 
   let url = config.baseUrl
   let headers
   let body
 
   if (config.provider === 'gemini') {
-    url = `${config.baseUrl}/v1beta/models/${encodeURIComponent(config.model)}:generateContent?key=${encodeURIComponent(config.apiKey)}`
+    const baseUrl = config.baseUrl.replace(/\/v1beta\/?$/, '').replace(/\/v1\/?$/, '')
+    url = `${baseUrl}/v1beta/models/${encodeURIComponent(config.model)}:generateContent?key=${encodeURIComponent(config.apiKey)}`
     headers = { 'Content-Type': 'application/json' }
     body = {
       ...(normalizedSystemPrompt
@@ -120,6 +177,17 @@ export async function completeChat({ messages, systemPrompt }) {
         maxOutputTokens: config.maxTokens,
         temperature: config.temperature,
       },
+      ...(tools.length
+        ? {
+            tools: [{
+              functionDeclarations: tools.map((tool) => ({
+                name: tool.name,
+                description: tool.description,
+                parameters: geminiSchema(tool.inputSchema),
+              })),
+            }],
+          }
+        : {}),
     }
   } else if (config.provider === 'anthropic') {
     headers = {
@@ -133,6 +201,15 @@ export async function completeChat({ messages, systemPrompt }) {
       temperature: config.temperature,
       ...(normalizedSystemPrompt ? { system: normalizedSystemPrompt } : {}),
       messages: normalizedMessages,
+      ...(tools.length
+        ? {
+            tools: tools.map((tool) => ({
+              name: tool.name,
+              description: tool.description,
+              input_schema: tool.inputSchema,
+            })),
+          }
+        : {}),
     }
   } else {
     headers = {
@@ -149,6 +226,19 @@ export async function completeChat({ messages, systemPrompt }) {
           : []),
         ...normalizedMessages,
       ],
+      ...(tools.length
+        ? {
+            tools: tools.map((tool) => ({
+              type: 'function',
+              function: {
+                name: tool.name,
+                description: tool.description,
+                parameters: tool.inputSchema,
+              },
+            })),
+            tool_choice: 'auto',
+          }
+        : {}),
     }
   }
 
@@ -192,8 +282,30 @@ export async function completeChat({ messages, systemPrompt }) {
       : config.provider === 'anthropic'
         ? (data.content || []).map((part) => part?.text || '').join('')
         : data.choices?.[0]?.message?.content || ''
-  if (!content) {
-    throw new AiError('AI_EMPTY_RESPONSE', 'AI provider returned no text.', 502)
+  const toolCall = config.provider === 'gemini'
+    ? (() => {
+        const part = (data.candidates?.[0]?.content?.parts || []).find((item) => item?.functionCall)
+        return part?.functionCall
+          ? { name: String(part.functionCall.name || ''), arguments: toolArguments(part.functionCall.args) }
+          : null
+      })()
+    : config.provider === 'anthropic'
+      ? (() => {
+          const block = (data.content || []).find((item) => item?.type === 'tool_use')
+          return block
+            ? { name: String(block.name || ''), arguments: toolArguments(block.input) }
+            : null
+        })()
+      : (() => {
+          const call = (data.choices?.[0]?.message?.tool_calls || []).find(
+            (item) => item?.type === 'function' && item?.function,
+          )
+          return call
+            ? { name: String(call.function.name || ''), arguments: toolArguments(call.function.arguments) }
+            : null
+        })()
+  if (!content && !toolCall?.name) {
+    throw new AiError('AI_EMPTY_RESPONSE', 'AI provider returned neither text nor a tool call.', 502)
   }
 
   const usage =
@@ -218,17 +330,53 @@ export async function completeChat({ messages, systemPrompt }) {
 
   return {
     content,
+    toolCall,
     model: data.model || config.model,
     usage,
   }
 }
 
+export async function completeChat({ messages, systemPrompt, tools }) {
+  const config = getAiConfig()
+  const candidates = [config, config.fallback].filter((candidate) => candidate?.configured)
+  if (candidates.length === 0) {
+    throw new AiError(
+      'AI_NOT_CONFIGURED',
+      config.configurationError || 'AI provider is not configured.',
+      503,
+    )
+  }
+  const normalizedMessages = validateMessages(messages)
+  const normalizedTools = validateTools(tools)
+  const normalizedSystemPrompt = String(systemPrompt || '').trim()
+  if (normalizedSystemPrompt.length > 20_000) {
+    throw new AiError('AI_INVALID_SYSTEM_PROMPT', 'System prompt is too long.', 400)
+  }
+
+  let lastError = null
+  for (const candidate of candidates) {
+    try {
+      return await completeWithProvider(
+        candidate,
+        normalizedMessages,
+        normalizedSystemPrompt,
+        normalizedTools,
+      )
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError || new AiError('AI_REQUEST_FAILED', 'AI provider request failed.', 502)
+}
+
 export function getAiStatus() {
   const config = getAiConfig()
   return {
-    configured: config.configured,
+    configured: config.configured || Boolean(config.fallback?.configured),
     provider: config.provider,
     model: config.model,
+    fallbackProvider: config.fallback?.provider || null,
+    fallbackConfigured: Boolean(config.fallback?.configured),
     error: config.configurationError,
   }
 }

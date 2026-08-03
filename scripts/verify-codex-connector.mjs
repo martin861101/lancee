@@ -43,6 +43,38 @@ async function startAiProvider() {
     assert.equal(body.model, 'connector-test-model')
     assert(body.messages.some((message) => message.role === 'user'))
     response.setHeader('Content-Type', 'application/json')
+    if (body.tools?.length) {
+      const userMessage = [...body.messages].reverse().find((message) => message.role === 'user')?.content || ''
+      const requestedTool = /run workflow/i.test(userMessage)
+        ? 'lancee_run_workflow'
+        : 'lancee_create_workflow'
+      const workflowId = userMessage.match(/aut_[a-f0-9]{12}/)?.[0]
+      const argumentsValue = requestedTool === 'lancee_run_workflow'
+        ? { workflow_id: workflowId, instruction: 'Summarize this workspace.' }
+        : {
+            name: 'Assistant workspace pulse',
+            description: 'Summarize live workspace activity through the Lancee Core.',
+            execution: 'core',
+            tools: ['workspace.summary'],
+            activate: true,
+          }
+      assert(body.tools.some((tool) => tool.function?.name === requestedTool))
+      response.end(JSON.stringify({
+        model: 'connector-test-model',
+        choices: [{
+          message: {
+            content: null,
+            tool_calls: [{
+              id: `call_${requestedTool}`,
+              type: 'function',
+              function: { name: requestedTool, arguments: JSON.stringify(argumentsValue) },
+            }],
+          },
+        }],
+        usage: { prompt_tokens: 15, completion_tokens: 8, total_tokens: 23 },
+      }))
+      return
+    }
     response.end(JSON.stringify({
       model: 'connector-test-model',
       choices: [{ message: { content: 'Device-authenticated completion' } }],
@@ -78,6 +110,8 @@ async function startApplication(aiEndpoint) {
       AI_MODEL: 'connector-test-model',
       AI_ENDPOINT_URL: aiEndpoint,
       SMTP_ENABLED: 'false',
+      LANCEE_MCP_CODE_EXECUTION: 'true',
+      LANCEE_MCP_PYTHON_BIN: process.env.LANCEE_MCP_PYTHON_BIN || 'python3',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -117,6 +151,29 @@ async function login(origin) {
   return cookie.split(';', 1)[0]
 }
 
+async function sessionRequest(origin, cookie, path, options = {}) {
+  return fetch(`${origin}${path}`, {
+    ...options,
+    headers: {
+      Cookie: cookie,
+      Origin: origin,
+      ...(options.headers || {}),
+    },
+  })
+}
+
+async function waitForRun(origin, cookie, runId) {
+  let run
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const response = await sessionRequest(origin, cookie, `/api/automations/runs/${runId}`)
+    assert.equal(response.status, 200)
+    run = await response.json()
+    if (run.status !== 'running') return run
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  return run
+}
+
 async function issueDeviceCode(origin) {
   const response = await fetch(`${origin}/api/codex/device/code`, {
     method: 'POST',
@@ -133,14 +190,14 @@ async function issueDeviceCode(origin) {
   return authorization
 }
 
-async function approve(origin, cookie, userCode) {
+async function approve(origin, cookie, userCode, expectedScope = 'ai:invoke') {
   const detailsResponse = await fetch(
     `${origin}/api/codex/device/authorization?user_code=${encodeURIComponent(userCode)}`,
     { headers: { Cookie: cookie } },
   )
   assert.equal(detailsResponse.status, 200)
   const details = await detailsResponse.json()
-  assert.equal(details.scope, 'ai:invoke')
+  assert.equal(details.scope, expectedScope)
   assert.equal(details.status, 'pending')
 
   const response = await fetch(`${origin}/api/codex/device/authorization`, {
@@ -224,6 +281,84 @@ try {
   application = await startApplication(aiProvider.url)
   const cookie = await login(application.origin)
 
+  const servicesResponse = await sessionRequest(application.origin, cookie, '/api/mcp/services')
+  assert.equal(servicesResponse.status, 200)
+  const builtInService = (await servicesResponse.json()).services.find((service) => service.id === 'lancee')
+  assert.equal(builtInService.active, true)
+  assert.equal(builtInService.tools.length, 9)
+
+  const assistantCreateResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/ai/chat',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'Create and activate a workflow that summarizes my workspace.' }),
+    },
+  )
+  assert.equal(assistantCreateResponse.status, 200)
+  const assistantCreate = await assistantCreateResponse.json()
+  assert.deepEqual(assistantCreate.proposedAction, {
+    serviceId: 'lancee',
+    toolId: 'create_workflow',
+    arguments: {
+      name: 'Assistant workspace pulse',
+      description: 'Summarize live workspace activity through the Lancee Core.',
+      execution: 'core',
+      tools: ['workspace.summary'],
+      activate: true,
+    },
+  })
+  const approvedCreateResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/mcp/invoke',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'assistant-create-workflow-0001',
+      },
+      body: JSON.stringify(assistantCreate.proposedAction),
+    },
+  )
+  assert.equal(approvedCreateResponse.status, 200)
+  const assistantWorkflow = (await approvedCreateResponse.json()).data.workflow
+  assert.equal(assistantWorkflow.status, 'active')
+
+  const assistantRunResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/ai/chat',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: `Run workflow ${assistantWorkflow.id} now.` }),
+    },
+  )
+  assert.equal(assistantRunResponse.status, 200)
+  const assistantRunProposal = (await assistantRunResponse.json()).proposedAction
+  assert.equal(assistantRunProposal.toolId, 'run_workflow')
+  const approvedRunResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/mcp/invoke',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'assistant-run-workflow-0001',
+      },
+      body: JSON.stringify(assistantRunProposal),
+    },
+  )
+  assert.equal(approvedRunResponse.status, 200)
+  const assistantRun = (await approvedRunResponse.json()).data.run
+  const completedAssistantRun = await waitForRun(application.origin, cookie, assistantRun.id)
+  assert.equal(completedAssistantRun.status, 'completed')
+  assert(completedAssistantRun.events.some((event) => event.eventType === 'step.completed'))
+
   const initialIntegrationsResponse = await fetch(
     `${application.origin}/api/integrations`,
     { headers: { Cookie: cookie } },
@@ -288,7 +423,20 @@ try {
   const listed = await connector.rpc('tools/list')
   assert.deepEqual(
     listed.result.tools.map((tool) => tool.name),
-    ['connect', 'ai_status', 'complete'],
+    [
+      'connect',
+      'ai_status',
+      'complete',
+      'run_workflow',
+      'create_workflow',
+      'get_workflow_status',
+      'search_workflows',
+      'execute_python',
+      'execute_javascript',
+      'schedule_job',
+      'get_logs',
+      'call_external_api',
+    ],
   )
 
   const firstConnect = await connector.rpc('tools/call', {
@@ -297,7 +445,7 @@ try {
   })
   const connectorGrant = firstConnect.result.structuredContent
   assert.equal(connectorGrant.status, 'authorization_required')
-  await approve(application.origin, cookie, connectorGrant.userCode)
+  await approve(application.origin, cookie, connectorGrant.userCode, 'ai:invoke mcp:invoke')
 
   const secondConnect = await connector.rpc('tools/call', {
     name: 'connect',
@@ -317,6 +465,104 @@ try {
     completion.result.structuredContent.content,
     'Device-authenticated completion',
   )
+
+  const workflowSearch = await connector.rpc('tools/call', {
+    name: 'search_workflows',
+    arguments: { limit: 10 },
+  })
+  assert(Array.isArray(workflowSearch.result.structuredContent.workflows))
+
+  const javascriptExecution = await connector.rpc('tools/call', {
+    name: 'execute_javascript',
+    arguments: { code: 'console.log(6 * 7)' },
+  })
+  assert.equal(javascriptExecution.result.isError, undefined)
+  assert.equal(javascriptExecution.result.structuredContent.exitCode, 0)
+  assert.match(javascriptExecution.result.structuredContent.stdout, /42/)
+
+  const pythonExecution = await connector.rpc('tools/call', {
+    name: 'execute_python',
+    arguments: { code: 'print(6 * 7)' },
+  })
+  assert.equal(pythonExecution.result.isError, undefined)
+  assert.equal(pythonExecution.result.structuredContent.exitCode, 0)
+  assert.match(pythonExecution.result.structuredContent.stdout, /42/)
+
+  const createdWorkflow = await connector.rpc('tools/call', {
+    name: 'create_workflow',
+    arguments: {
+      name: 'Scheduled connector workflow',
+      description: 'Verify durable Lancee scheduling.',
+    },
+  })
+  const workflow = createdWorkflow.result.structuredContent.workflow
+  assert.match(workflow.id, /^aut_[a-f0-9]{12}$/)
+  assert.equal(workflow.status, 'active')
+
+  const directRunResult = await connector.rpc('tools/call', {
+    name: 'run_workflow',
+    arguments: {
+      workflow_id: workflow.id,
+      instruction: 'Summarize this workspace.',
+    },
+  })
+  const directRun = directRunResult.result.structuredContent.run
+  assert.match(directRun.id, /^run_[a-f0-9]{12}$/)
+  const completedDirectRun = await waitForRun(application.origin, cookie, directRun.id)
+  assert.equal(completedDirectRun.status, 'completed')
+
+  const persistedLogs = await connector.rpc('tools/call', {
+    name: 'get_logs',
+    arguments: { run_id: directRun.id },
+  })
+  assert(
+    persistedLogs.result.structuredContent.logs.some(
+      (entry) => entry.eventType === 'step.completed',
+    ),
+  )
+
+  const blockedExternalApi = await connector.rpc('tools/call', {
+    name: 'call_external_api',
+    arguments: { url: 'http://127.0.0.1/private' },
+  })
+  assert.equal(blockedExternalApi.result.isError, true)
+  assert.equal(
+    blockedExternalApi.result.structuredContent.error,
+    'MCP_HTTPS_REQUIRED',
+  )
+
+  const scheduled = await connector.rpc('tools/call', {
+    name: 'schedule_job',
+    arguments: {
+      workflow_id: workflow.id,
+      instruction: 'List the projects in this workspace.',
+      run_at: new Date(Date.now() + 1_200).toISOString(),
+    },
+  })
+  const schedule = scheduled.result.structuredContent.schedule
+  assert.match(schedule.id, /^sch_[a-f0-9]{20}$/)
+  assert.equal(schedule.status, 'scheduled')
+
+  const statusBeforeDispatch = await connector.rpc('tools/call', {
+    name: 'get_workflow_status',
+    arguments: { workflow_id: workflow.id, include_runs: false },
+  })
+  assert(
+    statusBeforeDispatch.result.structuredContent.schedules.some(
+      (entry) => entry.id === schedule.id,
+    ),
+  )
+
+  await new Promise((resolve) => setTimeout(resolve, 2_500))
+  const statusAfterDispatch = await connector.rpc('tools/call', {
+    name: 'get_workflow_status',
+    arguments: { workflow_id: workflow.id },
+  })
+  const completedSchedule = statusAfterDispatch.result.structuredContent.schedules.find(
+    (entry) => entry.id === schedule.id,
+  )
+  assert.equal(completedSchedule.status, 'completed')
+  assert.match(completedSchedule.lastRunId, /^run_[a-f0-9]{12}$/)
 
   const twoDevicesResponse = await fetch(
     `${application.origin}/api/codex/connection`,
@@ -376,7 +622,7 @@ try {
   database.close()
 
   console.log(
-    'Codex connector verified: Connections catalog state, device approval, one-time exchange, scoped AI APIs, MCP tools, revocation, and hashed token storage.',
+    'Codex connector verified: Connections catalog state, device approval, scoped MCP tools, code execution, durable scheduling, revocation, and hashed token storage.',
   )
 } finally {
   await stopChild(connector?.child)

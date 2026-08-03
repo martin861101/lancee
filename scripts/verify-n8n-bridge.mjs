@@ -98,6 +98,10 @@ async function startN8nStub() {
         runId: parsedBody.runId,
         status: 'completed',
         steps: 3,
+        output: {
+          recordsProcessed: 7,
+          destination: 'Verifier workspace',
+        },
       }
       const callbackBody = Buffer.from(JSON.stringify(callbackEvent))
       const callbackTimestamp = String(Date.now())
@@ -441,6 +445,9 @@ try {
     automationRun = await runResponse.json()
   }
   assert.equal(automationRun.status, 'completed')
+  const outcomeEvent = automationRun.events.find((event) => event.eventType === 'run.completed')
+  assert.equal(outcomeEvent.output.recordsProcessed, 7)
+  assert.equal(outcomeEvent.output.destination, 'Verifier workspace')
   assert.equal(received[2].body.type, 'lancee.automation.run')
   assert.equal(received[2].body.runId, automationRun.id)
   assert.equal(received[2].body.auth.access_token, 'edge-provider-access-token')

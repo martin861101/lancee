@@ -39,6 +39,8 @@ import {
 } from './lib/api'
 import { syncIdeaMutations } from './lib/ideasRepository'
 import { IDEA_SYNC_REQUEST_EVENT } from './pwa'
+import { applyTheme, getStoredTheme, toggleTheme, type Theme } from './lib/theme'
+import type { WorkflowTemplate } from './components/WorkflowsPage'
 
 const IdeasCanvasPage = lazy(() => import('./components/IdeasCanvasPage'))
 const MoneyPage = lazy(() => import('./components/MoneyPage'))
@@ -47,9 +49,11 @@ const ClientsPage = lazy(() => import('./components/dashboard/ClientsPage'))
 const AnalyticsPage = lazy(() => import('./components/dashboard/AnalyticsPage'))
 const TeamPage = lazy(() => import('./components/dashboard/TeamPage'))
 const FilesPage = lazy(() => import('./components/dashboard/FilesPage'))
+const MessagesPage = lazy(() => import('./components/dashboard/MessagesPage'))
 const ServicesPage = lazy(() => import('./components/dashboard/ServicesPage'))
 const WorkspaceChat = lazy(() => import('./components/dashboard/WorkspaceChat'))
 const WorkflowsPage = lazy(() => import('./components/WorkflowsPage'))
+const StorefrontPage = lazy(() => import('./components/StorefrontPage'))
 const ReviewPage = lazy(() => import('./components/annotations/ReviewPage'))
 
 type Page =
@@ -59,12 +63,14 @@ type Page =
   | 'ideas'
   | 'automations'
   | 'workflows'
+  | 'storefront'
   | 'runs'
   | 'integrations'
   | 'services'
   | 'money'
   | 'analytics'
   | 'files'
+  | 'messages'
   | 'team'
   | 'api'
   | 'settings'
@@ -75,12 +81,14 @@ const pageIds = new Set<Page>([
   'ideas',
   'automations',
   'workflows',
+  'storefront',
   'runs',
   'integrations',
   'services',
   'money',
   'analytics',
   'files',
+  'messages',
   'team',
   'api',
   'settings',
@@ -121,6 +129,7 @@ type IconName =
   | 'logout'
   | 'menu'
   | 'messages'
+  | 'moon'
   | 'more'
   | 'pause'
   | 'play'
@@ -130,6 +139,7 @@ type IconName =
   | 'settings'
   | 'shield'
   | 'sparkles'
+  | 'sun'
   | 'target'
   | 'trash'
   | 'user'
@@ -141,8 +151,11 @@ const navItems: { id: Page; label: string; icon: IconName; section: string }[] =
   { id: 'work', label: 'Projects', icon: 'briefcase', section: 'Your work' },
   { id: 'ideas', label: 'Ideas', icon: 'lightbulb', section: 'Your work' },
   { id: 'files', label: 'Files', icon: 'file', section: 'Your work' },
+  { id: 'messages', label: 'Messages', icon: 'messages', section: 'Your work' },
   { id: 'automations', label: 'Automations', icon: 'activity', section: 'Business' },
+  { id: 'runs', label: 'Results', icon: 'play', section: 'Business' },
   { id: 'workflows', label: 'Workflows', icon: 'layers', section: 'Business' },
+  { id: 'storefront', label: 'Storefront', icon: 'layers', section: 'Business' },
   { id: 'integrations', label: 'Connections', icon: 'plug', section: 'Business' },
   { id: 'services', label: 'Services', icon: 'plug', section: 'Business' },
   { id: 'money', label: 'Invoicing', icon: 'wallet', section: 'Business' },
@@ -271,6 +284,11 @@ function Icon({
         <path d="M8 9h8M8 13h5" />
       </>
     ),
+    moon: (
+      <>
+        <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z" />
+      </>
+    ),
     more: (
       <>
         <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
@@ -314,6 +332,12 @@ function Icon({
       <>
         <path d="m12 3-1.2 3.3L7.5 7.5l3.3 1.2L12 12l1.2-3.3 3.3-1.2-3.3-1.2L12 3Z" />
         <path d="m5 13-.8 2.2L2 16l2.2.8L5 19l.8-2.2L8 16l-2.2-.8L5 13ZM19 13l-.6 1.4L17 15l1.4.6L19 17l.6-1.4L21 15l-1.4-.6L19 13Z" />
+      </>
+    ),
+    sun: (
+      <>
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
       </>
     ),
     target: (
@@ -769,6 +793,7 @@ function RunsTable({ runs, onSelect }: { runs: Run[]; onSelect?: (run: Run) => v
             <th>Status</th>
             <th>Started</th>
             <th>Duration</th>
+            {onSelect && <th>Result</th>}
           </tr>
         </thead>
         <tbody>
@@ -791,15 +816,144 @@ function RunsTable({ runs, onSelect }: { runs: Run[]; onSelect?: (run: Run) => v
               </td>
               <td>{run.startedAt}</td>
               <td>{run.duration}</td>
+              {onSelect && (
+                <td>
+                  <button className="run-outcome-button" type="button" onClick={() => onSelect(run)}>
+                    View outcome
+                  </button>
+                </td>
+              )}
             </tr>
           ))}
           {runs.length === 0 && (
             <tr>
-              <td colSpan={5}>No automation activity yet.</td>
+              <td colSpan={onSelect ? 6 : 5}>No automation activity yet.</td>
             </tr>
           )}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+function outcomeRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function outcomeLabel(value: string) {
+  const spaced = value
+    .replace(/[._-]+/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .trim()
+  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : 'Result'
+}
+
+function outcomeScalar(value: unknown) {
+  if (value === null || value === undefined || value === '') return '—'
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (typeof value === 'number') return value.toLocaleString()
+  return String(value)
+}
+
+function OutcomeValue({ value }: { value: unknown }) {
+  if (Array.isArray(value)) {
+    return (
+      <div className="automation-outcome-value">
+        <p className="automation-outcome-count">{value.length} {value.length === 1 ? 'item' : 'items'} returned</p>
+        {value.length > 0 && (
+          <div className="automation-outcome-items">
+            {value.slice(0, 6).map((item, index) => {
+              const record = outcomeRecord(item)
+              const title = record
+                ? record.name || record.title || record.invoiceNumber || record.number || record.id
+                : item
+              const detail = record
+                ? record.status || record.company || record.email || record.amount || record.total
+                : null
+              return (
+                <article key={`${String(title || 'item')}:${index}`}>
+                  <strong>{outcomeScalar(title || `Item ${index + 1}`)}</strong>
+                  {detail !== null && detail !== undefined && <small>{outcomeScalar(detail)}</small>}
+                </article>
+              )
+            })}
+            {value.length > 6 && <small className="automation-outcome-more">+ {value.length - 6} more</small>}
+          </div>
+        )}
+        <details className="automation-outcome-raw">
+          <summary>View full result</summary>
+          <pre>{JSON.stringify(value, null, 2)}</pre>
+        </details>
+      </div>
+    )
+  }
+
+  const record = outcomeRecord(value)
+  if (record) {
+    const primitiveEntries = Object.entries(record).filter(([, item]) =>
+      item === null || ['string', 'number', 'boolean'].includes(typeof item),
+    )
+    const hasStructuredValues = primitiveEntries.length !== Object.keys(record).length
+    return (
+      <div className="automation-outcome-value">
+        {primitiveEntries.length > 0 && (
+          <dl className="automation-outcome-grid">
+            {primitiveEntries.slice(0, 12).map(([key, item]) => (
+              <div key={key}>
+                <dt>{outcomeLabel(key)}</dt>
+                <dd>{outcomeScalar(item)}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        {(hasStructuredValues || primitiveEntries.length > 12) && (
+          <details className="automation-outcome-raw">
+            <summary>View full result</summary>
+            <pre>{JSON.stringify(value, null, 2)}</pre>
+          </details>
+        )}
+      </div>
+    )
+  }
+
+  return <p className="automation-outcome-text">{outcomeScalar(value)}</p>
+}
+
+function RunOutcome({ run, events }: { run: Run; events: RunEvent[] }) {
+  const stepOutcomes = events.filter((event) => event.eventType === 'step.completed' && event.output !== null)
+  const completedOutcomes = events.filter((event) => event.eventType === 'run.completed' && event.output !== null)
+  const failedOutcomes = events.filter((event) => event.eventType === 'run.failed' && event.output !== null)
+  const outcomes = stepOutcomes.length > 0
+    ? stepOutcomes
+    : completedOutcomes.length > 0
+      ? completedOutcomes
+      : failedOutcomes
+
+  if (outcomes.length === 0) {
+    return (
+      <div className="automation-outcome-empty">
+        <strong>{run.status === 'running' ? 'This automation is still running.' : 'No result details were returned.'}</strong>
+        <p>{run.status === 'running' ? 'The result will appear here when it finishes.' : 'The execution log is still available below for troubleshooting.'}</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="automation-outcome-list">
+      {outcomes.map((event) => (
+        <article className="automation-outcome-card" key={event.id}>
+          <header>
+            <div>
+              <span>{event.toolId ? outcomeLabel(event.toolId) : 'Completed result'}</span>
+              <strong>{event.message}</strong>
+            </div>
+            {event.durationMs !== null && <small>{event.durationMs}ms</small>}
+          </header>
+          <OutcomeValue value={event.output} />
+        </article>
+      ))}
     </div>
   )
 }
@@ -1001,13 +1155,66 @@ function RunsPage({ runs }: { runs: Run[] }) {
   const [selectedRun, setSelectedRun] = useState<Run | null>(null)
   const [selectedEvents, setSelectedEvents] = useState<RunEvent[]>([])
   const [loadingEvents, setLoadingEvents] = useState(false)
+  const didSelectLatestRun = useRef(false)
+  const selectedRunId = selectedRun?.id
+  const selectedRunStatus = selectedRun?.status
 
-  const openRun = async (run: Run) => {
+  const openRun = (run: Run) => {
     setSelectedRun(run)
     setSelectedEvents(run.events || [])
-    setLoadingEvents(true)
-    try { setSelectedEvents(await api.runs.logs(run.id)) } catch { setSelectedEvents([]) } finally { setLoadingEvents(false) }
   }
+
+  useEffect(() => {
+    if (didSelectLatestRun.current || runs.length === 0) return
+    didSelectLatestRun.current = true
+    openRun(runs[0])
+  }, [runs])
+
+  useEffect(() => {
+    setSelectedRun((current) => {
+      if (!current) return current
+      const refreshed = runs.find((run) => run.id === current.id)
+      if (!refreshed || (
+        refreshed.status === current.status &&
+        refreshed.completedAt === current.completedAt &&
+        refreshed.errorCode === current.errorCode
+      )) return current
+      return { ...refreshed, events: current.events }
+    })
+  }, [runs])
+
+  useEffect(() => {
+    if (!selectedRun) return
+    let cancelled = false
+    setLoadingEvents(true)
+    void api.runs.logs(selectedRun.id)
+      .then((events) => {
+        if (!cancelled) setSelectedEvents(events)
+      })
+      .catch(() => {
+        if (!cancelled && !selectedRun.events?.length) setSelectedEvents([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingEvents(false)
+      })
+    return () => { cancelled = true }
+  }, [selectedRun])
+
+  useEffect(() => {
+    if (!selectedRunId || selectedRunStatus !== 'running') return
+    let cancelled = false
+    const timer = window.setInterval(() => {
+      void api.runs.get(selectedRunId).then((run) => {
+        if (cancelled) return
+        setSelectedRun(run)
+        if (run.events) setSelectedEvents(run.events)
+      }).catch(() => undefined)
+    }, 1_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [selectedRunId, selectedRunStatus])
 
   return (
     <div className="page">
@@ -1055,9 +1262,36 @@ function RunsPage({ runs }: { runs: Run[] }) {
             ))}
           </div>
         </div>
-        <RunsTable runs={filtered} onSelect={(run) => void openRun(run)} />
+        <RunsTable runs={filtered} onSelect={openRun} />
       </section>
-      {selectedRun && <section className="panel automation-log-panel"><div className="panel-heading"><div><span className="micro-label">Execution log</span><h2>{selectedRun.automationName}</h2></div><button className="text-button" onClick={() => setSelectedRun(null)}>Close</button></div><p className="panel-copy">{selectedRun.instruction}</p>{loadingEvents ? <p className="empty-copy">Loading events…</p> : selectedEvents.length === 0 ? <p className="empty-copy">No persisted events.</p> : <div className="automation-log-list">{selectedEvents.map((event) => <article key={event.id} className={`automation-log-entry automation-log-entry--${event.level}`}><div><strong>{event.message}</strong><small>{event.eventType} · {new Date(event.createdAt).toLocaleString()}</small></div>{event.durationMs !== null && <span>{event.durationMs}ms</span>}</article>)}</div>}</section>}
+      {selectedRun && (
+        <section className="panel automation-log-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="micro-label">Outcome</span>
+              <h2>{selectedRun.automationName}</h2>
+            </div>
+            <div className="automation-outcome-status"><StatusPill status={selectedRun.status} /><button className="text-button" onClick={() => setSelectedRun(null)}>Close</button></div>
+          </div>
+          <p className="panel-copy">{selectedRun.instruction}</p>
+          {loadingEvents && selectedEvents.length === 0
+            ? <p className="empty-copy">Loading outcome…</p>
+            : <RunOutcome run={selectedRun} events={selectedEvents} />}
+          {!loadingEvents && selectedEvents.length > 0 && (
+            <details className="automation-log-details">
+              <summary>Execution details ({selectedEvents.length} events)</summary>
+              <div className="automation-log-list">
+                {selectedEvents.map((event) => (
+                  <article key={event.id} className={`automation-log-entry automation-log-entry--${event.level}`}>
+                    <div><strong>{event.message}</strong><small>{event.eventType} · {new Date(event.createdAt).toLocaleString()}</small></div>
+                    {event.durationMs !== null && <span>{event.durationMs}ms</span>}
+                  </article>
+                ))}
+              </div>
+            </details>
+          )}
+        </section>
+      )}
     </div>
   )
 }
@@ -1122,6 +1356,7 @@ function IntegrationsPage({
   onConfigureCodex,
   onConfigureCodexRuntime,
   onConfigurePaystack,
+  onConfigureMail,
   onToggleGoogleDrive,
   onRequestConnection,
   onToast,
@@ -1134,6 +1369,7 @@ function IntegrationsPage({
   onConfigureCodex: () => void
   onConfigureCodexRuntime: () => void
   onConfigurePaystack: () => void
+  onConfigureMail: () => void
   onToggleGoogleDrive: (integration: Integration) => void
   onRequestConnection: () => void
   onToast: (message: string) => void
@@ -1264,6 +1500,13 @@ function IntegrationsPage({
                 <small>Codex runs inside lancee</small>
               </div>
             )}
+            {integration.id === 'mail' && (
+              <div className="protocol-badges" aria-label="Mail protocols">
+                <span>IMAP</span>
+                <span>SMTP</span>
+                <small>Native message triggers</small>
+              </div>
+            )}
             <button
               className={`button ${
                 integration.id === 'mcp-grid'
@@ -1281,6 +1524,7 @@ function IntegrationsPage({
                 else if (integration.id === 'codex-ai') onConfigureCodex()
                 else if (integration.id === 'codex-runtime') onConfigureCodexRuntime()
                 else if (integration.id === 'paystack') onConfigurePaystack()
+                else if (integration.id === 'mail') onConfigureMail()
                 else if (integration.id === 'drive') onToggleGoogleDrive(integration)
                 else if (integration.category === 'Payments') {
                   onToast(`Configure ${integration.name} from the connections page`)
@@ -1320,6 +1564,10 @@ function IntegrationsPage({
                     : 'Set up Codex'
                 : integration.id === 'n8n' && integration.connected
                   ? 'Configure'
+                  : integration.id === 'mail'
+                    ? integration.connected
+                      ? 'Open Messages'
+                      : 'Set up mail'
                   : integration.id === 'paystack'
                     ? integration.connected
                       ? 'Configure'
@@ -1882,6 +2130,7 @@ function McpIntegrationPanel({
   const invoke = async (service: McpService) => {
     const preferredTool =
       service.tools.find((tool) => tool.id === 'website_smoke_test') ||
+      service.tools.find((tool) => tool.id === 'search_workflows') ||
       service.tools[0]
     if (!preferredTool) return
     const schema = preferredTool.inputSchema || {}
@@ -2056,9 +2305,10 @@ function McpIntegrationPanel({
       <section className="mcp-service-grid">
         {services.map((service) => {
           const result = results[service.id]
+          const builtIn = service.id === 'lancee'
           return (
             <article
-              className={`mcp-service-card${service.active ? ' is-active' : ''}${!accessApproved ? ' is-locked' : ''}`}
+              className={`mcp-service-card${service.active ? ' is-active' : ''}${(!accessApproved && !builtIn) || service.status !== 'live' ? ' is-locked' : ''}`}
               key={service.id}
             >
               <div className="mcp-service-card__top">
@@ -2079,7 +2329,7 @@ function McpIntegrationPanel({
                 <div className="mcp-service-card__title">
                   <span>
                     <i />
-                    Live
+                    {service.status === 'live' ? 'Live' : 'Needs attention'}
                   </span>
                   <h4>{service.name}</h4>
                   <code>{service.id}</code>
@@ -2091,8 +2341,8 @@ function McpIntegrationPanel({
                   aria-checked={service.active}
                   aria-label={`${service.active ? 'Deactivate' : 'Activate'} ${service.name}`}
                   onClick={() => void toggle(service)}
-                  disabled={busy === service.id || !accessApproved}
-                  title={accessApproved ? undefined : 'Request bearer access to activate'}
+                  disabled={builtIn || busy === service.id || !accessApproved || service.status !== 'live'}
+                  title={builtIn ? 'Built-in Lancee tools are always active' : service.status !== 'live' ? 'This service must connect successfully before activation' : accessApproved ? undefined : 'Request bearer access to activate'}
                 >
                   <span />
                 </button>
@@ -2108,8 +2358,8 @@ function McpIntegrationPanel({
               </div>
               <div className="mcp-service-card__footer">
                 <span>
-                  <Icon name={accessApproved ? 'key' : 'shield'} size={12} />
-                  {accessApproved ? service.credentialMode : 'Bearer access required'}
+                  <Icon name={builtIn ? 'check-circle' : accessApproved ? 'key' : 'shield'} size={12} />
+                  {builtIn ? 'Built in · session approved' : accessApproved ? service.credentialMode : 'Bearer access required'}
                 </span>
                 {service.active && (
                   <button
@@ -4900,6 +5150,7 @@ function App() {
 function WorkspaceApp() {
   const deviceUserCode =
     new URLSearchParams(window.location.search).get('device') || ''
+  const [theme, setTheme] = useState<Theme>(getStoredTheme)
   const [user, setUser] = useState<User | null>(null)
   const [sessionLoading, setSessionLoading] = useState(true)
   const [authView, setAuthView] = useState<AuthView>(authViewFromLocation)
@@ -4941,6 +5192,14 @@ function WorkspaceApp() {
   const [profileOpen, setProfileOpen] = useState(false)
   const [settingsSection, setSettingsSection] =
     useState<'profile' | 'general' | 'dev'>('general')
+
+  const clientNotifications = workspaceNotifications.filter((notification) =>
+    notification.kind.startsWith('approval.'),
+  )
+
+  useEffect(() => {
+    applyTheme(theme)
+  }, [theme])
 
   useEffect(() => {
     let active = true
@@ -5048,6 +5307,21 @@ function WorkspaceApp() {
     }
     const interval = window.setInterval(refreshNotifications, 30_000)
     return () => window.clearInterval(interval)
+  }, [user])
+
+  useEffect(() => {
+    if (!user) return
+    const refreshAutomationState = () => {
+      void Promise.all([api.automations.list(), api.runs.list()])
+        .then(([automationData, runData]) => {
+          setAutomations(automationData)
+          setRuns(runData)
+          setSelectedAutomation((current) => current || automationData[0]?.id || '')
+        })
+        .catch(() => setToast('The action completed, but automation state could not be refreshed.'))
+    }
+    window.addEventListener('lancee:automations-changed', refreshAutomationState)
+    return () => window.removeEventListener('lancee:automations-changed', refreshAutomationState)
   }, [user])
 
   useEffect(() => {
@@ -5255,9 +5529,35 @@ function WorkspaceApp() {
   const toggleAutomation = async (automation: Automation) => {
     setBusyId(automation.id)
     try {
-      const updated = await api.automations.toggle(automation.id)
+      const updated = await api.automations.setStatus(
+        automation.id,
+        automation.status === 'active' ? 'paused' : 'active',
+      )
       setAutomations((current) => current.map((item) => (item.id === updated.id ? updated : item)))
       setToast(`${updated.name} is now ${updated.status}`)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const useWorkflowTemplate = async (template: WorkflowTemplate) => {
+    setBusyId(`template:${template.id}`)
+    try {
+      const draft = await api.automations.create({
+        name: template.title,
+        description: template.description,
+        model: template.model,
+        execution: 'core',
+        tools: template.tools,
+      })
+      const workflow = await api.automations.setStatus(draft.id, 'active')
+      setAutomations((current) => [workflow, ...current])
+      setSelectedAutomation(workflow.id)
+      setActivePage('automations')
+      setToast(`${workflow.name} is active and ready to run`)
+    } catch (error) {
+      void api.automations.list().then(setAutomations).catch(() => undefined)
+      setToast(error instanceof Error ? error.message : 'Unable to create this workflow.')
     } finally {
       setBusyId(null)
     }
@@ -5588,7 +5888,7 @@ function WorkspaceApp() {
       case 'ideas':
         page = (
           <Suspense fallback={<EmptySkeleton />}>
-            <IdeasCanvasPage workspaceId={user.workspaceId} />
+            <IdeasCanvasPage workspaceId={user.workspaceId} theme={theme} />
           </Suspense>
         )
         break
@@ -5608,10 +5908,16 @@ function WorkspaceApp() {
         page = (
           <Suspense fallback={<EmptySkeleton />}>
             <WorkflowsPage
-              onUseTemplate={(template) => {
-                setToast(`${template.title} workflow selected. Workflows stay separate from automations.`)
-              }}
+              onUseTemplate={useWorkflowTemplate}
+              busyTemplateId={busyId?.startsWith('template:') ? busyId.slice('template:'.length) : null}
             />
+          </Suspense>
+        )
+        break
+      case 'storefront':
+        page = (
+          <Suspense fallback={<EmptySkeleton />}>
+            <StorefrontPage workspaceId={user.workspaceId} />
           </Suspense>
         )
         break
@@ -5629,6 +5935,7 @@ function WorkspaceApp() {
             onConfigureCodex={() => setModal('codex-ai')}
             onConfigureCodexRuntime={() => setModal('codex-runtime')}
             onConfigurePaystack={() => setModal('paystack')}
+            onConfigureMail={() => setActivePage('messages')}
             onToggleGoogleDrive={(integration) => void toggleGoogleDrive(integration)}
             onRequestConnection={() => setModal('integration-request')}
             onToast={setToast}
@@ -5682,6 +5989,17 @@ function WorkspaceApp() {
           <Suspense fallback={<EmptySkeleton />}>
             <FilesPage
               onOpenConnections={() => setActivePage('integrations')}
+              onToast={setToast}
+            />
+          </Suspense>
+        )
+        break
+      case 'messages':
+        page = (
+          <Suspense fallback={<EmptySkeleton />}>
+            <MessagesPage
+              automations={automations}
+              canManageConnection={user.role === 'owner'}
               onToast={setToast}
             />
           </Suspense>
@@ -5762,6 +6080,14 @@ function WorkspaceApp() {
                 <Icon name="command" size={11} /> K
               </kbd>
             </button>
+            <button
+              className="icon-button theme-toggle"
+              aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+              title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+              onClick={() => setTheme(toggleTheme())}
+            >
+              <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
+            </button>
             <div className="notification-wrap">
               <button
                 className="icon-button"
@@ -5769,7 +6095,7 @@ function WorkspaceApp() {
                 onClick={() => setNotificationsOpen((open) => !open)}
               >
                 <Icon name="bell" size={18} />
-                {(runs.length > 0 || workspaceNotifications.length > 0) && <span className="notification-dot" />}
+                {clientNotifications.length > 0 && <span className="notification-dot" />}
               </button>
               {notificationsOpen && (
                 <div className="notification-popover">
@@ -5777,7 +6103,7 @@ function WorkspaceApp() {
                     <strong>Notifications</strong>
                     <button onClick={() => setNotificationsOpen(false)}>Close</button>
                   </div>
-                  {workspaceNotifications.slice(0, 5).map((notification) => (
+                  {clientNotifications.slice(0, 5).map((notification) => (
                     <button
                       key={notification.id}
                       onClick={() => {
@@ -5794,24 +6120,7 @@ function WorkspaceApp() {
                       </span>
                     </button>
                   ))}
-                  {runs.slice(0, 5).map((run) => (
-                    <button
-                      key={run.id}
-                      onClick={() => {
-                        setActivePage('runs')
-                        setNotificationsOpen(false)
-                      }}
-                    >
-                      <span className={`notification-icon notification-icon--${run.status === 'failed' ? 'coral' : 'lime'}`}>
-                        <Icon name={run.status === 'failed' ? 'alert' : 'check'} size={14} />
-                      </span>
-                      <span>
-                        <strong>{run.automationName || 'Automation'} · {run.status}</strong>
-                        <small>{new Date(run.startedAt).toLocaleString()}</small>
-                      </span>
-                    </button>
-                  ))}
-                  {runs.length === 0 && workspaceNotifications.length === 0 && <p className="empty-copy">No recent activity.</p>}
+                  {clientNotifications.length === 0 && <p className="empty-copy">No client activity yet.</p>}
                 </div>
               )}
             </div>

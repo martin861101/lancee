@@ -40,7 +40,7 @@ function projectFromInput(projects, input) {
   return project
 }
 
-function inferPlan(instruction) {
+function inferPlan(instruction, permittedTools = []) {
   const text = String(instruction || '').trim()
   const jsonStart = text.indexOf('{')
   if (jsonStart === 0) {
@@ -73,13 +73,30 @@ function inferPlan(instruction) {
     }
   }
   if (/\b(list|show|summari[sz]e|review)\b/i.test(text)) {
-    return { steps: [{ tool: 'workspace.summary', input: {} }] }
+    const requestedReadTool = /\bprojects?\b/i.test(text)
+      ? 'projects.list'
+      : /\bclients?\b/i.test(text)
+        ? 'clients.list'
+        : /\binvoices?\b/i.test(text)
+          ? 'invoices.list'
+          : 'workspace.summary'
+    if (permittedTools.includes(requestedReadTool)) {
+      return { steps: [{ tool: requestedReadTool, input: {} }] }
+    }
   }
-  return { steps: [{ tool: 'workspace.summary', input: {} }] }
+  const safeDefault = permittedTools.find((tool) => !MUTATING_TOOL_IDS.has(tool))
+  if (safeDefault) return { steps: [{ tool: safeDefault, input: {} }] }
+  throw new CoreAutomationError(
+    'CORE_INSTRUCTION_REQUIRED',
+    'This workflow needs a concrete project and action before it can run.',
+  )
 }
 
-export function automationPlan(instruction) {
-  const plan = inferPlan(instruction)
+export function automationPlan(instruction, automation = {}) {
+  const plan = inferPlan(
+    instruction,
+    Array.isArray(automation.tools) ? automation.tools : [],
+  )
   if (!Array.isArray(plan.steps) || plan.steps.length < 1 || plan.steps.length > 12) {
     throw new CoreAutomationError('CORE_INVALID_PLAN', 'A Core automation must contain between 1 and 12 steps.')
   }
@@ -96,7 +113,7 @@ export function automationPlan(instruction) {
 
 function assertToolPermission(automation, tool) {
   const permissions = Array.isArray(automation.tools) ? automation.tools : []
-  if (MUTATING_TOOL_IDS.has(tool) && !permissions.includes(tool)) {
+  if (!permissions.includes(tool)) {
     throw new CoreAutomationError(
       'CORE_TOOL_NOT_ALLOWED',
       `The automation does not have permission to use ${tool}. Enable that tool in the automation settings.`,
@@ -106,7 +123,7 @@ function assertToolPermission(automation, tool) {
 }
 
 export async function executeCoreAutomation({ context, automation, run, database, log }) {
-  const plan = automationPlan(run.instruction)
+  const plan = automationPlan(run.instruction, automation)
   await log({
     eventType: 'plan.created',
     message: `Core planned ${plan.steps.length} bounded step${plan.steps.length === 1 ? '' : 's'}.`,

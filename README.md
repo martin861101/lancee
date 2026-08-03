@@ -42,8 +42,23 @@ SMTP, production deployment, and troubleshooting, follow
   documents in-app, sync local files to Drive later, and remove local workspace
   copies with a visible, confirmation-protected action. The page uses its own
   vertical scroll region so long file lists remain usable on desktop and mobile.
+- **Messages** — a workspace mail app with automatic provider discovery,
+  guided manual IMAP/SMTP setup, folders, search, message reading, compose and
+  reply. New incoming mail can trigger native Core automations by sender,
+  recipient, subject, or body keyword; these rules never use n8n.
+- **Storefront** — an optional client storefront with five selectable styles
+  (Black & White, Blue Splash, Gold Dune, Red Tech, and Flowish), copied source
+  templates, an in-dashboard scroll-through preview, and an always-visible
+  play/pause control,
+  workspace-scoped opt-in, and guided custom-domain setup. The preview remains
+  visible while the storefront is off, so users can decide before enabling it.
+  Users enter a domain, copy the displayed DNS records, and use **Check DNS
+  connection** when ready.
 - **Automations** — plain-language routines for repetitive work, schedules,
-  connected tools, activity history, and confirmed deletion.
+  connected tools, confirmed deletion, and a dedicated **Results** screen. The
+  newest run opens automatically; each completed step is shown as a readable
+  outcome card, with the full returned data and execution log available on
+  demand.
 - **Connections** — independent backend-managed Google Drive OAuth with
   non-sensitive per-file access through Google Picker, encrypted workspace
   Paystack credentials, signed n8n webhooks, and a separate MCP gateway limited
@@ -54,7 +69,12 @@ SMTP, production deployment, and troubleshooting, follow
   OpenAI device login, isolated per-user auth state, sandboxed repository work,
   and streamed task output.
 - **lancee AI for Codex** — a separate repo-local Codex plugin with a bundled
-  MCP bridge and scoped access to the workspace AI provider.
+  MCP bridge and scoped access to the workspace AI provider and automation
+  tools.
+- **MCP server development plugin** — the official Anthropic
+  `mcp-server-dev` Claude plugin is vendored at
+  [`plugins/mcp-server-dev/`](plugins/mcp-server-dev/) for building remote
+  MCP servers, MCP apps, and MCPB packages.
 - **Money** — durable ZAR invoices, real Paystack hosted payment links, and
   verified, duplicate-safe webhook reconciliation.
 - **Settings** — workspace, authentication, and notification configuration
@@ -148,9 +168,36 @@ workflow. Bearer status and per-service activation survive process restarts in
 PostgreSQL (or the local SQLite development fallback). Catalog discovery and
 tool invocation are live server-to-server calls; bearer tokens never enter the
 browser.
+The workspace assistant uses native provider function calls to propose tools,
+but the browser still shows an explicit **Approve & run** control before
+invoking one. The nine built-in Lancee tools are always available to an
+authenticated workspace; optional external MCP services still require their
+server-side bearer grant. Invocation resolves the catalog tool id to the live
+runtime at the server boundary.
 
 See [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) and
 [`mcp-conf/MCP.md`](mcp-conf/MCP.md).
+
+The downloaded Claude plugin can be invoked from a Claude environment with
+`/mcp-server-dev:build-mcp-server` after the project plugin directory is
+registered with that environment.
+
+## Storefront preview video
+
+The Remotion composition lives in [`remotion/`](remotion/). Install its isolated
+dependencies and render the preview into the dashboard's public assets with:
+
+```bash
+npm --prefix remotion install
+npm --prefix remotion run render
+```
+
+The generated files are `public/storefront-preview*.mp4`. All styles share the
+same hero → product grid → scroll → checkout flow; the selected style is
+remembered per workspace in the dashboard. The copied source templates live in
+[`storefront/templates`](storefront/templates). Video and byte-range requests
+bypass the offline shell cache so browser playback controls receive valid MP4
+range responses instead of cached partial responses.
 
 ## Embedded Codex Workspace
 
@@ -195,19 +242,21 @@ workspace data boundaries should be reused as described in the design.
 ## lancee AI for Codex
 
 The repo-local [`plugins/lancee-ai`](plugins/lancee-ai) plugin lets Codex use
-the AI provider configured for an approved lancee workspace. Its bundled MCP
-server exposes `connect`, `ai_status`, and `complete`.
+the AI provider and workspace automations configured for an approved lancee
+workspace. Its bundled MCP server exposes `connect`, `ai_status`, `complete`,
+and the nine Lancee MCP tools documented in
+[`docs/LANCEE_MCP.md`](docs/LANCEE_MCP.md).
 
 The **Connections** page includes a **lancee AI for Codex** card. Open it to
 enter the eight-character code shown by the plugin, review and approve the
-`ai:invoke` scope, check active device status, or disconnect every authorized
-Codex device.
+requested `ai:invoke mcp:invoke` scopes, check active device status, or
+disconnect every authorized Codex device.
 
 Authentication uses a ten-minute device code shown by Codex and an explicit
 lancee approval screen. Successful exchange issues a one-time, thirty-day
-`ai:invoke` token. Device codes and tokens are hashed in the database, the
-provider key remains server-only, and the plugin stores its token only in the
-Codex plugin data directory.
+scoped token. Device codes and tokens are hashed in the database, provider
+keys remain server-only, and the plugin stores its token only in the Codex
+plugin data directory.
 
 This source plugin does not modify a developer's personal Codex marketplace or
 global configuration. Package the complete plugin directory into the intended
@@ -216,6 +265,42 @@ only when connecting to an origin other than the production default.
 
 See [`docs/CODEX_AI_CONNECTOR.md`](docs/CODEX_AI_CONNECTOR.md) for endpoint,
 security, packaging, configuration, and verification details.
+
+## Lancee MCP
+
+The Lancee MCP bridge is the agent-facing surface for the platform itself. It
+uses the same device approval flow as the AI connector, but requires the
+separate `mcp:invoke` scope. It exposes workspace-scoped workflow search,
+creation, execution, status, logs, durable scheduling, bounded external API
+calls, and enabled Python/JavaScript execution.
+
+The same runtime is available to the floating dashboard assistant. Asking it
+to create a workflow produces a typed approval request; approval creates and
+activates the workflow, refreshes the Automations UI, and makes it immediately
+eligible for `run_workflow` or `schedule_job`.
+
+The bridge is implemented by
+[`plugins/lancee-ai/scripts/mcp-server.mjs`](plugins/lancee-ai/scripts/mcp-server.mjs)
+and routes through `/api/codex/lancee-mcp/:tool`. Workflow runs reuse the
+existing Core/Edge engine and Redis queue. Scheduling entries are persisted in
+the database and resumed by the server scheduler. See
+[`docs/LANCEE_MCP.md`](docs/LANCEE_MCP.md) for the complete tool contract and
+security boundaries.
+
+## Basebox MCP
+
+Basebox is integrated as an authenticated MCP Streamable HTTP server at
+`https://base-api.hygridtech.co.za/mcp`. Its live tool catalog is discovered
+through standard MCP JSON-RPC and is exposed in **Services** alongside Lancee
+tools. Basebox must be live and explicitly activated for a workspace before the
+assistant can propose one of its tools; every proposed call still requires user
+confirmation and every invocation is audited.
+
+Set `BASEBOX_MCP_ACCESS_KEY` in the server-only `.env` file, rebuild the app,
+then select **Sync services** and activate Basebox. Missing, rejected, or
+unreachable credentials are shown honestly and never replaced with fallback
+tools. See [`docs/BASEBOX_MCP.md`](docs/BASEBOX_MCP.md) for configuration,
+protocol behavior, and verification.
 
 ## n8n integration
 
@@ -251,6 +336,27 @@ The overlay exposes n8n only to the app's private Compose network and keeps the
 worker/Redis network internal. Its n8n execution history is disabled by
 default; workflows must still avoid logging the `auth` object.
 
+## Messages and mail connector
+
+**Messages** is available from the dashboard sidebar and as the **Mail** card
+under Connections. A workspace owner connects one shared mailbox. Common
+Gmail/Google Workspace, Microsoft 365/Outlook, Yahoo, iCloud, Fastmail, and
+Zoho settings are discovered from the address or its MX records. If discovery
+does not identify a provider, the setup screen explains how to find and enter
+the IMAP and SMTP hostnames, ports, TLS modes, username, and app password.
+
+Mailbox passwords are encrypted with `ENCRYPTION_MASTER_KEY`, never returned to
+the browser, and tested against both incoming and outgoing servers before the
+connection is saved. Private network mail hosts are rejected by default. The
+mail app supports live folders, server-side search, reading sanitized message
+content, compose/reply, and automatic polling every 60 seconds.
+
+Message automation rules can match sender, recipient, subject, and body/subject
+keywords using all/any semantics. Each match dispatches an active native Core
+automation once per message and rule. Edge/n8n automations are rejected by both
+the UI and API. See [`docs/MAIL_CONNECTOR.md`](docs/MAIL_CONNECTOR.md) for setup,
+security, API, rule-template fields, limits, and troubleshooting.
+
 ## Core automations, Redis, and Phase 3 workflow
 
 Built-in automations run through the platform's Core execution layer. A Core
@@ -260,10 +366,18 @@ tool runner, and written to `automation_run_events`. The Automations page reads
 the execution log from `GET /api/automations/runs/:runId/logs`; it is not a
 simulated completion indicator.
 
+The dashboard exposes these records in the **Results** navigation item. Core
+step outputs render as outcome cards, and signed Edge callbacks persist
+`output` (or `result`/`summary`) as a `run.completed` or `run.failed` event.
+The assistant also reports a concise version of the returned outcome after an
+approved run finishes.
+
 Core tools are bounded to workspace-scoped reads and explicit project actions:
 `workspace.summary`, `projects.list`, `clients.list`, `invoices.list`,
-`projects.update_status`, and `projects.create_draft_invoice`. Mutating tools
-must be enabled on the saved automation before they can run. Edge automations
+`projects.update_status`, and `projects.create_draft_invoice`. Every tool,
+including reads, must be enabled on the saved automation before it can run.
+The Workflows recipe cards now create active, persisted Core automations rather
+than showing a selection-only toast. Edge automations
 remain n8n-backed and are rejected until a valid n8n connection is active. If
 Redis is temporarily unavailable, Core uses a visible in-process fallback so a
 local development instance remains usable; `/api/health` reports the Redis
@@ -286,8 +400,9 @@ in-progress, resolved, or rejected. Approval still changes the draft invoice to
 `ready_for_review`. See [`docs/ANNOTATION_REVIEW.md`](docs/ANNOTATION_REVIEW.md)
 and [`docs/PHASE_3.md`](docs/PHASE_3.md) for the routes and operational details.
 
-The **Services** page manages live, server-side MCP services. The floating
-workspace assistant receives a server-built, workspace-scoped data snapshot;
+The **Services** page manages the always-active built-in Lancee service and
+optional external MCP services. The floating workspace assistant receives a
+server-built, workspace-scoped data snapshot and typed tool definitions;
 provider credentials and unrestricted SQL never reach the browser. Read-only
 AI data actions include `describe_table`, `list_tables`, `list_schemas`,
 `query`, and `connect_db`. `execute` returns an approval-required response and
@@ -310,7 +425,8 @@ Configuration, live boundaries, webhook setup, and deterministic verification ar
 ## PWA and offline Ideas
 
 The production build is installable as a PWA. Its service worker caches the
-application shell and static assets, but explicitly bypasses all API requests.
+application shell and static assets, but explicitly bypasses all API requests
+and streaming media/range requests.
 The full Excalidraw document and its imported assets are stored in IndexedDB
 under a workspace-and-board-specific persistence key, so a previously opened
 canvas can be edited offline. Board names are still managed through the
@@ -356,10 +472,23 @@ Client-first Work navigation, expandable Drive relationships, local document
 storage, in-app editing, and upload/sync behavior are documented in
 [`docs/CLIENT_FILE_WORKSPACES.md`](docs/CLIENT_FILE_WORKSPACES.md).
 
-To use an exposed Hermes Agent, set `HERMES_API_URL` and the requested
-`HERMESW_API_KEY` in the server environment. lancee uses Hermes’ OpenAI-compatible
-chat endpoint and defaults to the `hermes-agent` model. See
+To use an exposed Hermes Agent, set `HERMES_ENDPOINT_URL` and
+`HERMES_API_KEY` in the server environment. When another `AI_PROVIDER` is
+configured, Hermes is automatically used as a fallback if that provider fails;
+otherwise lancee uses Hermes as the primary provider. It uses Hermes’
+OpenAI-compatible chat endpoint and defaults to the `hermes-agent` model. See
 [`docs/HERMES.md`](docs/HERMES.md).
+
+To select Hermes explicitly as the primary provider, set
+`AI_PROVIDER=hermes` and `AI_MODEL=hermes-agent`. Keep only one active
+`AI_PROVIDER` entry in production environment files so a later duplicate does
+not silently replace the intended provider.
+
+AI providers are an internal deployment detail. The workspace assistant passes
+the same validated Lancee tool definitions to any supported tool-capable
+provider (Gemini, OpenAI, Anthropic, or Hermes). Customer-facing UI describes
+the intended action in plain language and never requires users to understand
+providers, MCP, or function-calling terminology.
 
 The improvement-plan review and sequencing rationale are documented in
 [`docs/IMPROVEMENT_PLAN_REVIEW.md`](docs/IMPROVEMENT_PLAN_REVIEW.md).
@@ -391,7 +520,14 @@ SMTP_FROM_NAME=lancee
 SMTP_FROM_EMAIL=notifications@example.com
 SMTP_REPLY_TO=
 SMTP_TEST_TO=
+MAIL_SYNC_INTERVAL_MS=60000
+# Development only; production always blocks private/local mail hosts.
+MAIL_ALLOW_PRIVATE_HOSTS=false
 ```
+
+The notification SMTP settings above are separate from the workspace mailbox
+configured inside **Messages**. The workspace mailbox uses its own encrypted
+credential and requires `ENCRYPTION_MASTER_KEY` to be set.
 
 `.env`, `.env.*`, and `.runtime/` are ignored. `.env.example` is intentionally
 tracked.
@@ -451,6 +587,7 @@ pnpm verify:codex-connector
 pnpm verify:google-drive
 pnpm verify:workspace-flows
 pnpm verify:client-files
+pnpm verify:platform
 # With DATABASE_URL or PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE:
 pnpm verify:postgres
 node --check server/index.mjs
@@ -458,7 +595,10 @@ node --check server/database.mjs
 node --check server/notifications.mjs
 node --check server/paystack.mjs
 node --check server/n8n.mjs
+node --check server/mcp.mjs
+node --check server/lancee-mcp.mjs
 node --check public/sw.js
+npm --prefix remotion run render
 ```
 
 The application lint and production build complete without errors. Because the
@@ -468,13 +608,15 @@ its feature-complete chunks as larger than the default advisory threshold.
 ## Production
 
 ```bash
-pm2 startOrReload ecosystem.config.cjs --update-env
-pm2 save
-pm2 describe nexus-agents-platform
+docker compose up -d --build app
+docker compose ps
+curl --fail http://127.0.0.1:5177/api/health
 ```
 
-The `nexus-agents-platform` PM2 process serves the compiled app and API on
-`0.0.0.0:5177`. Nginx Proxy Manager terminates TLS for
-`agents.hygridtech.co.za` and forwards to that listener.
+The Compose `app` service is the authoritative production runtime and serves
+the compiled app and API on `0.0.0.0:5177`. Nginx Proxy Manager terminates TLS
+for `agents.hygridtech.co.za` and forwards to that listener. Do not run the PM2
+entry and the Compose app simultaneously on the same port; use
+`ecosystem.config.cjs` only for a deliberate non-Docker deployment.
 
 More implementation notes are in [`docs/PLATFORM.md`](docs/PLATFORM.md).

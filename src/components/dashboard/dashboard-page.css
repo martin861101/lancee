@@ -1281,3 +1281,270 @@
 .team-edit-dialog > label { display: grid; gap: 6px; color: var(--muted); font-size: .72rem; }
 .team-edit-dialog > small { color: var(--muted); line-height: 1.5; }
 .team-edit-dialog > div { display: flex; justify-content: end; gap: 8px; }
+
+/* ============ LIGHT THEME ============ */
+
+html[data-theme='light'] .drive-workspace__markdown textarea {
+  background: #fafbf8;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+html[data-theme='light'] .clients-page .dashboard-page__title {
+  color: var(--ink);
+}
+
+html[data-theme='light'] .clients-directory,
+html[data-theme='light'] .client-detail-panel {
+  background: #ffffff;
+  border-color: var(--line);
+  box-shadow: var(--shadow-sm);
+}
+
+html[data-theme='light'] .clients-search {
+  color: var(--muted);
+  background: var(--surface-soft);
+  border-color: var(--line);
+}
+
+html[data-theme='light'] .clients-search input {
+  color: var(--ink);
+}
+
+html[data-theme='light'] .clients-list > button {
+  color: var(--muted-2);
+}
+
+html[data-theme='light'] .clients-list > button:hover,
+html[data-theme='light'] .clients-list > button.is-active {
+  color: var(--ink);
+  background: var(--surface-soft);
+}
+
+html[data-theme='light'] .clients-list > button.is-active {
+  box-shadow: inset 3px 0 var(--accent), inset 0 0 0 1px var(--line);
+}
+
+html[data-theme='light'] .clients-list small {
+  color: var(--muted);
+}
+
+html[data-theme='light'] .clients-list em,
+html[data-theme='light'] .client-projects em {
+  color: var(--success);
+}
+
+html[data-theme='light'] .client-detail-panel__hero {
+  background:
+    radial-gradient(circle at 85% -30%, rgba(110, 140, 255, .14), transparent 22rem),
+    var(--surface-soft);
+  border-bottom-color: var(--line);
+}
+
+html[data-theme='light'] .client-detail-panel__hero h2 {
+  color: var(--ink);
+}
+
+html[data-theme='light'] .client-detail-panel__hero p {
+  color: var(--muted);
+}
+
+html[data-theme='light'] .client-contact-grid {
+  background: var(--line);
+  border-bottom-color: var(--line);
+}
+
+html[data-theme='light'] .client-contact-grid > div {
+  background: #ffffff;
+}
+
+html[data-theme='light'] .client-contact-grid dt {
+  color: var(--muted);
+}
+
+html[data-theme='light'] .client-contact-grid dd {
+  color: var(--ink-soft);
+}
+
+html[data-theme='light'] .client-projects h3 {
+  color: var(--ink);
+}
+
+html[data-theme='light'] .client-projects article {
+  border-top-color: var(--line);
+}
+
+html[data-theme='light'] .client-projects article strong {
+  color: var(--ink-soft);
+}
+
+html[data-theme='light'] .client-projects article small {
+  color: var(--muted);
+}
+
+html[data-theme='light'] .clients-empty {
+  color: var(--muted);
+}
+
+html[data-theme='light'] .clients-modal {
+  color: var(--ink);
+  background: #ffffff;
+  border-color: var(--line);
+  box-shadow: var(--shadow-md);
+}
+
+html[data-theme='light'] .clients-modal__heading h2 {
+  color: var(--ink);
+}
+
+html[data-theme='light'] .clients-modal__heading > button {
+  color: var(--muted);
+}
+
+html[data-theme='light'] .clients-modal label {
+  color: var(--ink-soft);
+}
+
+html[data-theme='light'] .clients-modal :is(input, textarea) {
+  color: var(--ink);
+  background: var(--surface-soft);
+  border-color: var(--line);
+}
+
+html[data-theme='light'] .clients-modal :is(input, textarea):focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(110, 140, 255, .16);
+}
+
+html[data-theme='light'] .clients-modal__actions {
+  border-top-color: var(--line);
+}
+
+html[data-theme='light'] .team-edit-dialog {
+  background: #ffffff;
+  border-color: var(--line);
+  box-shadow: var(--shadow-md);
+}
+
+/* ============ PDF studio ============ */
+
+.dashboard-pdf-studio {
+  margin-bottom: 24px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.pdf-studio__form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pdf-studio__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  gap: 14px;
+}
+
+.pdf-studio__form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pdf-studio__form input,
+.pdf-studio__form select,
+.pdf-studio__form textarea {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface-soft);
+}
+
+.pdf-studio__form input:focus,
+.pdf-studio__form select:focus,
+.pdf-studio__form textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(110, 140, 255, .16);
+}
+
+.pdf-studio__content {
+  min-height: 160px;
+  resize: vertical;
+  font-family: var(--font-body);
+}
+
+.pdf-studio__color {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pdf-studio__color input[type='color'] {
+  padding: 2px;
+  width: 40px;
+  height: 34px;
+}
+
+.pdf-studio__color code {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pdf-studio__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.pdf-studio__result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(67, 189, 244, .3);
+  background: rgba(67, 189, 244, .08);
+}
+
+.pdf-studio__result strong,
+.pdf-studio__result small {
+  display: block;
+}
+
+.pdf-studio__result small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .pdf-studio__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+html[data-theme='light'] .pdf-studio__result {
+  border-color: rgba(110, 140, 255, .35);
+  background: rgba(110, 140, 255, .08);
+}
+.service-invocation-result pre {
+  max-height: 360px;
+  overflow: auto;
+  margin: 14px 0 0;
+  padding: 14px;
+  color: var(--ink-soft);
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

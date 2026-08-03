@@ -181,7 +181,7 @@ export type McpService = {
   status: 'live' | 'unreachable'
   active: boolean
   tools: McpTool[]
-  credentialMode: 'Workspace vault' | 'Credential-free'
+  credentialMode: 'Workspace vault' | 'Credential-free' | 'Server-side access key'
 }
 
 export type McpConnection = {
@@ -197,13 +197,37 @@ export type McpConnection = {
 }
 
 export type McpInvocationResult = {
-  ok: true
+  ok: boolean
   serviceId: string
   toolId: string
   requestId: string
   duration: number
   message: string
   data?: unknown
+}
+
+export type ProposedMcpAction = {
+  serviceId: string
+  toolId: string
+  arguments: Record<string, unknown>
+}
+
+export type StorefrontDomain = {
+  id: string
+  domain: string
+  status: 'pending' | 'verified'
+  createdAt: string
+  verifiedAt: string | null
+  dns: {
+    txtName: string
+    txtValue: string
+    cnameName: string
+    cnameTarget: string
+  }
+}
+
+export type StorefrontSettings = {
+  enabled: boolean
 }
 
 export type ApiKeyPermission = 'workspace:read' | 'mcp:read'
@@ -227,6 +251,99 @@ export type PaystackConnection = {
   currency: 'ZAR'
   webhookUrl: string
 }
+
+export type MailAccount = {
+  email: string
+  displayName: string
+  username: string
+  provider: string
+  imapHost: string
+  imapPort: number
+  imapSecure: boolean
+  smtpHost: string
+  smtpPort: number
+  smtpSecure: boolean
+  status: 'connected' | 'error'
+  lastSyncedAt: string | null
+  lastError: string
+  updatedAt: string
+}
+
+export type MailAccountStatus = {
+  connected: boolean
+  account: MailAccount | null
+}
+
+export type MailDiscovery = {
+  detected: boolean
+  provider: string
+  providerName: string
+  username: string
+  imapHost: string
+  imapPort: number
+  imapSecure: boolean
+  smtpHost: string
+  smtpPort: number
+  smtpSecure: boolean
+  instructions: string[]
+}
+
+export type MailAddress = { name: string; address: string }
+
+export type MailFolder = {
+  path: string
+  name: string
+  delimiter: string
+  specialUse: string | null
+}
+
+export type MailMessageSummary = {
+  uid: number
+  folder: string
+  messageId: string
+  subject: string
+  from: MailAddress[]
+  to: MailAddress[]
+  cc: MailAddress[]
+  date: string
+  unread: boolean
+  flagged: boolean
+  size: number
+  snippet: string
+}
+
+export type MailMessage = MailMessageSummary & {
+  replyTo: MailAddress[]
+  text: string
+  html: string
+  attachments: Array<{
+    filename: string
+    contentType: string
+    size: number
+    contentId: string | null
+  }>
+}
+
+export type MailAutomationRule = {
+  id: string
+  automationId: string
+  automationName: string
+  name: string
+  sender: string
+  recipient: string
+  subject: string
+  keywords: string[]
+  matchMode: 'all' | 'any'
+  instruction: string
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export type MailAutomationRuleInput = Omit<
+  MailAutomationRule,
+  'id' | 'automationName' | 'createdAt' | 'updatedAt'
+>
 
 export type MoneyInvoice = {
   id: string
@@ -278,6 +395,7 @@ export type WorkspaceSettings = {
   timezone: string
   travelMode: string
   travelLocation: string
+  storefrontEnabled: boolean
   updatedAt: string
 }
 
@@ -836,6 +954,19 @@ export const api = {
       }
       return payload as Automation
     },
+    async setStatus(id: string, status: AutomationStatus) {
+      const response = await fetch(`/api/automations/${encodeURIComponent(id)}/status`, {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify({ status }),
+      })
+      const payload = (await response.json()) as Automation & { error?: string }
+      if (!response.ok || !payload.id) {
+        throw new Error(payload.error || 'Unable to update automation status.')
+      }
+      return payload as Automation
+    },
     async remove(id: string) {
       const response = await fetch(`/api/automations/${encodeURIComponent(id)}`, {
         method: 'DELETE',
@@ -906,11 +1037,149 @@ export const api = {
         headers: mutationHeaders(true),
         body: JSON.stringify({ message, history }),
       })
-      const payload = (await response.json()) as { content?: string; model?: string; error?: string }
-      if (!response.ok || !payload.content) {
+      const payload = (await response.json()) as {
+        content?: string
+        model?: string
+        proposedAction?: ProposedMcpAction | null
+        error?: string
+      }
+      if (!response.ok || typeof payload.content !== 'string') {
         throw new Error(payload.error || 'Unable to reach the workspace assistant.')
       }
       return payload
+    },
+  },
+  mail: {
+    async discover(email: string): Promise<MailDiscovery> {
+      const response = await fetch('/api/mail/discover', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      const payload = (await response.json()) as MailDiscovery & { error?: string }
+      if (!response.ok || !payload.provider) {
+        throw new Error(payload.error || 'Unable to discover mail settings.')
+      }
+      return payload
+    },
+    async getAccount(): Promise<MailAccountStatus> {
+      const response = await fetch('/api/mail/account', { credentials: 'same-origin' })
+      const payload = (await response.json()) as MailAccountStatus & { error?: string }
+      if (!response.ok || typeof payload.connected !== 'boolean') {
+        throw new Error(payload.error || 'Unable to load mailbox settings.')
+      }
+      return payload
+    },
+    async saveAccount(input: {
+      email: string
+      displayName: string
+      username: string
+      password?: string
+      provider: string
+      imapHost: string
+      imapPort: number
+      imapSecure: boolean
+      smtpHost: string
+      smtpPort: number
+      smtpSecure: boolean
+    }): Promise<MailAccountStatus> {
+      const response = await fetch('/api/mail/account', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify(input),
+      })
+      const payload = (await response.json()) as MailAccountStatus & { error?: string }
+      if (!response.ok || typeof payload.connected !== 'boolean') {
+        throw new Error(payload.error || 'Unable to connect the mailbox.')
+      }
+      return payload
+    },
+    async disconnect(): Promise<void> {
+      const response = await fetch('/api/mail/account', {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: mutationHeaders(),
+      })
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string }
+        throw new Error(payload.error || 'Unable to disconnect the mailbox.')
+      }
+    },
+    async listFolders(): Promise<MailFolder[]> {
+      const response = await fetch('/api/mail/folders', { credentials: 'same-origin' })
+      const payload = (await response.json()) as { folders?: MailFolder[]; error?: string }
+      if (!response.ok || !payload.folders) throw new Error(payload.error || 'Unable to load mail folders.')
+      return payload.folders
+    },
+    async listMessages(folder = 'INBOX', query = ''): Promise<MailMessageSummary[]> {
+      const params = new URLSearchParams({ folder, limit: '50' })
+      if (query.trim()) params.set('query', query.trim())
+      const response = await fetch(`/api/mail/messages?${params}`, { credentials: 'same-origin' })
+      const payload = (await response.json()) as { messages?: MailMessageSummary[]; error?: string }
+      if (!response.ok || !payload.messages) throw new Error(payload.error || 'Unable to load messages.')
+      return payload.messages
+    },
+    async getMessage(folder: string, uid: number): Promise<MailMessage> {
+      const response = await fetch(
+        `/api/mail/messages/${encodeURIComponent(uid)}?folder=${encodeURIComponent(folder)}`,
+        { credentials: 'same-origin' },
+      )
+      const payload = (await response.json()) as MailMessage & { error?: string }
+      if (!response.ok || !payload.uid) throw new Error(payload.error || 'Unable to open the message.')
+      return payload
+    },
+    async send(input: { to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string }) {
+      const response = await fetch('/api/mail/send', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify(input),
+      })
+      const payload = (await response.json()) as { messageId?: string; accepted?: string[]; error?: string }
+      if (!response.ok || !payload.messageId) throw new Error(payload.error || 'Unable to send the message.')
+      return payload
+    },
+    async sync(): Promise<{ newMessages: number; triggered: number; skipped: boolean }> {
+      const response = await fetch('/api/mail/sync', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(),
+      })
+      const payload = (await response.json()) as { newMessages?: number; triggered?: number; skipped?: boolean; error?: string }
+      if (!response.ok || typeof payload.newMessages !== 'number') throw new Error(payload.error || 'Unable to sync messages.')
+      return payload as { newMessages: number; triggered: number; skipped: boolean }
+    },
+    rules: {
+      async list(): Promise<MailAutomationRule[]> {
+        const response = await fetch('/api/mail/rules', { credentials: 'same-origin' })
+        const payload = (await response.json()) as { rules?: MailAutomationRule[]; error?: string }
+        if (!response.ok || !payload.rules) throw new Error(payload.error || 'Unable to load message rules.')
+        return payload.rules
+      },
+      async create(input: MailAutomationRuleInput): Promise<MailAutomationRule> {
+        const response = await fetch('/api/mail/rules', {
+          method: 'POST', credentials: 'same-origin', headers: mutationHeaders(true), body: JSON.stringify(input),
+        })
+        const payload = (await response.json()) as MailAutomationRule & { error?: string }
+        if (!response.ok || !payload.id) throw new Error(payload.error || 'Unable to create the message rule.')
+        return payload
+      },
+      async update(id: string, input: MailAutomationRuleInput): Promise<MailAutomationRule> {
+        const response = await fetch(`/api/mail/rules/${encodeURIComponent(id)}`, {
+          method: 'PUT', credentials: 'same-origin', headers: mutationHeaders(true), body: JSON.stringify(input),
+        })
+        const payload = (await response.json()) as MailAutomationRule & { error?: string }
+        if (!response.ok || !payload.id) throw new Error(payload.error || 'Unable to update the message rule.')
+        return payload
+      },
+      async remove(id: string): Promise<void> {
+        const response = await fetch(`/api/mail/rules/${encodeURIComponent(id)}`, {
+          method: 'DELETE', credentials: 'same-origin', headers: mutationHeaders(),
+        })
+        if (!response.ok) throw new Error('Unable to delete the message rule.')
+      },
     },
   },
   projectsWorkflow: {
@@ -1322,7 +1591,7 @@ export const api = {
         body: JSON.stringify({ serviceId, toolId, arguments: toolArguments }),
       })
       const payload = (await response.json()) as McpInvocationResult & { error?: string }
-      if (!response.ok || !payload.ok) {
+      if (!response.ok || typeof payload.ok !== 'boolean') {
         throw new Error(payload.error || 'Unable to invoke MCP tool.')
       }
       return payload as McpInvocationResult
@@ -2104,6 +2373,82 @@ export const api = {
         }
         throw new Error(payload.error || 'Unable to delete client.')
       }
+    },
+  },
+  storefront: {
+    settings: {
+      async get() {
+        const response = await fetch('/api/storefront/settings', { credentials: 'same-origin' })
+        const payload = (await response.json()) as StorefrontSettings & { error?: string }
+        if (!response.ok || typeof payload.enabled !== 'boolean') {
+          throw new Error(payload.error || 'Unable to load storefront settings.')
+        }
+        return payload
+      },
+      async set(enabled: boolean) {
+        const response = await fetch('/api/storefront/settings', {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: mutationHeaders(true),
+          body: JSON.stringify({ enabled }),
+        })
+        const payload = (await response.json()) as StorefrontSettings & { error?: string }
+        if (!response.ok || typeof payload.enabled !== 'boolean') {
+          throw new Error(payload.error || 'Unable to update storefront settings.')
+        }
+        return payload
+      },
+    },
+    domains: {
+      async list() {
+        const response = await fetch('/api/storefront/domains', { credentials: 'same-origin' })
+        const payload = (await response.json()) as { domains?: StorefrontDomain[]; error?: string }
+        if (!response.ok || !payload.domains) {
+          throw new Error(payload.error || 'Unable to load storefront domains.')
+        }
+        return payload.domains
+      },
+      async add(domain: string) {
+        const response = await fetch('/api/storefront/domains', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: mutationHeaders(true),
+          body: JSON.stringify({ domain }),
+        })
+        const payload = (await response.json()) as { domain?: StorefrontDomain; error?: string }
+        if (!response.ok || !payload.domain) {
+          throw new Error(payload.error || 'Unable to add the custom domain.')
+        }
+        return payload.domain
+      },
+      async verify(id: string) {
+        const response = await fetch(`/api/storefront/domains/${encodeURIComponent(id)}/verify`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: mutationHeaders(),
+        })
+        const payload = (await response.json()) as {
+          verified?: boolean
+          domain?: StorefrontDomain
+          message?: string
+          error?: string
+        }
+        if (!response.ok || !payload.domain) {
+          throw new Error(payload.error || 'Unable to verify the custom domain.')
+        }
+        return payload
+      },
+      async remove(id: string) {
+        const response = await fetch(`/api/storefront/domains/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          credentials: 'same-origin',
+          headers: mutationHeaders(),
+        })
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => ({}))) as { error?: string }
+          throw new Error(payload.error || 'Unable to remove the custom domain.')
+        }
+      },
     },
   },
   projects: {

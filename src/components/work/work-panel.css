@@ -573,3 +573,57 @@
 @media (max-width: 780px) {
   .project-review-link { grid-template-columns: 1fr; }
 }
+
+/* ============ LIGHT THEME — Project detail panels ============ */
+
+html[data-theme='light'] .project-section-panel {
+  background: #ffffff;
+  border-color: var(--line);
+}
+
+html[data-theme='light'] .project-section-panel dl div {
+  background: var(--surface-soft);
+  border-color: var(--line);
+}
+
+html[data-theme='light'] .project-section-panel dd {
+  color: var(--ink);
+}
+
+html[data-theme='light'] .project-section-panel--review {
+  background: #f7f8f4;
+  border-color: #dfe5d9;
+}
+
+html[data-theme='light'] .project-review-link {
+  color: #172016;
+  background: #eef8e7;
+  border-color: #cfe3c2;
+}
+
+html[data-theme='light'] .project-review-link input {
+  color: #53604f;
+  background: #fff;
+  border-color: #cfe3c2;
+}
+
+html[data-theme='light'] .project-section-list article {
+  background: var(--surface-soft);
+  border-color: var(--line);
+}
+
+html[data-theme='light'] .project-section-list :is(a, button) {
+  color: var(--accent);
+}
+
+html[data-theme='light'] .project-link-composer input {
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+html[data-theme='light'] .project-lane__assignee select {
+  color: var(--ink-soft);
+  background: var(--surface);
+  border-color: var(--line);
+}

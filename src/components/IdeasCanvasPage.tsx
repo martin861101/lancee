@@ -17,6 +17,7 @@ import type {
 } from '@excalidraw/excalidraw/types'
 import '@excalidraw/excalidraw/index.css'
 import { api } from '../lib/api'
+import type { Theme } from '../lib/theme'
 import './ideas-canvas.css'
 
 type Board = {
@@ -203,6 +204,7 @@ function cacheLibrary(workspaceId: string, items: LibraryItems) {
 async function loadScene(
   boardId: string,
   workspaceId: string,
+  theme: Theme,
 ): Promise<ExcalidrawInitialDataState> {
   try {
     const stored = (await api.ideas.getScene(boardId)) as
@@ -213,7 +215,7 @@ async function loadScene(
         ...stored,
         appState: {
           ...(stored.appState || {}),
-          theme: 'dark',
+          theme,
         },
         libraryItems: await availableLibrary(workspaceId),
       }
@@ -223,8 +225,8 @@ async function loadScene(
   }
   return {
     appState: {
-      theme: 'dark',
-      viewBackgroundColor: '#0f151f',
+      theme,
+      viewBackgroundColor: theme === 'dark' ? '#0f151f' : '#ffffff',
     },
     libraryItems: await availableLibrary(workspaceId),
   }
@@ -241,6 +243,7 @@ function ExcalidrawBoard({
   board,
   boardId,
   workspaceId,
+  theme,
   onSceneChange,
   onSaveError,
   onReady,
@@ -248,6 +251,7 @@ function ExcalidrawBoard({
   board: Board
   boardId: string
   workspaceId: string
+  theme: Theme
   onSceneChange: (scene: ExcalidrawInitialDataState) => void
   onSaveError: (message: string) => void
   onReady: (api: ExcalidrawImperativeAPI) => void
@@ -284,7 +288,7 @@ function ExcalidrawBoard({
         files,
         appState: {
           name: appState.name,
-          theme: 'dark',
+          theme,
           viewBackgroundColor: appState.viewBackgroundColor,
           scrollX: appState.scrollX,
           scrollY: appState.scrollY,
@@ -298,19 +302,19 @@ function ExcalidrawBoard({
       if (saveTimer.current !== null) window.clearTimeout(saveTimer.current)
       saveTimer.current = window.setTimeout(flushScene, 450)
     },
-    [flushScene, onSceneChange],
+    [flushScene, onSceneChange, theme],
   )
 
   return (
     <Excalidraw
       autoFocus
       handleKeyboardGlobally
-      initialData={() => loadScene(boardId, workspaceId)}
+      initialData={() => loadScene(boardId, workspaceId, theme)}
       name={board.label}
       onChange={handleChange}
       onLibraryChange={(items) => cacheLibrary(workspaceId, items)}
       excalidrawAPI={onReady}
-      theme="dark"
+      theme={theme}
     />
   )
 }
@@ -401,7 +405,13 @@ function LibraryGroupSection({
   )
 }
 
-export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }) {
+export default function IdeasCanvasPage({
+  workspaceId,
+  theme,
+}: {
+  workspaceId: string
+  theme: Theme
+}) {
   const cachedBoards = useMemo(() => readCachedBoards(workspaceId), [workspaceId])
   const [boards, setBoards] = useState<Board[]>(cachedBoards)
   const [activeBoardId, setActiveBoardId] = useState<string | null>(
@@ -717,6 +727,7 @@ export default function IdeasCanvasPage({ workspaceId }: { workspaceId: string }
               key={activeBoard.id}
               boardId={activeBoard.id}
               workspaceId={workspaceId}
+              theme={theme}
               onReady={handleReady}
               onSaveError={setSaveError}
               onSceneChange={(scene) => {

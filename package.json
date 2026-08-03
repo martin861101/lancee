@@ -19,9 +19,13 @@
     "verify:ai": "node scripts/verify-ai-providers.mjs",
     "verify:codex-connector": "node scripts/verify-codex-connector.mjs",
     "verify:codex-runtime": "node scripts/verify-codex-runtime.mjs",
+    "verify:basebox": "node scripts/verify-basebox-mcp.mjs",
+    "verify:basebox:live": "node --env-file=.env scripts/verify-basebox-live.mjs",
     "verify:google-drive": "node scripts/verify-google-drive.mjs",
+    "verify:mail": "node scripts/verify-mail-connector.mjs",
     "verify:workspace-flows": "node scripts/verify-workspace-flows.mjs",
     "verify:client-files": "node scripts/verify-client-document-workspaces.mjs",
+    "verify:platform": "npm run build && npm run lint && npm run verify:ai && npm run verify:basebox && npm run verify:core-edge && npm run verify:codex-connector && npm run verify:workspace-flows",
     "migrate:postgres": "node scripts/migrate-sqlite-to-postgres.mjs"
   },
   "dependencies": {
@@ -33,6 +37,8 @@
     "express": "^5.2.1",
     "gsap": "^3.15.0",
     "html-to-docx": "^1.8.0",
+    "imapflow": "^1.6.5",
+    "mailparser": "^3.9.14",
     "mammoth": "^1.12.0",
     "marked": "^18.0.7",
     "motion": "^12.42.2",

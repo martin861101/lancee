@@ -207,10 +207,18 @@ try {
     '/api/mcp/services',
   )
   assert.equal(serviceList.status, 200)
+  const services = (await serviceList.json()).services
   assert.deepEqual(
-    (await serviceList.json()).services.map((service) => service.id),
-    ['browser-worker'],
+    services.map((service) => service.id),
+    ['lancee', 'basebox', 'browser-worker'],
   )
+  const lanceeService = services.find((service) => service.id === 'lancee')
+  assert.equal(lanceeService.active, true)
+  assert(lanceeService.tools.some((tool) => tool.id === 'create_workflow'))
+  const baseboxService = services.find((service) => service.id === 'basebox')
+  assert.equal(baseboxService.status, 'unreachable')
+  assert.equal(baseboxService.active, false)
+  assert.deepEqual(baseboxService.tools, [])
 
   const serviceMutation = await sessionRequest(
     application.origin,

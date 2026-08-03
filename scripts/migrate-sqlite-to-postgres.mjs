@@ -51,6 +51,7 @@ const tableOrder = [
   'automations',
   'automation_runs',
   'automation_run_events',
+  'automation_schedules',
   'projects',
   'job_cards',
   'draft_invoices',

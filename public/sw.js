@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'lancee-shell-'
-const CACHE_NAME = `${CACHE_PREFIX}v1`
+const CACHE_NAME = `${CACHE_PREFIX}v2`
 const CORE_SHELL = [
   '/',
   '/index.html',
@@ -59,6 +59,19 @@ self.addEventListener('fetch', (event) => {
     request.method !== 'GET' ||
     url.origin !== self.location.origin ||
     url.pathname.startsWith('/api/')
+  ) {
+    return
+  }
+
+  // Browsers request video in byte ranges. Cache Storage cannot persist 206
+  // responses, so routing these requests through the cache-first handler makes
+  // otherwise valid MP4 files fail to load and leaves the controls disabled.
+  // Let the browser and Express handle media/range requests directly.
+  if (
+    request.headers.has('range') ||
+    request.destination === 'video' ||
+    request.destination === 'audio' ||
+    /\.(?:mp4|webm|mov|m4v|mp3|wav|ogg)$/i.test(url.pathname)
   ) {
     return
   }

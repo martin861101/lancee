@@ -168,3 +168,41 @@
   .workflows-header { align-items: start; flex-direction: column; }
   .workflow-template-grid { grid-template-columns: 1fr; }
 }
+
+/* ============ LIGHT THEME ============ */
+
+html[data-theme='light'] .workflows-header__path {
+  color: var(--muted);
+  background: var(--surface);
+}
+
+html[data-theme='light'] .workflows-header__path i {
+  color: var(--muted-2);
+}
+
+html[data-theme='light'] .workflow-filters button {
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+html[data-theme='light'] .workflow-filters button.is-active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+html[data-theme='light'] .workflow-template-grid article {
+  background: #ffffff;
+  border-color: var(--line);
+  box-shadow: 0 18px 46px rgba(20, 24, 17, .08);
+}
+
+html[data-theme='light'] .workflow-template-grid li {
+  color: var(--ink-soft);
+}
+
+html[data-theme='light'] .workflow-template-grid article > button {
+  color: var(--ink);
+  background: var(--surface-soft);
+  border-color: var(--line);
+}
