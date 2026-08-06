@@ -10,6 +10,7 @@ export const lanceeMcpScope = 'mcp:invoke'
 const automationIdPattern = /^aut_[a-f0-9]{12}$/
 const runIdPattern = /^run_[a-f0-9]{12}$/
 const MAX_INSTRUCTION_LENGTH = 5_000
+const MAX_FILE_CONTENT_LENGTH = 512_000
 const MAX_CODE_LENGTH = 20_000
 const MAX_EXTERNAL_BODY_LENGTH = 32_000
 const MAX_EXTERNAL_RESPONSE_LENGTH = 256_000
@@ -37,7 +38,7 @@ export const lanceeMcpToolDefinitions = [
         instruction: { type: 'string', minLength: 1, maxLength: MAX_INSTRUCTION_LENGTH, description: 'The concrete instruction for this run.' },
         provider: { type: 'string', maxLength: 50, description: 'Optional connected integration provider used by an Edge workflow.' },
       },
-      required: ['workflow_id', 'instruction'],
+      required: ['workflow_id'],
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
@@ -52,6 +53,7 @@ export const lanceeMcpToolDefinitions = [
         name: { type: 'string', minLength: 2, maxLength: 120 },
         description: { type: 'string', minLength: 2, maxLength: 500 },
         model: { type: 'string', maxLength: 120 },
+        prompt_template: { type: 'string', maxLength: MAX_INSTRUCTION_LENGTH, description: 'Optional reusable natural-language instruction or JSON step plan. It is used when a run does not provide an override.' },
         execution: { type: 'string', enum: ['core', 'edge'] },
         tools: {
           type: 'array',
@@ -74,6 +76,137 @@ export const lanceeMcpToolDefinitions = [
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  {
+    name: 'query_dashboard',
+    title: 'Query dashboard data',
+    description: 'Read workspace-scoped dashboard records through Lancee’s database adapter, including PostgreSQL when configured. Raw SQL and cross-workspace access are not exposed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        resource: { type: 'string', enum: ['database', 'projects', 'clients', 'invoices', 'draft_invoices', 'automations', 'automation_runs', 'files', 'connections', 'connector_requests', 'notifications', 'team'] },
+        query: { type: 'string', maxLength: 200, description: 'Optional case-insensitive text filter.' },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+      required: ['resource'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'create_client',
+    title: 'Create dashboard client',
+    description: 'Create or complete a workspace client record after human approval.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', minLength: 2, maxLength: 120 },
+        email: { type: 'string', maxLength: 254 },
+        company: { type: 'string', maxLength: 160 },
+        notes: { type: 'string', maxLength: 2000 },
+      },
+      required: ['name'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  {
+    name: 'create_project',
+    title: 'Create dashboard project',
+    description: 'Create a workspace project for an existing or new client after human approval.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', minLength: 2, maxLength: 160 },
+        client_id: { type: 'string', maxLength: 100 },
+        client_name: { type: 'string', maxLength: 160 },
+        client_email: { type: 'string', maxLength: 254 },
+        scope: { type: 'string', maxLength: 500 },
+        due: { type: 'string', maxLength: 40 },
+        status: { type: 'string', enum: ['In progress', 'In review', 'Waiting on client', 'Ready'] },
+      },
+      required: ['name'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  {
+    name: 'set_project_status',
+    title: 'Set project status',
+    description: 'Move a workspace project to a supported dashboard status after human approval.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: { type: 'string', pattern: '^prj_[a-z0-9_-]{6,80}$' },
+        status: { type: 'string', enum: ['In progress', 'In review', 'Waiting on client', 'Ready'] },
+      },
+      required: ['project_id', 'status'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'create_file',
+    title: 'Create workspace file',
+    description: 'Create and save a text, Markdown, or JSON file in the Lancee Files library after human approval.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', minLength: 1, maxLength: 240 },
+        content: { type: 'string', maxLength: MAX_FILE_CONTENT_LENGTH },
+        mime_type: { type: 'string', enum: ['text/plain', 'text/markdown', 'application/json'] },
+      },
+      required: ['name', 'content'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  {
+    name: 'request_connector',
+    title: 'Add connector request',
+    description: 'Add a requested connector to the Connections tab for workspace follow-up. This does not invent credentials or mark an unsupported provider connected.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', minLength: 2, maxLength: 120 },
+        category: { type: 'string', enum: ['Automation', 'Communication', 'Design', 'Payments', 'Storage', 'Other'] },
+        details: { type: 'string', maxLength: 500 },
+      },
+      required: ['name', 'category'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  {
+    name: 'configure_mcp_service',
+    title: 'Configure MCP service',
+    description: 'Activate or deactivate a live MCP service already discovered by the approved workspace gateway.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        service_id: { type: 'string', minLength: 1, maxLength: 80 },
+        active: { type: 'boolean' },
+      },
+      required: ['service_id', 'active'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+  },
+  {
+    name: 'delete_workspace_resource',
+    title: 'Delete workspace resource',
+    description: 'Permanently delete a workspace automation or file. This high-risk action requires explicit approval and workspace-owner authority.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        resource: { type: 'string', enum: ['automation', 'file'] },
+        id: { type: 'string', minLength: 5, maxLength: 100 },
+        confirmation: { type: 'string', enum: ['DELETE'], description: 'Must be exactly DELETE.' },
+      },
+      required: ['resource', 'id', 'confirmation'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
   },
   {
     name: 'get_workflow_status',
@@ -465,14 +598,159 @@ export function createLanceeMcpRuntime({
   executeAutomationRun,
   enqueueCoreJob,
   prepareAutomationRun,
+  listMcpServices = async () => [],
 }) {
   const availableCoreTools = new Set(coreToolIds)
   let schedulerTimer = null
   let schedulerBusy = false
 
+  const requireOwner = (context) => {
+    if (context.membership?.role !== 'owner') {
+      throw new LanceeMcpError('MCP_OWNER_REQUIRED', 'This high-risk action requires a workspace owner.', 403)
+    }
+  }
+
+  async function queryDashboard(context, args) {
+    const resource = textArgument(args, 'resource', { required: true, maxLength: 40 })
+    const readers = {
+      database: () => database.getDatabaseInfo(),
+      projects: () => database.listProjects(context.workspace.id),
+      clients: () => database.listClients(context.workspace.id),
+      invoices: () => database.listInvoices(context.workspace.id),
+      draft_invoices: () => database.listDraftInvoices(context.workspace.id),
+      automations: () => database.listAutomations(context.workspace.id),
+      automation_runs: () => database.listAutomationRuns(context.workspace.id),
+      files: () => database.listWorkspaceDocuments(context.workspace.id),
+      connections: () => database.listIntegrations(context.workspace.id),
+      connector_requests: () => database.listIntegrationRequests(context.workspace.id),
+      notifications: () => database.listWorkspaceNotifications(context.workspace.id),
+      team: () => database.listTeamMembers(context.workspace.id),
+    }
+    if (!readers[resource]) throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'Choose a supported dashboard resource.')
+    const value = await readers[resource]()
+    if (!Array.isArray(value)) return { resource, data: value }
+    const query = textArgument(args, 'query', { maxLength: 200 }).toLowerCase()
+    const limit = Number.isInteger(args.limit) ? Math.min(100, Math.max(1, args.limit)) : 50
+    const matching = query
+      ? value.filter((item) => JSON.stringify(item).toLowerCase().includes(query))
+      : value
+    return { resource, rows: matching.slice(0, limit), total: matching.length }
+  }
+
+  async function createClient(context, args) {
+    const name = textArgument(args, 'name', { required: true, maxLength: 120 })
+    const email = textArgument(args, 'email', { maxLength: 254 }).toLowerCase()
+    const company = textArgument(args, 'company', { maxLength: 160 })
+    const notes = textArgument(args, 'notes', { maxLength: 2_000 })
+    if (name.length < 2 || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+      throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'Use a client name of at least two characters and a valid optional email address.')
+    }
+    return { client: await database.createClient({ workspaceId: context.workspace.id, name, email, company, notes }) }
+  }
+
+  async function createProject(context, args) {
+    const name = textArgument(args, 'name', { required: true, maxLength: 160 })
+    const clientId = textArgument(args, 'client_id', { maxLength: 100 }) || null
+    const clientName = textArgument(args, 'client_name', { maxLength: 160 })
+    const clientEmail = textArgument(args, 'client_email', { maxLength: 254 }).toLowerCase()
+    const scope = textArgument(args, 'scope', { maxLength: 500 }) || 'Created by the Lancee assistant.'
+    const due = textArgument(args, 'due', { maxLength: 40 }) || 'Set date'
+    const status = textArgument(args, 'status', { maxLength: 40 }) || 'In progress'
+    if (name.length < 2 || (!clientId && !clientName && !clientEmail)) {
+      throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'A project name and client id, name, or email are required.')
+    }
+    if (clientEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail)) {
+      throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'The client email is invalid.')
+    }
+    if (!['In progress', 'In review', 'Waiting on client', 'Ready'].includes(status)) {
+      throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'Use a supported project status.')
+    }
+    const project = await database.createProject({
+      workspaceId: context.workspace.id,
+      name,
+      clientId,
+      client: clientName || clientEmail || clientId,
+      clientEmail,
+      scope,
+      due,
+      status,
+    })
+    return { project }
+  }
+
+  async function createFile(context, args) {
+    const name = textArgument(args, 'name', { required: true, maxLength: 240 })
+    const content = String(args.content ?? '')
+    const mimeType = textArgument(args, 'mime_type', { maxLength: 80 }) || (name.toLowerCase().endsWith('.md') ? 'text/markdown' : 'text/plain')
+    if (name.includes('/') || name.includes('\\') || name.includes('\0')) {
+      throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'The file name cannot contain path separators or null characters.')
+    }
+    if (!['text/plain', 'text/markdown', 'application/json'].includes(mimeType)) {
+      throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'Create a text, Markdown, or JSON file.')
+    }
+    const body = Buffer.from(content, 'utf8')
+    if (body.byteLength > MAX_FILE_CONTENT_LENGTH) {
+      throw new LanceeMcpError('MCP_BODY_TOO_LARGE', 'The file content exceeds 512 KB.', 413)
+    }
+    if (mimeType === 'application/json') {
+      try { JSON.parse(content) } catch { throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'JSON file content must be valid JSON.') }
+    }
+    const file = await database.createWorkspaceDocument({ workspaceId: context.workspace.id, name, mimeType, body })
+    return { file }
+  }
+
+  async function requestConnector(context, args) {
+    const name = textArgument(args, 'name', { required: true, maxLength: 120 })
+    const category = textArgument(args, 'category', { required: true, maxLength: 40 })
+    const details = textArgument(args, 'details', { maxLength: 500 })
+    if (name.length < 2 || !['Automation', 'Communication', 'Design', 'Payments', 'Storage', 'Other'].includes(category)) {
+      throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'Use a valid connector name and category.')
+    }
+    const connector = await database.createIntegrationRequest({
+      workspaceId: context.workspace.id,
+      requestedBy: context.user.id,
+      name,
+      category,
+      details,
+    })
+    return { connector }
+  }
+
+  async function configureMcpService(context, args) {
+    requireOwner(context)
+    const serviceId = textArgument(args, 'service_id', { required: true, maxLength: 80 })
+    if (!/^[a-z0-9][a-z0-9._-]{0,79}$/.test(serviceId) || serviceId === 'lancee' || typeof args.active !== 'boolean') {
+      throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'Choose a configurable MCP service and active state.')
+    }
+    const access = await database.getMcpAccess(context.workspace.id)
+    if (access.status !== 'approved') throw new LanceeMcpError('MCP_ACCESS_REQUIRED', 'Approve MCP gateway access before changing services.', 409)
+    const services = await listMcpServices(context.workspace.id)
+    const service = services.find((item) => item.id === serviceId)
+    if (!service || service.status !== 'live') throw new LanceeMcpError('MCP_SERVICE_UNAVAILABLE', 'The requested MCP service is not live.', 404)
+    const state = await database.setMcpServiceState(context.workspace.id, serviceId, args.active)
+    return { service: { id: serviceId, name: service.name, active: state.active } }
+  }
+
+  async function deleteWorkspaceResource(context, args) {
+    requireOwner(context)
+    if (args.confirmation !== 'DELETE') throw new LanceeMcpError('MCP_CONFIRMATION_REQUIRED', 'Type DELETE to confirm this high-risk action.')
+    const resource = textArgument(args, 'resource', { required: true, maxLength: 20 })
+    const id = textArgument(args, 'id', { required: true, maxLength: 100 })
+    if (resource === 'automation') {
+      if (!automationIdPattern.test(id)) throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'A valid automation id is required.')
+      if (!(await database.deleteAutomation(context.workspace.id, id))) throw new LanceeMcpError('MCP_RESOURCE_NOT_FOUND', 'Automation not found.', 404)
+    } else if (resource === 'file') {
+      if (!/^doc_[a-f0-9]{16}$/.test(id)) throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'A valid workspace file id is required.')
+      if (!(await database.getWorkspaceDocument(context.workspace.id, id))) throw new LanceeMcpError('MCP_RESOURCE_NOT_FOUND', 'File not found.', 404)
+      await database.deleteWorkspaceDocument(context.workspace.id, id)
+    } else {
+      throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'Only automations and workspace files can be deleted through this tool.')
+    }
+    return { deleted: true, resource, id }
+  }
+
   async function runWorkflow(context, args) {
     const workflowId = automationId(args.workflow_id)
-    const instruction = textArgument(args, 'instruction', { required: true, maxLength: MAX_INSTRUCTION_LENGTH })
     const provider = textArgument(args, 'provider', { maxLength: 50 }) || null
     if (provider && !/^[a-z0-9][a-z0-9._-]{1,49}$/i.test(provider)) {
       throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'provider must be a valid integration id.')
@@ -481,6 +759,8 @@ export function createLanceeMcpRuntime({
     const workflow = await database.getAutomation(workspaceId, workflowId)
     if (!workflow) throw new LanceeMcpError('MCP_WORKFLOW_NOT_FOUND', 'Workflow not found.', 404)
     if (workflow.status !== 'active') throw new LanceeMcpError('MCP_WORKFLOW_NOT_ACTIVE', 'Activate this workflow before running it.', 409)
+    const instruction = textArgument(args, 'instruction', { maxLength: MAX_INSTRUCTION_LENGTH }) || workflow.instructionTemplate
+    if (!instruction) throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'instruction is required because this workflow has no saved prompt template.')
     await prepareAutomationRun?.(context, workflow, provider)
     const run = await database.createAutomationRun({
       workspaceId,
@@ -620,11 +900,29 @@ export function createLanceeMcpRuntime({
     const context = requireContext(rawContext)
     const args = objectArguments(rawArguments)
     if (name === 'run_workflow') return runWorkflow(context, args)
+    if (name === 'query_dashboard') return queryDashboard(context, args)
+    if (name === 'create_client') return createClient(context, args)
+    if (name === 'create_project') return createProject(context, args)
+    if (name === 'set_project_status') {
+      const projectId = textArgument(args, 'project_id', { required: true, maxLength: 100 })
+      const status = textArgument(args, 'status', { required: true, maxLength: 40 })
+      if (!/^prj_[a-z0-9_-]{6,80}$/i.test(projectId) || !['In progress', 'In review', 'Waiting on client', 'Ready'].includes(status)) {
+        throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'A valid project id and status are required.')
+      }
+      const project = await database.updateProjectStatus(context.workspace.id, projectId, status)
+      if (!project) throw new LanceeMcpError('MCP_RESOURCE_NOT_FOUND', 'Project not found.', 404)
+      return { project }
+    }
+    if (name === 'create_file') return createFile(context, args)
+    if (name === 'request_connector') return requestConnector(context, args)
+    if (name === 'configure_mcp_service') return configureMcpService(context, args)
+    if (name === 'delete_workspace_resource') return deleteWorkspaceResource(context, args)
     if (name === 'create_workflow') {
       const nameValue = textArgument(args, 'name', { required: true, maxLength: 120 })
       const description = textArgument(args, 'description', { required: true, maxLength: 500 })
       if (nameValue.length < 2 || description.length < 2) throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'Workflow name and description must be at least two characters.')
       const model = textArgument(args, 'model', { maxLength: 120 }) || 'Rules + connected tools'
+      const instructionTemplate = textArgument(args, 'prompt_template', { maxLength: MAX_INSTRUCTION_LENGTH })
       const execution = args.execution === undefined ? 'core' : String(args.execution)
       if (!['core', 'edge'].includes(execution)) throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'execution must be core or edge.')
       const tools = args.tools === undefined
@@ -639,6 +937,7 @@ export function createLanceeMcpRuntime({
         name: nameValue,
         description,
         model,
+        instructionTemplate,
         execution,
         tools: [...new Set(tools)],
       })
@@ -680,6 +979,7 @@ export function createLanceeMcpRuntime({
       return { workflow, runs, schedules: scheduled }
     }
     if (name === 'execute_python' || name === 'execute_javascript') {
+      requireOwner(context)
       return executeCode(name === 'execute_python' ? 'python' : 'javascript', args)
     }
     if (name === 'schedule_job') return scheduleJob(context, args)
@@ -695,7 +995,10 @@ export function createLanceeMcpRuntime({
       const logs = (run.events || []).filter((event) => (level === 'all' || event.level === level) && (!eventType || event.eventType === eventType))
       return { runId: selectedRunId, logs: logs.slice(0, limit), total: logs.length }
     }
-    if (name === 'call_external_api') return callExternalApi(args)
+    if (name === 'call_external_api') {
+      requireOwner(context)
+      return callExternalApi(args)
+    }
     throw new LanceeMcpError('MCP_TOOL_NOT_FOUND', `Unknown Lancee MCP tool: ${name}.`, 404)
   }
 

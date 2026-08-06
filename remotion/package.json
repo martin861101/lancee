@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "render": "remotion render src/index.tsx StorefrontPreview ../public/storefront-preview.mp4 --codec=h264"
+    "render": "remotion render src/index.tsx StorefrontPreview ../public/storefront-preview.mp4 --codec=h264",
+    "render:dashboard": "remotion render src/index.tsx DashboardTour ../public/dashboard-tour.mp4 --codec=h264 --crf=18"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.503",

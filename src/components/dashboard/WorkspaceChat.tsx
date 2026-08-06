@@ -5,11 +5,11 @@ type Message = {
   role: 'user' | 'assistant'
   content: string
   proposedAction?: ProposedMcpAction
-  actionState?: 'pending' | 'running' | 'completed' | 'failed'
+  actionState?: 'pending' | 'running' | 'completed' | 'failed' | 'denied'
   actionMessage?: string
 }
 
-const AUTOMATIONS_CHANGED_EVENT = 'lancee:automations-changed'
+export const DASHBOARD_CHANGED_EVENT = 'lancee:dashboard-changed'
 
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -41,7 +41,10 @@ function summarizeOutput(value: unknown) {
       (item === null || ['string', 'number', 'boolean'].includes(typeof item)),
     )
     .slice(0, 4)
-    .map(([key, item]) => `${readableLabel(key)}: ${item === null ? '—' : String(item)}`)
+    .map(([key, item]) => {
+      const display = item === null ? '—' : String(item)
+      return `${readableLabel(key)}: ${display.length > 120 ? `${display.slice(0, 117)}…` : display}`
+    })
     .join(' · ')
 }
 
@@ -97,11 +100,22 @@ export default function WorkspaceChat() {
       const data = objectValue(result.data)
       const workflow = objectValue(data.workflow)
       const queuedRun = objectValue(data.run)
+      const file = objectValue(data.file)
+      const client = objectValue(data.client)
+      const project = objectValue(data.project)
+      const connector = objectValue(data.connector)
+      const service = objectValue(data.service)
       let actionMessage = `${result.message} (${result.duration}ms)`
       let actionState: Message['actionState'] = result.ok ? 'completed' : 'failed'
       if (typeof workflow.id === 'string') {
         actionMessage = `${String(workflow.name || 'Workflow')} created · ${String(workflow.status || 'ready')}`
       }
+      if (typeof file.id === 'string') actionMessage = `${String(file.name || 'File')} saved to Files`
+      if (typeof client.id === 'string') actionMessage = `${String(client.name || 'Client')} saved to Clients`
+      if (typeof project.id === 'string') actionMessage = `${String(project.name || 'Project')} saved · ${String(project.status || 'ready')}`
+      if (typeof connector.id === 'string') actionMessage = `${String(connector.name || 'Connector')} added to Connections · requested`
+      if (typeof service.id === 'string') actionMessage = `${String(service.name || service.id)} ${service.active ? 'activated' : 'deactivated'}`
+      if (data.deleted === true) actionMessage = `${readableLabel(String(data.resource || 'resource'))} deleted`
       if (typeof queuedRun.id === 'string') {
         actionMessage = 'Workflow queued…'
         for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -113,7 +127,7 @@ export default function WorkspaceChat() {
           if (run.status !== 'running') break
         }
       }
-      window.dispatchEvent(new Event(AUTOMATIONS_CHANGED_EVENT))
+      window.dispatchEvent(new Event(DASHBOARD_CHANGED_EVENT))
       setMessages((current) => current.map((item, itemIndex) => itemIndex === index
         ? { ...item, actionState, actionMessage }
         : item))
@@ -124,9 +138,55 @@ export default function WorkspaceChat() {
     }
   }
 
+  const denyAction = (index: number) => {
+    setMessages((current) => current.map((item, itemIndex) => itemIndex === index
+      ? { ...item, actionState: 'denied', actionMessage: 'Action not approved.' }
+      : item))
+  }
+
   return (
     <aside className={`workspace-chat${open ? ' is-open' : ''}`}>
-      {open && <div className="workspace-chat__panel"><header><div><span className="micro-label">Workspace assistant</span><strong>Ask about your work</strong></div><button type="button" onClick={() => setOpen(false)} aria-label="Close assistant">×</button></header><div className="workspace-chat__messages">{messages.length === 0 && <p>Ask about projects, clients, invoices, or automation activity. I can answer questions and help get work done, and I will confirm before making changes.</p>}{messages.map((item, index) => <div className={`workspace-chat__message workspace-chat__message--${item.role}`} key={`${item.role}:${index}`}><div>{item.content}</div>{item.proposedAction && <div className="workspace-chat__action"><span>Ready to make this change</span>{item.actionState === 'pending' && <button type="button" onClick={() => void approveAction(index)}>Confirm</button>}{item.actionState === 'running' && <small>Working…</small>}{item.actionMessage && <small>{item.actionMessage}</small>}</div>}</div>)}{busy && <div className="workspace-chat__message workspace-chat__message--assistant">Thinking…</div>}</div><form onSubmit={submit}><input value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Ask about this workspace…" disabled={busy} /><button className="button button--primary button--small" type="submit" disabled={busy || !message.trim()}>Send</button></form></div>}
+      {open && (
+        <div className="workspace-chat__panel">
+          <header>
+            <div><span className="micro-label">Workspace assistant</span><strong>Ask about your work</strong></div>
+            <button type="button" onClick={() => setOpen(false)} aria-label="Close assistant">×</button>
+          </header>
+          <div className="workspace-chat__messages">
+            {messages.length === 0 && (
+              <p>Ask about any dashboard area. I can use approved MCP services, create files and records, add connector requests, and build prompt-backed workflows. Every tool action asks for confirmation first.</p>
+            )}
+            {messages.map((item, index) => (
+              <div className={`workspace-chat__message workspace-chat__message--${item.role}`} key={`${item.role}:${index}`}>
+                <div>{item.content}</div>
+                {item.proposedAction && (
+                  <div className="workspace-chat__action">
+                    <span>{item.proposedAction.title}</span>
+                    <small>{item.proposedAction.description}</small>
+                    <small>{item.proposedAction.risk === 'high' ? 'High risk · owner approval required' : `${readableLabel(item.proposedAction.risk)} risk · confirmation required`}</small>
+                    <small>{summarizeOutput(item.proposedAction.arguments)}</small>
+                    {item.actionState === 'pending' && (
+                      <div>
+                        <button type="button" onClick={() => void approveAction(index)}>
+                          {item.proposedAction.risk === 'high' ? 'Approve high-risk action' : 'Confirm'}
+                        </button>
+                        <button type="button" onClick={() => denyAction(index)}>Deny</button>
+                      </div>
+                    )}
+                    {item.actionState === 'running' && <small>Working…</small>}
+                    {item.actionMessage && <small>{item.actionMessage}</small>}
+                  </div>
+                )}
+              </div>
+            ))}
+            {busy && <div className="workspace-chat__message workspace-chat__message--assistant">Thinking…</div>}
+          </div>
+          <form onSubmit={submit}>
+            <input value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Ask Lancee to inspect or change the workspace…" disabled={busy} />
+            <button className="button button--primary button--small" type="submit" disabled={busy || !message.trim()}>Send</button>
+          </form>
+        </div>
+      )}
       <button type="button" className="workspace-chat__toggle" onClick={() => setOpen((value) => !value)} aria-label="Open workspace assistant">✦ <span>Ask lancee</span></button>
     </aside>
   )

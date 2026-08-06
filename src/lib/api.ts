@@ -26,6 +26,7 @@ export type Automation = {
   accent: string
   status: AutomationStatus
   model: string
+  instructionTemplate: string
   execution: 'core' | 'edge'
   runs: number
   successRate: number
@@ -85,7 +86,7 @@ export type Integration = {
   id: string
   name: string
   description: string
-  category: 'Automation' | 'Communication' | 'Design' | 'Payments' | 'Storage'
+  category: 'Automation' | 'Communication' | 'Design' | 'Payments' | 'Storage' | 'Other'
   connected: boolean
   icon: string
   accent: string
@@ -212,6 +213,10 @@ export type ProposedMcpAction = {
   serviceId: string
   toolId: string
   arguments: Record<string, unknown>
+  title: string
+  description: string
+  risk: 'low' | 'medium' | 'high'
+  readOnly: boolean
 }
 
 export type StorefrontDomain = {
@@ -408,6 +413,118 @@ export type WorkspaceSettings = {
   updatedAt: string
 }
 
+export type WorkspaceBuilderAnswers = {
+  business: {
+    name: string
+    industry: string
+    size: 'solo' | '2-5' | '6-20' | '21-50' | '50+'
+    country: string
+    timezone: string
+    logoName: string
+  }
+  activities: string[]
+  tools: string[]
+  people: string[]
+  inviteTeam: boolean
+  processes: Record<string, boolean>
+  uniqueRequirements: string
+  sampleData: boolean
+}
+
+export type WorkspaceBuilderAutomation = {
+  id: string
+  name: string
+  description: string
+  trigger: string
+  actions: string[]
+}
+
+export type WorkspaceBuilderRecommendation = {
+  modules: string[]
+  integrations: string[]
+  automations: WorkspaceBuilderAutomation[]
+  dashboards: string[]
+  permissions: Array<{ role: string; access: string }>
+  templates: string[]
+  notifications: string[]
+  reasons: Record<string, string>
+}
+
+export type WorkspaceBuilderAiSuggestion = {
+  id: string
+  title: string
+  description: string
+  trigger: string
+  steps: string[]
+  approved: boolean
+}
+
+export type WorkspaceBuilderGenerated = {
+  modules?: string[]
+  integrations?: string[]
+  automations?: string[]
+  dashboards?: string[]
+  permissions?: Array<{ role: string; access: string }>
+  templates?: string[]
+  notifications?: string[]
+  sampleDataCreated?: boolean
+  connectionsPending?: number
+  generatedAt?: string
+  aiSuggestionsAccepted?: number
+  engineVersion?: number
+  draftSelection?: {
+    modules: string[]
+    integrations: string[]
+    automationIds: string[]
+    aiSuggestionIds: string[]
+  }
+}
+
+export type WorkspaceBuilderState = {
+  workspaceId: string
+  requiredSetup: boolean
+  status: 'not_started' | 'in_progress' | 'review' | 'generating' | 'completed'
+  step: number
+  answers: Partial<WorkspaceBuilderAnswers>
+  recommendation: Partial<WorkspaceBuilderRecommendation>
+  aiSuggestions: WorkspaceBuilderAiSuggestion[]
+  generated: WorkspaceBuilderGenerated
+  completedAt: string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export type WorkspaceBuilderCatalog = {
+  modules: Array<{ id: string; name: string; description: string }>
+  integrations: Array<{ id: string; name: string; category: string }>
+  activities: Array<{ id: string; name: string }>
+  processes: Array<{ id: string; question: string }>
+  businessSizes: Array<{ id: WorkspaceBuilderAnswers['business']['size']; name: string }>
+  people: Array<{ id: string; name: string }>
+}
+
+export type WorkspaceBuilderPayload = {
+  state: WorkspaceBuilderState
+  catalog: WorkspaceBuilderCatalog
+}
+
+export type WorkspaceContext = {
+  location: {
+    city: string | null
+    region: string | null
+    country: string | null
+    timezone: string | null
+  } | null
+  weather: {
+    temperatureC: number
+    apparentTemperatureC: number
+    weatherCode: number
+    isDay: boolean
+    windSpeedKmh: number
+  } | null
+  fetchedAt: string
+}
+
 export type Project = {
   id: string
   workspaceId?: string
@@ -528,6 +645,7 @@ export type WorkspaceDocument = {
   mimeType: string
   size: number
   sha256: string
+  storagePointId: string | null
   driveFileId: string | null
   driveWebViewLink: string | null
   syncedAt: string | null
@@ -974,6 +1092,7 @@ export const api = {
     },
     async create(
       input: Pick<Automation, 'name' | 'description' | 'model'> & {
+        instructionTemplate?: string
         execution?: Automation['execution']
         tools?: string[]
       },
@@ -1360,6 +1479,19 @@ export const api = {
     },
   },
   integrationRequests: {
+    async list() {
+      const response = await fetch('/api/integration-requests', {
+        credentials: 'same-origin',
+      })
+      const payload = (await response.json()) as {
+        requests?: IntegrationRequest[]
+        error?: string
+      }
+      if (!response.ok || !payload.requests) {
+        throw new Error(payload.error || 'Unable to load connection requests.')
+      }
+      return payload.requests
+    },
     async create(input: Pick<IntegrationRequest, 'name' | 'category' | 'details'>) {
       const response = await fetch('/api/integration-requests', {
         method: 'POST',
@@ -1826,6 +1958,17 @@ export const api = {
     },
   },
   workspace: {
+    async getContext() {
+      const response = await fetch('/api/workspace/context', {
+        credentials: 'same-origin',
+        cache: 'no-store',
+      })
+      const payload = (await response.json()) as WorkspaceContext & { error?: string }
+      if (!response.ok || typeof payload.fetchedAt !== 'string') {
+        throw new Error(payload.error || 'Unable to load local workspace context.')
+      }
+      return payload as WorkspaceContext
+    },
     async getSettings() {
       const response = await fetch('/api/workspace/settings', { credentials: 'same-origin' })
       const payload = (await response.json()) as WorkspaceSettings & { error?: string }
@@ -1846,6 +1989,113 @@ export const api = {
         throw new Error(payload.error || 'Unable to save workspace settings.')
       }
       return payload as WorkspaceSettings
+    },
+    async uploadLogo(file: File) {
+      const response = await fetch('/api/workspace/logo', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': file.type,
+          'Idempotency-Key': crypto.randomUUID(),
+        },
+        body: file,
+      })
+      const payload = (await response.json()) as WorkspaceSettings & { error?: string }
+      if (!response.ok || typeof payload.logoUrl !== 'string') {
+        throw new Error(payload.error || 'Unable to upload the workspace logo.')
+      }
+      return payload as WorkspaceSettings
+    },
+  },
+  workspaceBuilder: {
+    async get(): Promise<WorkspaceBuilderPayload> {
+      const response = await fetch('/api/workspace-builder', {
+        credentials: 'same-origin',
+        cache: 'no-store',
+      })
+      const payload = (await response.json()) as WorkspaceBuilderPayload & { error?: string }
+      if (!response.ok || !payload.state || !payload.catalog) {
+        throw new Error(payload.error || 'Unable to load the workspace builder.')
+      }
+      return payload
+    },
+    async saveDraft(
+      answers: WorkspaceBuilderAnswers,
+      step: number,
+      restart = false,
+      selection?: WorkspaceBuilderGenerated['draftSelection'],
+    ): Promise<WorkspaceBuilderState> {
+      const response = await fetch('/api/workspace-builder/draft', {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify({ answers, step, restart, selection }),
+      })
+      const payload = (await response.json()) as { state?: WorkspaceBuilderState; error?: string }
+      if (!response.ok || !payload.state) {
+        throw new Error(payload.error || 'Unable to save your setup progress.')
+      }
+      return payload.state
+    },
+    async recommend(answers: WorkspaceBuilderAnswers): Promise<WorkspaceBuilderState> {
+      const response = await fetch('/api/workspace-builder/recommend', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify({ answers }),
+      })
+      const payload = (await response.json()) as { state?: WorkspaceBuilderState; error?: string }
+      if (!response.ok || !payload.state) {
+        throw new Error(payload.error || 'Unable to prepare your workspace recommendation.')
+      }
+      return payload.state
+    },
+    async suggest(requirement: string): Promise<{
+      state: WorkspaceBuilderState
+      aiAvailable: boolean
+      message: string
+    }> {
+      const response = await fetch('/api/workspace-builder/ai-suggestions', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify({ requirement }),
+      })
+      const payload = (await response.json()) as {
+        state?: WorkspaceBuilderState
+        aiAvailable?: boolean
+        message?: string
+        error?: string
+      }
+      if (!response.ok || !payload.state) {
+        throw new Error(payload.error || 'Unable to customise the workspace.')
+      }
+      return {
+        state: payload.state,
+        aiAvailable: payload.aiAvailable !== false,
+        message: payload.message || '',
+      }
+    },
+    async generate(selection: {
+      modules: string[]
+      integrations: string[]
+      automationIds: string[]
+      aiSuggestionIds: string[]
+    }, idempotencyKey = crypto.randomUUID()): Promise<WorkspaceBuilderState> {
+      const response = await fetch('/api/workspace-builder/generate', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
+        },
+        body: JSON.stringify({ selection }),
+      })
+      const payload = (await response.json()) as { state?: WorkspaceBuilderState; error?: string }
+      if (!response.ok || !payload.state) {
+        throw new Error(payload.error || 'Unable to generate the workspace.')
+      }
+      return payload.state
     },
   },
   database: {
@@ -2194,8 +2444,9 @@ export const api = {
     },
     async upload(
       file: File,
-      destination: 'local' | 'drive' | 'both',
+      destination: 'local' | 'drive' | 'dropbox' | 'onedrive',
       folderId?: string,
+      storagePointId?: string,
     ) {
       const response = await fetch('/api/documents', {
         method: 'POST',
@@ -2207,6 +2458,7 @@ export const api = {
           'X-File-Type': file.type || 'application/octet-stream',
           'X-File-Destination': destination,
           ...(folderId ? { 'X-Drive-Folder-Id': folderId } : {}),
+          ...(storagePointId ? { 'X-Storage-Point-Id': storagePointId } : {}),
         },
         body: file,
       })
@@ -2310,6 +2562,7 @@ export const api = {
           label: string
           folderUrl: string
           notes: string
+          isDefault: boolean
           createdAt: string
           updatedAt: string
         }>
@@ -2325,6 +2578,7 @@ export const api = {
       label: string
       folderUrl: string
       notes?: string
+      isDefault?: boolean
     }) {
       const response = await fetch('/api/workspace/cloud-links', {
         method: 'POST',
@@ -2338,6 +2592,7 @@ export const api = {
         label?: string
         folderUrl?: string
         notes?: string
+        isDefault?: boolean
         createdAt?: string
         updatedAt?: string
         error?: string
@@ -2351,8 +2606,20 @@ export const api = {
         label: string
         folderUrl: string
         notes: string
+        isDefault: boolean
         createdAt: string
         updatedAt: string
+      }
+    },
+    async setDefault(linkId: string) {
+      const response = await fetch(`/api/workspace/cloud-links/${encodeURIComponent(linkId)}/default`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(),
+      })
+      if (!response.ok && response.status !== 204) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string }
+        throw new Error(payload.error || 'Unable to set the storage point.')
       }
     },
     async remove(linkId: string) {

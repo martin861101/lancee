@@ -54,8 +54,9 @@ the supporting automation documentation in [`automations/`](automations/).
 - **Public landing page** — freelancer-focused product narrative, workflow
   explanation, connection highlights, security posture, and sign-in calls to
   action.
-- **Home** — projects, deadlines, outstanding invoices, useful automations,
-  recent activity, and one quick-task entry point.
+- **Home** — a compact date, local time, city, and weather masthead above
+  projects, deadlines, outstanding invoices, useful automations, recent
+  activity, and one quick-task entry point.
 - **Clients** — a sidebar-accessible client directory with search, contact
   details, status controls, project counts, confirmed deletion, and a focused
   client workspace. Client records can be edited, branded with a logo, and
@@ -71,15 +72,20 @@ the supporting automation documentation in [`automations/`](automations/).
   shapes, arrows, text, images, embeddable content, reusable libraries, export,
   and keyboard/touch editing. Named boards remain attached to the lancee
   workspace and each canvas is restored locally between sessions.
-- **Files** — an expandable Google Drive folder tree with persistent links to
-  clients and projects, plus a lancee document library. Upload PDF, DOC/DOCX,
-  Markdown, text, and image files to lancee, Drive, or both; edit supported
-  documents in-app, sync local files to Drive later, and remove local workspace
-  copies with a visible, confirmation-protected action. Google Picker selections
-  are persisted per workspace, stale Drive results are not reintroduced from
-  browser caches, folder contents load on demand, and eligible files can be
-  moved to Google Drive trash. The page uses its own vertical scroll region so
-  long file lists remain usable on desktop and mobile.
+- **Files** — a reference-style dark file explorer with consistent SVG
+  controls, readable quick-access cards, aligned folder and document tables,
+  a storage-aware internal sidebar, responsive mobile layouts, and a lancee
+  document library. Storage options are local workspace, Google Drive,
+  Dropbox, and Microsoft OneDrive. Each cloud option can have a named,
+  workspace-scoped storage point with a default destination; Dropbox and
+  OneDrive points are intentionally URL-backed destinations rather than
+  provider browsers, while the optional Google Drive browser remains available
+  for existing Drive selections. Upload PDF, DOC/DOCX, Markdown, text, and
+  image files to the local library or assign them to a configured storage
+  point. Supported documents remain editable in-app, Google Drive files can be
+  synced later, and local files have a visible confirmation-protected remove
+  action. The page keeps its own scroll region so long file lists remain usable
+  on desktop and mobile.
 - **Messages** — a workspace mail app with automatic provider discovery,
   guided manual IMAP/SMTP setup, folders, search, message reading, compose and
   reply. New incoming mail can trigger native Core automations by sender,
@@ -151,6 +157,15 @@ All motion is disabled when the visitor requests reduced motion. See
 [`docs/LANDING_MOTION.md`](docs/LANDING_MOTION.md) for configuration and
 maintenance notes.
 
+The authenticated Home page presents the date and local time in one compact
+control and the city, temperature, and conditions in a separate weather card.
+It intentionally avoids technical status labels. The backend resolves the
+session's public IP to a city, country, and timezone, then requests current
+conditions for those coordinates. The greeting, clock, and weather refresh
+without hard-coded “Good morning” text and fall back safely when a provider is
+unavailable. The implementation details and storage-point model are documented
+in [`docs/FILES_CONTEXT_AND_STORAGE.md`](docs/FILES_CONTEXT_AND_STORAGE.md).
+
 ## Authentication
 
 The current production build uses first-party server sessions rather than
@@ -161,7 +176,7 @@ Firebase:
 - The browser receives a signed `HttpOnly`, `Secure`, `SameSite=Lax` cookie.
 - Session bootstrap, login, and logout use `/api/auth/*`.
 - Public authentication has dedicated `/signin` and `/signup` routes. Signup
-  collects the account details first, sends a 24-hour email confirmation link,
+  is enabled in the public UI, collects the account details first, sends a 24-hour email confirmation link,
   and only creates the workspace after the link is used at
   `/signup/confirm?token=…` to choose a password.
 - Login is rate-limited to five failed attempts per 15-minute window.
@@ -187,6 +202,23 @@ documentation.
 Administrator access starts at
 [https://lancee.hookitupservices.com](https://lancee.hookitupservices.com) using the
 configured `ADMIN_EMAIL` and its corresponding password.
+
+## Adaptive Workspace Builder
+
+New workspace owners are guided through a resumable ten-step setup that asks
+about the business in plain language, recommends the smallest useful set of
+modules, and prepares the approved setup. The base recommendation comes from a
+deterministic profile engine; optional AI customization is offered only for
+requirements the predefined profiles do not cover, and every AI workflow needs
+explicit approval.
+
+Generation persists the selected module manifest, prepares disconnected
+integrations, creates inactive automation drafts, applies workspace identity and
+timezone, and can add a clearly labelled sample client and project. Existing
+workspaces are not forced through setup and can open **Platform → Workspace
+builder** at any time. See
+[`docs/WORKSPACE_BUILDER.md`](docs/WORKSPACE_BUILDER.md) for the state model,
+security boundaries, API, and verification workflow.
 
 ## Built-in MCP capability
 
@@ -215,11 +247,20 @@ PostgreSQL (or the local SQLite development fallback). Catalog discovery and
 tool invocation are live server-to-server calls; bearer tokens never enter the
 browser.
 The workspace assistant uses native provider function calls to propose tools,
-but the browser still shows an explicit **Approve & run** control before
-invoking one. The nine built-in Lancee tools are always available to an
-authenticated workspace; optional external MCP services still require their
-server-side bearer grant. Invocation resolves the catalog tool id to the live
-runtime at the server boundary.
+but the browser still shows an explicit risk-labelled **Confirm** or **Approve
+high-risk action** control before invoking one. The 17 built-in Lancee tools
+are always available to an authenticated workspace; optional external MCP
+services still require their server-side bearer grant and per-service
+activation. Invocation resolves the catalog tool id to the live runtime at the
+server boundary.
+
+The built-in dashboard control plane can read workspace-scoped PostgreSQL data
+without exposing raw SQL or database credentials, create clients and projects,
+change project status, create text/Markdown/JSON files, save connector requests
+into **Connections**, activate discovered MCP services, and create prompt-backed
+Core or Edge workflows. Every tool call is individually approved. Destructive
+deletion, MCP service changes, external API calls, and enabled code execution
+are additionally restricted to workspace owners.
 
 See [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) and
 [`mcp-conf/MCP.md`](mcp-conf/MCP.md).
@@ -244,6 +285,19 @@ remembered per workspace in the dashboard. The copied source templates live in
 [`storefront/templates`](storefront/templates). Video and byte-range requests
 bypass the offline shell cache so browser playback controls receive valid MP4
 range responses instead of cached partial responses.
+
+## Dashboard tour video
+
+The `DashboardTour` Remotion composition turns real dark-theme captures of all
+17 dashboard routes into a labeled 1080p walkthrough. Render it with:
+
+```bash
+npm --prefix remotion run render:dashboard
+```
+
+The generated clip is `public/dashboard-tour.mp4`. See
+[`docs/DASHBOARD_TOUR_VIDEO.md`](docs/DASHBOARD_TOUR_VIDEO.md) for the page
+manifest, source-capture location, and refresh workflow.
 
 The dashboard editor is available from **Storefront → Edit storefront/page**.
 Use the left content-block palette to add sections, drag sections to reorder
@@ -296,7 +350,7 @@ workspace data boundaries should be reused as described in the design.
 The repo-local [`plugins/lancee-ai`](plugins/lancee-ai) plugin lets Codex use
 the AI provider and workspace automations configured for an approved lancee
 workspace. Its bundled MCP server exposes `connect`, `ai_status`, `complete`,
-and the nine Lancee MCP tools documented in
+and the 17 Lancee MCP tools documented in
 [`docs/LANCEE_MCP.md`](docs/LANCEE_MCP.md).
 
 The **Connections** page includes a **lancee AI for Codex** card. Open it to
@@ -322,14 +376,16 @@ security, packaging, configuration, and verification details.
 
 The Lancee MCP bridge is the agent-facing surface for the platform itself. It
 uses the same device approval flow as the AI connector, but requires the
-separate `mcp:invoke` scope. It exposes workspace-scoped workflow search,
-creation, execution, status, logs, durable scheduling, bounded external API
-calls, and enabled Python/JavaScript execution.
+separate `mcp:invoke` scope. It exposes workspace-scoped dashboard reads,
+client/project/file/connector actions, MCP service control, workflow search,
+prompt-backed creation, execution, status, logs, durable scheduling, bounded
+external API calls, and enabled Python/JavaScript execution.
 
 The same runtime is available to the floating dashboard assistant. Asking it
 to create a workflow produces a typed approval request; approval creates and
-activates the workflow, refreshes the Automations UI, and makes it immediately
-eligible for `run_workflow` or `schedule_job`.
+activates the workflow, saves its optional reusable prompt or JSON step plan,
+refreshes the dashboard UI, and makes it immediately eligible for
+`run_workflow` or `schedule_job`.
 
 The bridge is implemented by
 [`plugins/lancee-ai/scripts/mcp-server.mjs`](plugins/lancee-ai/scripts/mcp-server.mjs)
@@ -512,6 +568,33 @@ Implementation details, persistence boundaries, and current provider behavior
 are documented in
 [`docs/DASHBOARD_UPDATE_31.md`](docs/DASHBOARD_UPDATE_31.md).
 
+## Dashboard routing and resilience
+
+Authenticated pages use durable browser routes. Home is available at
+`/dashboard`; every other workspace area uses `/dashboard/<page>`, including
+`/dashboard/clients`, `/dashboard/work`, `/dashboard/files`, and
+`/dashboard/settings`. Direct links restore after sign-in, browser Back and
+Forward update the active page, refreshes preserve the current view, and legacy
+`?page=<page>` links are upgraded to their canonical route. Unknown dashboard
+paths safely return to Home after session restoration. The Express production
+server serves the application shell for these routes while keeping `/api/*`
+404 responses as JSON.
+
+The desktop sidebar can be collapsed and remembers that preference. On mobile,
+navigation uses an accessible drawer and dismissible scrim without shifting the
+page canvas. The top bar and content shell constrain long workspace/page labels
+to prevent horizontal overflow.
+
+Workspace startup is failure-tolerant: independent service requests settle
+separately, successful data remains usable when an optional integration is
+unavailable, stale async updates are ignored after session changes, and a
+top-level recovery screen handles unexpected render or lazy-chunk failures.
+The document title follows the active dashboard page for clearer tabs and
+history navigation.
+
+The implementation and verification record is in
+[`changelog_20260804_090222.md`](changelog_20260804_090222.md).
+
 ## Backend status
 
 The browser client in [`src/lib/api.ts`](src/lib/api.ts) uses real Express APIs;
@@ -643,6 +726,7 @@ pnpm verify:ai
 pnpm verify:codex-connector
 pnpm verify:google-drive
 pnpm verify:workspace-flows
+pnpm verify:workspace-builder
 pnpm verify:client-files
 pnpm verify:platform
 # With DATABASE_URL or PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE:

@@ -285,7 +285,7 @@ try {
   assert.equal(servicesResponse.status, 200)
   const builtInService = (await servicesResponse.json()).services.find((service) => service.id === 'lancee')
   assert.equal(builtInService.active, true)
-  assert.equal(builtInService.tools.length, 9)
+  assert.equal(builtInService.tools.length, 17)
 
   const assistantCreateResponse = await sessionRequest(
     application.origin,
@@ -299,7 +299,11 @@ try {
   )
   assert.equal(assistantCreateResponse.status, 200)
   const assistantCreate = await assistantCreateResponse.json()
-  assert.deepEqual(assistantCreate.proposedAction, {
+  assert.deepEqual({
+    serviceId: assistantCreate.proposedAction.serviceId,
+    toolId: assistantCreate.proposedAction.toolId,
+    arguments: assistantCreate.proposedAction.arguments,
+  }, {
     serviceId: 'lancee',
     toolId: 'create_workflow',
     arguments: {
@@ -326,6 +330,48 @@ try {
   assert.equal(approvedCreateResponse.status, 200)
   const assistantWorkflow = (await approvedCreateResponse.json()).data.workflow
   assert.equal(assistantWorkflow.status, 'active')
+
+  const createFileResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/mcp/invoke',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'assistant-create-file-0001',
+      },
+      body: JSON.stringify({
+        serviceId: 'lancee',
+        toolId: 'create_file',
+        arguments: { name: 'assistant-note.md', content: '# Saved by Lancee', mime_type: 'text/markdown' },
+      }),
+    },
+  )
+  assert.equal(createFileResponse.status, 200)
+  assert.match((await createFileResponse.json()).data.file.id, /^doc_[a-f0-9]{16}$/)
+
+  const requestConnectorResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/mcp/invoke',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'assistant-request-connector-0001',
+      },
+      body: JSON.stringify({
+        serviceId: 'lancee',
+        toolId: 'request_connector',
+        arguments: { name: 'PostgreSQL MCP', category: 'Automation', details: 'Workspace-scoped database tools.' },
+      }),
+    },
+  )
+  assert.equal(requestConnectorResponse.status, 200)
+  const requestsResponse = await sessionRequest(application.origin, cookie, '/api/integration-requests')
+  assert.equal(requestsResponse.status, 200)
+  assert((await requestsResponse.json()).requests.some((item) => item.name === 'PostgreSQL MCP'))
 
   const assistantRunResponse = await sessionRequest(
     application.origin,
@@ -436,6 +482,14 @@ try {
       'schedule_job',
       'get_logs',
       'call_external_api',
+      'query_dashboard',
+      'create_client',
+      'create_project',
+      'set_project_status',
+      'create_file',
+      'request_connector',
+      'configure_mcp_service',
+      'delete_workspace_resource',
     ],
   )
 
@@ -472,6 +526,12 @@ try {
   })
   assert(Array.isArray(workflowSearch.result.structuredContent.workflows))
 
+  const dashboardQuery = await connector.rpc('tools/call', {
+    name: 'query_dashboard',
+    arguments: { resource: 'connections', limit: 10 },
+  })
+  assert(Array.isArray(dashboardQuery.result.structuredContent.rows))
+
   const javascriptExecution = await connector.rpc('tools/call', {
     name: 'execute_javascript',
     arguments: { code: 'console.log(6 * 7)' },
@@ -493,6 +553,7 @@ try {
     arguments: {
       name: 'Scheduled connector workflow',
       description: 'Verify durable Lancee scheduling.',
+      prompt_template: 'Summarize this workspace.',
     },
   })
   const workflow = createdWorkflow.result.structuredContent.workflow
@@ -503,7 +564,6 @@ try {
     name: 'run_workflow',
     arguments: {
       workflow_id: workflow.id,
-      instruction: 'Summarize this workspace.',
     },
   })
   const directRun = directRunResult.result.structuredContent.run

@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { resolveCname, resolveTxt } from 'node:dns/promises'
+import { isIP } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import express from 'express'
 import { openDatabase } from './database.mjs'
@@ -45,6 +46,14 @@ import {
   getAiStatus,
   AiError,
 } from './ai.mjs'
+import {
+  automationById,
+  buildWorkspaceRecommendation,
+  normalizeAiSuggestions,
+  normalizeBuilderAnswers,
+  normalizeGenerationSelection,
+  workspaceBuilderCatalog,
+} from './workspace-builder.mjs'
 import {
   coreToolCatalog,
   automationPlan,
@@ -178,6 +187,9 @@ const loginAttempts = new Map()
 const deviceAuthorizationAttempts = new Map()
 const apiKeyPermissions = new Set(['workspace:read', 'mcp:read', 'ai:invoke'])
 const codexClientId = 'lancee-codex-plugin'
+const workspaceContextCache = new Map()
+const workspaceContextCacheTtlMilliseconds = 15 * 60 * 1000
+const workspaceContextRequestTimeoutMilliseconds = 5_000
 const codexAiScope = 'ai:invoke'
 const codexScopes = new Set([codexAiScope, lanceeMcpScope])
 const deviceCodeTtlSeconds = 10 * 60
@@ -407,8 +419,16 @@ async function createWorkspaceAccount({ email, password, name, workspaceName }) 
       `INSERT INTO workspace_settings (workspace_id, name, updated_at) VALUES ($1, $2, $3)`,
       [workspaceIdForAccount, workspaceName, now],
     )
+    await database.query(
+      `INSERT INTO workspace_builder_configs (
+         workspace_id, required_setup, status, step, created_at, updated_at
+       ) VALUES ($1, 1, 'not_started', 0, $2, $2)`,
+      [workspaceIdForAccount, now],
+    )
     const defaultIntegrations = [
       { id: 'drive', connected: 0 },
+      { id: 'dropbox', connected: 0 },
+      { id: 'onedrive', connected: 0 },
       { id: 'paystack', connected: 0 },
       { id: 'n8n', connected: 0 },
       { id: 'mcp-grid', connected: 0 },
@@ -531,6 +551,157 @@ function verifyPassword(password, context) {
 
 function clientAddress(request) {
   return request.ip || request.socket.remoteAddress || 'unknown'
+}
+
+function normalizedIpAddress(address) {
+  const value = String(address || '').trim()
+  return value.toLowerCase().startsWith('::ffff:') ? value.slice(7) : value
+}
+
+function isPrivateIpAddress(address) {
+  const normalized = normalizedIpAddress(address)
+  const version = isIP(normalized)
+  if (version === 4) {
+    const [first, second] = normalized.split('.').map(Number)
+    return (
+      first === 0 ||
+      first === 10 ||
+      first === 127 ||
+      (first === 100 && second >= 64 && second <= 127) ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 168)
+    )
+  }
+  if (version === 6) {
+    const lower = normalized.toLowerCase()
+    return (
+      lower === '::' ||
+      lower === '::1' ||
+      lower.startsWith('fc') ||
+      lower.startsWith('fd') ||
+      lower.startsWith('fe8') ||
+      lower.startsWith('fe9') ||
+      lower.startsWith('fea') ||
+      lower.startsWith('feb') ||
+      lower.startsWith('ff')
+    )
+  }
+  return true
+}
+
+function publicClientIp(request) {
+  const address = normalizedIpAddress(clientAddress(request))
+  return isPrivateIpAddress(address) ? null : address
+}
+
+async function fetchWorkspaceContextJson(url) {
+  const response = await fetch(url, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(workspaceContextRequestTimeoutMilliseconds),
+  })
+  if (!response.ok) {
+    throw new Error(`Workspace context provider returned HTTP ${response.status}.`)
+  }
+  return await response.json()
+}
+
+function emptyWorkspaceContext() {
+  return {
+    location: null,
+    weather: null,
+    fetchedAt: nowIso(),
+  }
+}
+
+async function loadWorkspaceContext(request) {
+  const ip = publicClientIp(request)
+  if (!ip) return emptyWorkspaceContext()
+
+  const cached = workspaceContextCache.get(ip)
+  if (cached && cached.expiresAt > Date.now()) return cached.value
+
+  let locationData
+  try {
+    locationData = await fetchWorkspaceContextJson(
+      `https://ipwho.is/${encodeURIComponent(ip)}?fields=success,city,region,country,latitude,longitude,timezone`,
+    )
+  } catch {
+    const value = emptyWorkspaceContext()
+    workspaceContextCache.set(ip, {
+      value,
+      expiresAt: Date.now() + workspaceContextCacheTtlMilliseconds,
+    })
+    return value
+  }
+
+  const latitude = Number(locationData?.latitude)
+  const longitude = Number(locationData?.longitude)
+  const timezone =
+    typeof locationData?.timezone === 'object'
+      ? String(locationData.timezone?.id || '').trim() || null
+      : String(locationData?.timezone || '').trim() || null
+  if (
+    locationData?.success !== true ||
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude)
+  ) {
+    const value = emptyWorkspaceContext()
+    workspaceContextCache.set(ip, {
+      value,
+      expiresAt: Date.now() + workspaceContextCacheTtlMilliseconds,
+    })
+    return value
+  }
+
+  const location = {
+    city: String(locationData.city || '').trim() || null,
+    region: String(locationData.region || '').trim() || null,
+    country: String(locationData.country || '').trim() || null,
+    timezone,
+  }
+  let weather = null
+  try {
+    const weatherUrl = new URL('https://api.open-meteo.com/v1/forecast')
+    weatherUrl.searchParams.set('latitude', String(latitude))
+    weatherUrl.searchParams.set('longitude', String(longitude))
+    weatherUrl.searchParams.set(
+      'current',
+      'temperature_2m,apparent_temperature,weather_code,is_day,wind_speed_10m',
+    )
+    weatherUrl.searchParams.set('temperature_unit', 'celsius')
+    weatherUrl.searchParams.set('wind_speed_unit', 'kmh')
+    weatherUrl.searchParams.set('timezone', 'auto')
+    const weatherData = await fetchWorkspaceContextJson(weatherUrl)
+    const current = weatherData?.current
+    const temperatureC = Number(current?.temperature_2m)
+    const apparentTemperatureC = Number(current?.apparent_temperature)
+    const weatherCode = Number(current?.weather_code)
+    const windSpeedKmh = Number(current?.wind_speed_10m)
+    if (
+      Number.isFinite(temperatureC) &&
+      Number.isFinite(apparentTemperatureC) &&
+      Number.isFinite(weatherCode) &&
+      Number.isFinite(windSpeedKmh)
+    ) {
+      weather = {
+        temperatureC,
+        apparentTemperatureC,
+        weatherCode,
+        isDay: Number(current?.is_day) === 1,
+        windSpeedKmh,
+      }
+    }
+  } catch {
+    // Location and local time remain useful when the weather provider is unavailable.
+  }
+
+  const value = { location, weather, fetchedAt: nowIso() }
+  workspaceContextCache.set(ip, {
+    value,
+    expiresAt: Date.now() + workspaceContextCacheTtlMilliseconds,
+  })
+  return value
 }
 
 function rateLimitLogin(request, response, next) {
@@ -3130,6 +3301,7 @@ async function liveMcpServices(selectedWorkspaceId) {
       name: tool.title,
       description: tool.description,
       inputSchema: tool.inputSchema,
+      annotations: tool.annotations,
       tags: ['lancee', 'automation'],
     })),
   }
@@ -3210,6 +3382,7 @@ async function liveMcpServices(selectedWorkspaceId) {
             name: tool.title || tool.catalog_id || tool.name,
             description: tool.description || '',
             inputSchema: tool.input_schema || {},
+            annotations: tool.annotations || {},
             tags: tool.tags || [],
           })),
         }
@@ -3280,6 +3453,13 @@ app.post('/api/mcp/invoke', secureMutations, requireAuth, async (request, respon
   }
   const tool = service.tools.find((item) => item.id === toolId)
   if (!tool) throw new HttpError(404, 'MCP tool not found.')
+  const hasRiskAnnotations = Object.hasOwn(tool.annotations || {}, 'readOnlyHint')
+    || Object.hasOwn(tool.annotations || {}, 'destructiveHint')
+  const highRisk = Boolean(tool.annotations?.destructiveHint)
+    || (!builtIn && !hasRiskAnnotations)
+  if (highRisk && request.auth.context.membership?.role !== 'owner') {
+    throw new HttpError(403, 'High-risk MCP tools require a workspace owner.')
+  }
   const result = await executeIdempotentMutation({
     request,
     route: `POST /api/mcp/invoke/${serviceId}/${toolId}`,
@@ -3834,12 +4014,15 @@ app.post(
 )
 
 async function workspaceAiSnapshot(selectedWorkspaceId) {
-  const [projects, clients, invoices, drafts, automations] = await Promise.all([
+  const [projects, clients, invoices, drafts, automations, files, connections, connectorRequests] = await Promise.all([
     database.listProjects(selectedWorkspaceId),
     database.listClients(selectedWorkspaceId),
     database.listInvoices(selectedWorkspaceId),
     database.listDraftInvoices(selectedWorkspaceId),
     database.listAutomations(selectedWorkspaceId),
+    database.listWorkspaceDocuments(selectedWorkspaceId),
+    database.listIntegrations(selectedWorkspaceId),
+    database.listIntegrationRequests(selectedWorkspaceId),
   ])
   return {
     projects: projects.slice(0, 50).map(({ id, name, client, scope, due, status, progress }) => ({ id, name, client, scope, due, status, progress })),
@@ -3847,6 +4030,9 @@ async function workspaceAiSnapshot(selectedWorkspaceId) {
     invoices: invoices.slice(0, 50).map(({ id, invoiceNumber, clientName, projectName, amountMinor, currency, status, dueDate }) => ({ id, invoiceNumber, clientName, projectName, amountMinor, currency, status, dueDate })),
     draftInvoices: drafts.slice(0, 50).map(({ id, invoiceNumber, clientName, projectName, amountMinor, currency, status, dueDate }) => ({ id, invoiceNumber, clientName, projectName, amountMinor, currency, status, dueDate })),
     automations: automations.slice(0, 50).map(({ id, name, status, execution, runs, successRate }) => ({ id, name, status, execution, runs, successRate })),
+    files: files.slice(0, 50).map(({ id, name, mimeType, size, updatedAt }) => ({ id, name, mimeType, size, updatedAt })),
+    connections: connections.map(({ id, name, category, connected }) => ({ id, name, category, connected })),
+    connectorRequests: connectorRequests.slice(0, 50),
   }
 }
 
@@ -3866,6 +4052,7 @@ async function aiMcpToolManifest(selectedWorkspaceId) {
         name: tool.name,
         description: tool.description,
         inputSchema: tool.inputSchema,
+        annotations: tool.annotations || {},
       })),
     )
 }
@@ -3876,10 +4063,20 @@ function proposedActionFromToolCall(toolCall, manifest) {
   if (!selectedTool) {
     throw new AiError('AI_UNKNOWN_TOOL_CALL', 'AI provider requested a tool that is not available in this workspace.', 502)
   }
+  const hasRiskAnnotations = Object.hasOwn(selectedTool.annotations || {}, 'readOnlyHint')
+    || Object.hasOwn(selectedTool.annotations || {}, 'destructiveHint')
   return {
     serviceId: selectedTool.serviceId,
     toolId: selectedTool.toolId,
     arguments: toolCall.arguments || {},
+    title: selectedTool.name,
+    description: selectedTool.description,
+    risk: selectedTool.annotations?.destructiveHint || !hasRiskAnnotations
+      ? 'high'
+      : selectedTool.annotations?.readOnlyHint
+        ? 'low'
+        : 'medium',
+    readOnly: Boolean(selectedTool.annotations?.readOnlyHint),
   }
 }
 
@@ -3895,7 +4092,7 @@ app.post('/api/ai/chat', secureMutations, requireAuth, async (request, response)
     workspaceAiSnapshot(request.auth.context.workspace.id),
     aiMcpToolManifest(request.auth.context.workspace.id),
   ])
-  const systemPrompt = `You are the Lancee workspace assistant. Answer only from the workspace snapshot below and general reasoning. Never invent records, credentials, payments, or completed actions. Use one provided native tool when the user asks you to create, run, schedule, search, inspect, or otherwise operate on a workflow. A native tool call only proposes an action for explicit human approval; never claim it has already run. When creating a workflow, choose only the minimum Core permissions needed and set activate=true unless the user explicitly requests a draft. Keep answers concise. Workspace snapshot (server-provided and workspace-scoped): ${JSON.stringify(snapshot)}`
+  const systemPrompt = `You are the Lancee workspace assistant. Answer only from the workspace snapshot below and general reasoning. Never invent records, credentials, payments, connections, or completed actions. You can use active external MCP tools and Lancee's native dashboard tools for workspace-scoped projects, clients, files, connections, PostgreSQL-backed data, and automations. Use one provided tool when the user asks you to inspect or change dashboard data. A tool call only proposes an action for explicit human approval; never claim it has already run. High-risk and destructive tools require explicit approval and may also require workspace-owner authority. When creating a workflow, translate the user's prompt into a reusable prompt_template (a bounded JSON step plan when multiple Core actions are needed), choose only the minimum Core permissions needed, and set activate=true unless the user explicitly requests a draft. Never request raw database credentials or raw SQL. Keep answers concise. Workspace snapshot (server-provided and workspace-scoped): ${JSON.stringify(snapshot)}`
   try {
     const result = await completeChat({
       messages: [...normalizedHistory, { role: 'user', content: message }],
@@ -4176,6 +4373,12 @@ const integrationRequestCategories = new Set([
   'Other',
 ])
 
+app.get('/api/integration-requests', requireAuth, async (request, response) => {
+  response.json({
+    requests: await database.listIntegrationRequests(request.auth.context.workspace.id),
+  })
+})
+
 app.post(
   '/api/integration-requests',
   secureMutations,
@@ -4231,6 +4434,307 @@ app.get('/api/workspace/settings', requireAuth, async (request, response) => {
   )
 })
 
+app.get('/api/workspace-builder', requireAuth, async (request, response) => {
+  const saved = await database.getWorkspaceBuilder(request.auth.context.workspace.id)
+  response.json({
+    state: saved || {
+      workspaceId: request.auth.context.workspace.id,
+      requiredSetup: false,
+      status: 'not_started',
+      step: 0,
+      answers: {},
+      recommendation: {},
+      aiSuggestions: [],
+      generated: {},
+      completedAt: null,
+      createdAt: null,
+      updatedAt: null,
+    },
+    catalog: workspaceBuilderCatalog(),
+  })
+})
+
+app.patch(
+  '/api/workspace-builder/draft',
+  secureMutations,
+  requireAuth,
+  requireOwner,
+  async (request, response) => {
+    const current = await database.getWorkspaceBuilder(request.auth.context.workspace.id)
+    const answers = normalizeBuilderAnswers(request.body?.answers)
+    const step = Math.max(0, Math.min(8, Number(request.body?.step) || 0))
+    const draftSelection = request.body?.selection && current?.recommendation?.modules
+      ? normalizeGenerationSelection(request.body.selection, current.recommendation)
+      : null
+    const state = await database.saveWorkspaceBuilder(request.auth.context.workspace.id, {
+      answers,
+      step,
+      status: current?.status === 'completed' && !request.body?.restart
+        ? 'completed'
+        : 'in_progress',
+      requiredSetup: current?.requiredSetup || false,
+      ...(draftSelection
+        ? { generated: { ...(current?.generated || {}), draftSelection } }
+        : {}),
+      ...(request.body?.restart
+        ? { recommendation: {}, aiSuggestions: [], generated: {}, completedAt: null }
+        : {}),
+    })
+    response.json({ state })
+  },
+)
+
+app.post(
+  '/api/workspace-builder/recommend',
+  secureMutations,
+  requireAuth,
+  requireOwner,
+  async (request, response) => {
+    const answers = normalizeBuilderAnswers(request.body?.answers)
+    if (!answers.business.name || !answers.business.industry || !answers.business.country) {
+      throw new HttpError(400, 'Business name, industry, and country are required.')
+    }
+    if (answers.activities.length === 0) {
+      throw new HttpError(400, 'Choose at least one activity so the workspace can be tailored.')
+    }
+    if (answers.business.timezone) {
+      try {
+        new Intl.DateTimeFormat('en', { timeZone: answers.business.timezone }).format()
+      } catch {
+        throw new HttpError(400, 'Enter a valid IANA timezone.')
+      }
+    }
+    const recommendation = buildWorkspaceRecommendation(answers)
+    const current = await database.getWorkspaceBuilder(request.auth.context.workspace.id)
+    const state = await database.saveWorkspaceBuilder(request.auth.context.workspace.id, {
+      answers,
+      recommendation,
+      step: 6,
+      status: 'review',
+      requiredSetup: current?.requiredSetup || false,
+    })
+    response.json({ state })
+  },
+)
+
+app.post(
+  '/api/workspace-builder/ai-suggestions',
+  secureMutations,
+  requireAuth,
+  requireOwner,
+  async (request, response) => {
+    const current = await database.getWorkspaceBuilder(request.auth.context.workspace.id)
+    if (!current?.recommendation?.modules) {
+      throw new HttpError(409, 'Review the recommended workspace before requesting AI customisation.')
+    }
+    const requirement = String(
+      request.body?.requirement ?? current.answers?.uniqueRequirements ?? '',
+    ).trim().slice(0, 2_000)
+    if (!requirement) {
+      const state = await database.saveWorkspaceBuilder(request.auth.context.workspace.id, {
+        aiSuggestions: [],
+        step: 7,
+      })
+      response.json({ state, aiAvailable: true, message: 'No extra customisation requested.' })
+      return
+    }
+
+    const systemPrompt = `You extend a deterministic business workspace plan. Return only valid JSON with this shape: {"suggestions":[{"title":"...","description":"...","trigger":"...","steps":["..."]}]}. Suggest at most 3 small, concrete workflows. Every suggestion requires human approval. Do not claim that anything is installed, configured, connected, or executed. Do not include credentials, code, markdown, or commentary. Existing plan: ${JSON.stringify(current.recommendation)}`
+    try {
+      const result = await completeChat({
+        messages: [{ role: 'user', content: requirement }],
+        systemPrompt,
+      })
+      const jsonText = result.content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+      let parsed
+      try {
+        parsed = JSON.parse(jsonText)
+      } catch {
+        throw new AiError('AI_INVALID_RESPONSE', 'AI returned an invalid workflow suggestion.', 502)
+      }
+      const aiSuggestions = normalizeAiSuggestions(parsed)
+      const state = await database.saveWorkspaceBuilder(request.auth.context.workspace.id, {
+        answers: { ...current.answers, uniqueRequirements: requirement },
+        aiSuggestions,
+        step: 7,
+      })
+      response.json({ state, aiAvailable: true, message: aiSuggestions.length
+        ? 'Review each suggestion before adding it.'
+        : 'No extra workflow was needed for this requirement.' })
+    } catch (error) {
+      if (!(error instanceof AiError)) throw error
+      const state = await database.saveWorkspaceBuilder(request.auth.context.workspace.id, {
+        answers: { ...current.answers, uniqueRequirements: requirement },
+        aiSuggestions: [],
+        step: 7,
+      })
+      response.json({
+        state,
+        aiAvailable: false,
+        message: 'AI customisation is unavailable right now. Your recommended workspace is ready and you can continue safely.',
+      })
+    }
+  },
+)
+
+app.post(
+  '/api/workspace-builder/generate',
+  secureMutations,
+  requireAuth,
+  requireOwner,
+  async (request, response) => {
+    const workspaceIdForBuilder = request.auth.context.workspace.id
+    const userIdForBuilder = request.auth.context.user.id
+    const current = await database.getWorkspaceBuilder(workspaceIdForBuilder)
+    if (!current?.recommendation?.modules) {
+      throw new HttpError(409, 'Create and review a workspace recommendation first.')
+    }
+    const selection = normalizeGenerationSelection(
+      request.body?.selection,
+      current.recommendation,
+    )
+    const approvedAiSuggestions = (current.aiSuggestions || []).filter((item) =>
+      selection.aiSuggestionIds.includes(item.id),
+    )
+    const result = await executeIdempotentMutation({
+      request,
+      route: 'POST /api/workspace-builder/generate',
+      input: { selection },
+      operation: async () => {
+        await database.saveWorkspaceBuilder(workspaceIdForBuilder, {
+          status: 'generating',
+          step: 8,
+        })
+        const settings = await database.getWorkspaceSettings(workspaceIdForBuilder)
+        await database.updateWorkspaceSettings(workspaceIdForBuilder, {
+          ...settings,
+          name: current.answers.business?.name || settings.name || request.auth.context.workspace.name,
+          email: settings.email || request.auth.context.user.email,
+          timezone: current.answers.business?.timezone || settings.timezone,
+        })
+
+        for (const integrationId of selection.integrations) {
+          await database.query(
+            `INSERT INTO workspace_integrations (
+               workspace_id, integration_id, connected, updated_at
+             ) VALUES ($1, $2, 0, $3)
+             ON CONFLICT (workspace_id, integration_id) DO NOTHING`,
+            [workspaceIdForBuilder, integrationId, nowIso()],
+          )
+        }
+
+        const existingAutomations = await database.listAutomations(workspaceIdForBuilder)
+        const createdAutomationNames = []
+        const requestedAutomations = selection.automationIds
+          .map(automationById)
+          .filter(Boolean)
+          .map((item) => ({ name: item.name, description: item.description }))
+        requestedAutomations.push(...approvedAiSuggestions.map((item) => ({
+          name: item.title,
+          description: item.description || `${item.trigger}: ${item.steps.join(' → ')}`,
+        })))
+        for (const automation of requestedAutomations) {
+          if (existingAutomations.some((item) => item.name.toLowerCase() === automation.name.toLowerCase())) {
+            createdAutomationNames.push(automation.name)
+            continue
+          }
+          const created = await database.createAutomation({
+            workspaceId: workspaceIdForBuilder,
+            createdBy: userIdForBuilder,
+            name: automation.name,
+            description: automation.description,
+            model: 'Rules + connected tools',
+            execution: 'core',
+            tools: ['workspace.summary'],
+          })
+          await database.setAutomationStatus(workspaceIdForBuilder, created.id, 'draft')
+          createdAutomationNames.push(created.name)
+        }
+
+        let sampleDataCreated = false
+        if (current.answers.sampleData) {
+          const clients = await database.listClients(workspaceIdForBuilder)
+          if (clients.length === 0) {
+            const sampleClient = await database.createClient({
+              workspaceId: workspaceIdForBuilder,
+              name: 'Northstar Studio (sample)',
+              email: 'hello@example.com',
+              company: 'Northstar Studio',
+              notes: 'Sample client — safe to edit or delete.',
+            })
+            await database.createProject({
+              workspaceId: workspaceIdForBuilder,
+              name: 'Website refresh (sample)',
+              clientId: sampleClient.id,
+              client: sampleClient.name,
+              scope: 'A sample project to help you explore your new workspace.',
+              due: 'Set date',
+              status: 'In progress',
+              progress: 20,
+            })
+            sampleDataCreated = true
+          }
+        }
+
+        const generated = {
+          modules: selection.modules,
+          integrations: selection.integrations,
+          automations: createdAutomationNames,
+          dashboards: current.recommendation.dashboards || [],
+          permissions: current.recommendation.permissions || [],
+          templates: current.recommendation.templates || [],
+          notifications: current.recommendation.notifications || [],
+          sampleDataCreated,
+          connectionsPending: selection.integrations.length,
+          aiSuggestionsAccepted: approvedAiSuggestions.length,
+          engineVersion: 1,
+          generatedAt: nowIso(),
+        }
+        await database.createWorkspaceNotification({
+          workspaceId: workspaceIdForBuilder,
+          kind: 'workspace_ready',
+          title: 'Your tailored workspace is ready',
+          body: `${selection.modules.length} modules and ${createdAutomationNames.length} automations were prepared.`,
+        })
+        const state = await database.saveWorkspaceBuilder(workspaceIdForBuilder, {
+          status: 'completed',
+          step: 9,
+          requiredSetup: false,
+          generated,
+          completedAt: nowIso(),
+        })
+        return { status: 201, response: { state } }
+      },
+    })
+    sendMutationResponse(response, result)
+  },
+)
+
+const workspaceLogoTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
+
+app.put(
+  '/api/workspace/logo',
+  secureMutations,
+  requireAuth,
+  requireOwner,
+  express.raw({ type: [...workspaceLogoTypes], limit: '2mb' }),
+  async (request, response) => {
+    const contentType = String(request.get('Content-Type') || '').split(';')[0].trim().toLowerCase()
+    if (!workspaceLogoTypes.has(contentType)) {
+      throw new HttpError(415, 'Use a JPEG, PNG, or WebP workspace logo.')
+    }
+    if (!Buffer.isBuffer(request.body) || request.body.byteLength === 0) {
+      throw new HttpError(400, 'Choose a non-empty workspace logo.')
+    }
+    const current = await database.getWorkspaceSettings(request.auth.context.workspace.id)
+    const updated = await database.updateWorkspaceSettings(request.auth.context.workspace.id, {
+      ...current,
+      logoUrl: `data:${contentType};base64,${request.body.toString('base64')}`,
+    })
+    response.json(updated)
+  },
+)
+
 app.patch(
   '/api/workspace/settings',
   secureMutations,
@@ -4261,7 +4765,7 @@ app.patch(
     ) {
       throw new HttpError(400, 'Workspace email must be valid.')
     }
-    if (logoUrl) {
+    if (logoUrl && !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(logoUrl)) {
       let parsedLogoUrl
       try {
         parsedLogoUrl = new URL(logoUrl)
@@ -4274,6 +4778,8 @@ app.patch(
       ) {
         throw new HttpError(400, 'Workspace logo URL must use http or https.')
       }
+    } else if (logoUrl.length > 2_800_000) {
+      throw new HttpError(400, 'Workspace logo must be 2 MB or smaller.')
     }
     try {
       new Intl.DateTimeFormat('en', { timeZone: timezone }).format()
@@ -4392,6 +4898,7 @@ app.post('/api/workspace/cloud-links', secureMutations, requireAuth, async (requ
   const label = String(request.body?.label || '').trim()
   const folderUrl = validateCloudFolderUrl(request.body?.folderUrl)
   const notes = String(request.body?.notes || '').trim().slice(0, 500)
+  const isDefault = request.body?.isDefault === true
   if (!cloudStorageProviders.has(provider)) {
     throw new HttpError(400, 'Select a supported cloud storage provider.')
   }
@@ -4401,7 +4908,7 @@ app.post('/api/workspace/cloud-links', secureMutations, requireAuth, async (requ
   const result = await executeIdempotentMutation({
     request,
     route: 'POST /api/workspace/cloud-links',
-    input: { provider, label, folderUrl, notes },
+    input: { provider, label, folderUrl, notes, isDefault },
     operation: async () => ({
       status: 201,
       response: await database.createWorkspaceCloudLink({
@@ -4410,10 +4917,24 @@ app.post('/api/workspace/cloud-links', secureMutations, requireAuth, async (requ
         label,
         folderUrl,
         notes,
+        isDefault,
       }),
     }),
   })
   sendMutationResponse(response, result)
+})
+
+app.post('/api/workspace/cloud-links/:linkId/default', secureMutations, requireAuth, async (request, response) => {
+  const linkId = String(request.params.linkId || '')
+  if (!/^cloud_[a-f0-9]{12}$/.test(linkId)) {
+    throw new HttpError(400, 'A valid cloud link id is required.')
+  }
+  const updated = await database.setDefaultWorkspaceCloudLink(
+    request.auth.context.workspace.id,
+    linkId,
+  )
+  if (!updated) throw new HttpError(404, 'Storage point not found.')
+  response.status(204).end()
 })
 
 app.delete('/api/workspace/cloud-links/:linkId', secureMutations, requireAuth, async (request, response) => {
@@ -5842,6 +6363,7 @@ app.post(
       .trim()
       .toLowerCase()
     const folderId = String(request.get('X-Drive-Folder-Id') || '').trim() || null
+    const storagePointId = String(request.get('X-Storage-Point-Id') || '').trim() || null
     if (
       !name ||
       name.length > 240 ||
@@ -5851,11 +6373,14 @@ app.post(
     ) {
       throw new HttpError(400, 'Enter a valid document name.')
     }
-    if (!['local', 'drive', 'both'].includes(destination)) {
+    if (!['local', 'drive', 'both', 'dropbox', 'onedrive'].includes(destination)) {
       throw new HttpError(400, 'Select a valid upload destination.')
     }
     if (folderId && !/^[A-Za-z0-9_-]{3,200}$/.test(folderId)) {
       throw new HttpError(400, 'A valid Google Drive folder ID is required.')
+    }
+    if (storagePointId && !/^cloud_[a-f0-9]{12}$/.test(storagePointId)) {
+      throw new HttpError(400, 'A valid storage point is required.')
     }
     if (!Buffer.isBuffer(request.body) || request.body.byteLength === 0) {
       throw new HttpError(400, 'Choose a non-empty document to upload.')
@@ -5879,16 +6404,25 @@ app.post(
     }
 
     const selectedWorkspaceId = request.auth.context.workspace.id
+    if (storagePointId) {
+      const storagePoint = (await database.listWorkspaceCloudLinks(selectedWorkspaceId))
+        .find((link) => link.id === storagePointId)
+      if (!storagePoint) throw new HttpError(404, 'The selected storage point is unavailable.')
+      if (destination !== 'local' && destination !== 'both' && storagePoint.provider !== destination) {
+        throw new HttpError(400, 'The storage point does not match the selected provider.')
+      }
+    } else if (destination === 'dropbox' || destination === 'onedrive') {
+      throw new HttpError(400, 'Choose a connected storage point before uploading.')
+    }
     let document = null
     let driveFile = null
-    if (destination === 'local' || destination === 'both') {
-      document = await database.createWorkspaceDocument({
-        workspaceId: selectedWorkspaceId,
-        name,
-        mimeType,
-        body: request.body,
-      })
-    }
+    document = await database.createWorkspaceDocument({
+      workspaceId: selectedWorkspaceId,
+      name,
+      mimeType,
+      body: request.body,
+      storagePointId,
+    })
     if (destination === 'drive' || destination === 'both') {
       const accessToken = await resolveGoogleDriveAccessToken(selectedWorkspaceId)
       driveFile = await uploadGoogleDriveFile({
@@ -6737,11 +7271,16 @@ app.get('/api/workspace/analytics', requireAuth, async (request, response) => {
   })
 })
 
+app.get('/api/workspace/context', requireAuth, async (request, response) => {
+  response.json(await loadWorkspaceContext(request))
+})
+
 const lanceeMcp = createLanceeMcpRuntime({
   database,
   coreToolIds: coreToolCatalog().map((tool) => tool.id),
   executeAutomationRun,
   enqueueCoreJob: (job) => coreRedis.enqueue(job),
+  listMcpServices: (selectedWorkspaceId) => liveMcpServices(selectedWorkspaceId),
   prepareAutomationRun: async (context, automation) => {
     if (automation.execution !== 'edge') return
     const n8nConnection = await database.getN8nConnection(context.workspace.id)
@@ -6801,6 +7340,7 @@ app.post(
     const name = String(request.body?.name || '').trim()
     const description = String(request.body?.description || '').trim()
     const model = String(request.body?.model || 'Rules + connected tools').trim()
+    const instructionTemplate = String(request.body?.instructionTemplate || '').trim()
     const execution = request.body?.execution === 'edge' ? 'edge' : 'core'
     const requestedTools = Array.isArray(request.body?.tools)
       ? [...new Set(request.body.tools.map((tool) => String(tool).trim()))]
@@ -6815,10 +7355,13 @@ app.post(
     if (description.length < 2 || description.length > 500) {
       throw new HttpError(400, 'Description must be between 2 and 500 characters.')
     }
+    if (instructionTemplate.length > 5_000) {
+      throw new HttpError(400, 'Prompt template must be 5,000 characters or fewer.')
+    }
     const result = await executeIdempotentMutation({
       request,
       route: 'POST /api/automations',
-      input: { name, description, model, execution, tools: requestedTools },
+      input: { name, description, model, instructionTemplate, execution, tools: requestedTools },
       operation: async () => {
         const automation = await database.createAutomation({
           workspaceId: request.auth.context.workspace.id,
@@ -6826,6 +7369,7 @@ app.post(
           name,
           description,
           model,
+          instructionTemplate,
           execution,
           tools: requestedTools,
         })

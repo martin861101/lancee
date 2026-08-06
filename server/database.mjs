@@ -42,6 +42,17 @@ function parsePermissions(value) {
   }
 }
 
+function parseJsonObject(value, fallback = {}) {
+  if (!value) return fallback
+  if (typeof value === 'object') return value
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' ? parsed : fallback
+  } catch {
+    return fallback
+  }
+}
+
 function sanitizeStoredEvent(value) {
   if (Array.isArray(value)) return value.map(sanitizeStoredEvent)
   if (!value || typeof value !== 'object') return value
@@ -182,6 +193,7 @@ function mapAutomation(row) {
     accent: row.accent,
     status: row.status,
     model: row.model,
+    instructionTemplate: row.instruction_template || '',
     execution: row.execution || 'core',
     runs: row.runs,
     successRate: row.success_rate,
@@ -827,6 +839,20 @@ export async function openDatabase({
       updated_at TEXT NOT NULL
     )`,
     `ALTER TABLE workspace_settings ADD COLUMN IF NOT EXISTS storefront_enabled ${isSqlite ? 'INTEGER NOT NULL DEFAULT 0 CHECK (storefront_enabled IN (0, 1))' : 'BOOLEAN NOT NULL DEFAULT FALSE'}`,
+    `CREATE TABLE IF NOT EXISTS workspace_builder_configs (
+      workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+      required_setup INTEGER NOT NULL DEFAULT 0 CHECK (required_setup IN (0, 1)),
+      status TEXT NOT NULL DEFAULT 'not_started'
+        CHECK (status IN ('not_started', 'in_progress', 'review', 'generating', 'completed')),
+      step INTEGER NOT NULL DEFAULT 0 CHECK (step >= 0 AND step <= 9),
+      answers_json TEXT NOT NULL DEFAULT '{}',
+      recommendation_json TEXT NOT NULL DEFAULT '{}',
+      ai_suggestions_json TEXT NOT NULL DEFAULT '[]',
+      generated_json TEXT NOT NULL DEFAULT '{}',
+      completed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS idea_notes (
       id TEXT NOT NULL,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -915,6 +941,7 @@ export async function openDatabase({
       icon TEXT NOT NULL DEFAULT 'sparkles',
       accent TEXT NOT NULL DEFAULT 'lime',
       model TEXT NOT NULL DEFAULT 'Rules + connected tools',
+      instruction_template TEXT NOT NULL DEFAULT '',
       execution TEXT NOT NULL DEFAULT 'core' CHECK (execution IN ('core', 'edge')),
       status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('active', 'paused', 'draft')),
       tools_json TEXT NOT NULL DEFAULT '[]',
@@ -924,6 +951,7 @@ export async function openDatabase({
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
+    `ALTER TABLE automations ADD COLUMN IF NOT EXISTS instruction_template TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE automations ADD COLUMN IF NOT EXISTS execution TEXT NOT NULL DEFAULT 'core'`,
     `UPDATE automations
      SET tools_json = '["workspace.summary"]'
@@ -1203,12 +1231,14 @@ export async function openDatabase({
       size INTEGER NOT NULL DEFAULT 0,
       content_base64 TEXT NOT NULL,
       content_sha256 TEXT NOT NULL,
+      storage_point_id TEXT,
       drive_file_id TEXT,
       drive_web_view_link TEXT,
       synced_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
+    `ALTER TABLE workspace_documents ADD COLUMN IF NOT EXISTS storage_point_id TEXT`,
     `CREATE TABLE IF NOT EXISTS workspace_cloud_links (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1216,9 +1246,11 @@ export async function openDatabase({
       label TEXT NOT NULL DEFAULT '',
       folder_url TEXT NOT NULL,
       notes TEXT NOT NULL DEFAULT '',
+      is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
+    `ALTER TABLE workspace_cloud_links ADD COLUMN IF NOT EXISTS is_default INTEGER NOT NULL DEFAULT 0`,
     `CREATE TABLE IF NOT EXISTS api_request_metrics (
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       metric_date TEXT NOT NULL,
@@ -1405,6 +1437,16 @@ export async function openDatabase({
      ON CONFLICT (workspace_id, integration_id) DO NOTHING`,
     [nowIso()],
   )
+  for (const storageIntegrationId of ['dropbox', 'onedrive']) {
+    await query(
+      `INSERT INTO workspace_integrations (
+         workspace_id, integration_id, connected, updated_at
+       )
+       SELECT id, $1, 0, $2 FROM workspaces WHERE 1 = 1
+       ON CONFLICT (workspace_id, integration_id) DO NOTHING`,
+      [storageIntegrationId, nowIso()],
+    )
+  }
 
   if (isSqlite) {
     pgInstance.exec(`
@@ -1537,6 +1579,8 @@ export async function openDatabase({
 
   const defaultIntegrations = [
     { id: 'drive', connected: 0 },
+    { id: 'dropbox', connected: 0 },
+    { id: 'onedrive', connected: 0 },
     { id: 'paystack', connected: 0 },
     { id: 'n8n', connected: 0 },
     { id: 'mcp-grid', connected: 0 },
@@ -2816,7 +2860,7 @@ export async function openDatabase({
 
     async listAutomations(selectedWorkspaceId) {
       const rows = await query(
-        `SELECT id, workspace_id, created_by, name, description, icon, accent, status, model, execution, tools_json, runs, success_rate, last_run_at, created_at, updated_at
+        `SELECT id, workspace_id, created_by, name, description, icon, accent, status, model, instruction_template, execution, tools_json, runs, success_rate, last_run_at, created_at, updated_at
          FROM automations
          WHERE workspace_id = $1
          ORDER BY created_at DESC`,
@@ -2827,7 +2871,7 @@ export async function openDatabase({
 
     async getAutomation(selectedWorkspaceId, id) {
       const rows = await query(
-        `SELECT id, workspace_id, created_by, name, description, icon, accent, status, model, execution, tools_json, runs, success_rate, last_run_at, created_at, updated_at
+        `SELECT id, workspace_id, created_by, name, description, icon, accent, status, model, instruction_template, execution, tools_json, runs, success_rate, last_run_at, created_at, updated_at
          FROM automations
          WHERE workspace_id = $1 AND id = $2`,
         [selectedWorkspaceId, id],
@@ -2835,7 +2879,7 @@ export async function openDatabase({
       return mapAutomation(rows[0])
     },
 
-    async createAutomation({ workspaceId, createdBy, name, description, model, execution, tools = [] }) {
+    async createAutomation({ workspaceId, createdBy, name, description, model, instructionTemplate = '', execution, tools = [] }) {
       const id = `aut_${createHash('sha256')
         .update(`${workspaceId}:${name}:${nowIso()}`)
         .digest('hex')
@@ -2844,10 +2888,10 @@ export async function openDatabase({
       const executionMode = execution === 'edge' ? 'edge' : 'core'
       await query(
         `INSERT INTO automations (
-           id, workspace_id, created_by, name, description, model, execution, tools_json,
+           id, workspace_id, created_by, name, description, model, instruction_template, execution, tools_json,
            created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [id, workspaceId, createdBy, name, description, model, executionMode, JSON.stringify(tools), createdAt, createdAt],
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [id, workspaceId, createdBy, name, description, model, instructionTemplate, executionMode, JSON.stringify(tools), createdAt, createdAt],
       )
       return await this.getAutomation(workspaceId, id)
     },
@@ -3447,6 +3491,7 @@ export async function openDatabase({
         paystackConnection,
         codexConnection,
         mailAccount,
+        cloudLinks,
       ] = await Promise.all([
         this.getMcpAccess(selectedWorkspaceId),
         this.getN8nConnection(selectedWorkspaceId),
@@ -3454,9 +3499,12 @@ export async function openDatabase({
         this.getPaymentConnection(selectedWorkspaceId, 'paystack'),
         this.getCodexConnection(selectedWorkspaceId),
         this.getMailAccount(selectedWorkspaceId),
+        this.listWorkspaceCloudLinks(selectedWorkspaceId),
       ])
       const integrationMeta = {
         drive: { name: 'Google Drive', description: 'Link approved client folders, source files, and final delivery packages.', category: 'Storage', icon: 'drive', accent: '#4285f4' },
+        dropbox: { name: 'Dropbox', description: 'Choose a Dropbox folder as a private storage point for workspace files.', category: 'Storage', icon: 'dropbox', accent: '#3984ff' },
+        onedrive: { name: 'Microsoft OneDrive', description: 'Choose a OneDrive folder as a private storage point for workspace files.', category: 'Storage', icon: 'onedrive', accent: '#4f8df7' },
         paystack: { name: 'Paystack', description: 'Collect region-friendly card and bank payments across African markets.', category: 'Payments', icon: 'paystack', accent: '#00c3f7' },
         n8n: { name: 'n8n', description: 'Connect repeatable workflows in either direction with signed GET and POST webhooks.', category: 'Automation', icon: 'n8n', accent: '#ea4b71' },
         'mcp-grid': { name: 'Automation tool gateway', description: 'Browser automation and approved utility tools for agent workflows.', category: 'Automation', icon: 'mcp', accent: '#786bff' },
@@ -3475,6 +3523,8 @@ export async function openDatabase({
           connected = n8nConnection.status === 'connected'
         } else if (row.integration_id === 'drive') {
           connected = Boolean(driveToken)
+        } else if (row.integration_id === 'dropbox' || row.integration_id === 'onedrive') {
+          connected = cloudLinks.some((link) => link.provider === row.integration_id)
         } else if (row.integration_id === 'paystack') {
           connected = Boolean(paystackConnection.configured)
         } else if (row.integration_id === 'mail') {
@@ -3527,6 +3577,25 @@ export async function openDatabase({
         createdAt: timestamp,
         updatedAt: timestamp,
       }
+    },
+
+    async listIntegrationRequests(selectedWorkspaceId) {
+      const rows = await query(
+        `SELECT id, name, category, details, status, created_at, updated_at
+         FROM integration_requests
+         WHERE workspace_id = $1
+         ORDER BY created_at DESC`,
+        [selectedWorkspaceId],
+      )
+      return rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        category: row.category,
+        details: row.details || '',
+        status: row.status,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }))
     },
 
     async getWorkspaceSettings(selectedWorkspaceId) {
@@ -3598,6 +3667,83 @@ export async function openDatabase({
         [settings.name || '', selectedWorkspaceId],
       )
       return await this.getWorkspaceSettings(selectedWorkspaceId)
+    },
+
+    async getWorkspaceBuilder(selectedWorkspaceId) {
+      const rows = await query(
+        `SELECT workspace_id, required_setup, status, step, answers_json,
+                recommendation_json, ai_suggestions_json, generated_json,
+                completed_at, created_at, updated_at
+         FROM workspace_builder_configs
+         WHERE workspace_id = $1`,
+        [selectedWorkspaceId],
+      )
+      const row = rows[0]
+      if (!row) return null
+      return {
+        workspaceId: row.workspace_id,
+        requiredSetup: Boolean(Number(row.required_setup)),
+        status: row.status,
+        step: Number(row.step || 0),
+        answers: parseJsonObject(row.answers_json),
+        recommendation: parseJsonObject(row.recommendation_json),
+        aiSuggestions: parseJsonObject(row.ai_suggestions_json, []),
+        generated: parseJsonObject(row.generated_json),
+        completedAt: row.completed_at,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }
+    },
+
+    async saveWorkspaceBuilder(selectedWorkspaceId, fields = {}) {
+      const current = await this.getWorkspaceBuilder(selectedWorkspaceId)
+      const timestamp = nowIso()
+      const status = fields.status || current?.status || 'not_started'
+      const step = Number.isInteger(fields.step)
+        ? Math.max(0, Math.min(9, fields.step))
+        : current?.step || 0
+      const requiredSetup = typeof fields.requiredSetup === 'boolean'
+        ? fields.requiredSetup
+        : current?.requiredSetup || false
+      const requiredSetupValue = requiredSetup ? 1 : 0
+      const answers = fields.answers ?? current?.answers ?? {}
+      const recommendation = fields.recommendation ?? current?.recommendation ?? {}
+      const aiSuggestions = fields.aiSuggestions ?? current?.aiSuggestions ?? []
+      const generated = fields.generated ?? current?.generated ?? {}
+      const completedAt = fields.completedAt === undefined
+        ? current?.completedAt || null
+        : fields.completedAt
+      await query(
+        `INSERT INTO workspace_builder_configs (
+           workspace_id, required_setup, status, step, answers_json,
+           recommendation_json, ai_suggestions_json, generated_json,
+           completed_at, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (workspace_id) DO UPDATE SET
+           required_setup = EXCLUDED.required_setup,
+           status = EXCLUDED.status,
+           step = EXCLUDED.step,
+           answers_json = EXCLUDED.answers_json,
+           recommendation_json = EXCLUDED.recommendation_json,
+           ai_suggestions_json = EXCLUDED.ai_suggestions_json,
+           generated_json = EXCLUDED.generated_json,
+           completed_at = EXCLUDED.completed_at,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          selectedWorkspaceId,
+          requiredSetupValue,
+          status,
+          step,
+          JSON.stringify(answers),
+          JSON.stringify(recommendation),
+          JSON.stringify(aiSuggestions),
+          JSON.stringify(generated),
+          completedAt,
+          current?.createdAt || timestamp,
+          timestamp,
+        ],
+      )
+      return await this.getWorkspaceBuilder(selectedWorkspaceId)
     },
 
     async saveGoogleDriveToken({
@@ -5010,8 +5156,8 @@ export async function openDatabase({
 
     async listWorkspaceDocuments(selectedWorkspaceId) {
       const rows = await query(
-        `SELECT id, workspace_id, name, mime_type, size, content_sha256,
-                drive_file_id, drive_web_view_link, synced_at, created_at, updated_at
+         `SELECT id, workspace_id, name, mime_type, size, content_sha256,
+                storage_point_id, drive_file_id, drive_web_view_link, synced_at, created_at, updated_at
          FROM workspace_documents
          WHERE workspace_id = $1
          ORDER BY updated_at DESC`,
@@ -5024,6 +5170,7 @@ export async function openDatabase({
         mimeType: row.mime_type,
         size: row.size,
         sha256: row.content_sha256,
+        storagePointId: row.storage_point_id,
         driveFileId: row.drive_file_id,
         driveWebViewLink: row.drive_web_view_link,
         syncedAt: row.synced_at,
@@ -5037,6 +5184,7 @@ export async function openDatabase({
       name,
       mimeType,
       body,
+      storagePointId = null,
     }) {
       const timestamp = nowIso()
       const contentSha256 = createHash('sha256').update(body).digest('hex')
@@ -5047,8 +5195,8 @@ export async function openDatabase({
       await query(
         `INSERT INTO workspace_documents (
            id, workspace_id, name, mime_type, size, content_base64,
-           content_sha256, created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+           content_sha256, storage_point_id, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
           id,
           selectedWorkspaceId,
@@ -5057,6 +5205,7 @@ export async function openDatabase({
           body.byteLength,
           body.toString('base64'),
           contentSha256,
+          storagePointId,
           timestamp,
           timestamp,
         ],
@@ -5080,6 +5229,7 @@ export async function openDatabase({
             size: row.size,
             body: Buffer.from(row.content_base64, 'base64'),
             sha256: row.content_sha256,
+            storagePointId: row.storage_point_id,
             driveFileId: row.drive_file_id,
             driveWebViewLink: row.drive_web_view_link,
             syncedAt: row.synced_at,
@@ -5647,10 +5797,10 @@ export async function openDatabase({
 
     async listWorkspaceCloudLinks(selectedWorkspaceId) {
       const rows = await query(
-        `SELECT id, provider, label, folder_url, notes, created_at, updated_at
+        `SELECT id, provider, label, folder_url, notes, is_default, created_at, updated_at
          FROM workspace_cloud_links
          WHERE workspace_id = $1
-         ORDER BY created_at DESC`,
+         ORDER BY is_default DESC, created_at DESC`,
         [selectedWorkspaceId],
       )
       return rows.map((row) => ({
@@ -5659,18 +5809,25 @@ export async function openDatabase({
         label: row.label || '',
         folderUrl: row.folder_url,
         notes: row.notes || '',
+        isDefault: Boolean(Number(row.is_default)),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       }))
     },
 
-    async createWorkspaceCloudLink({ workspaceId, provider, label, folderUrl, notes = '' }) {
+    async createWorkspaceCloudLink({ workspaceId, provider, label, folderUrl, notes = '', isDefault = false }) {
       const id = `cloud_${createHash('sha256').update(`${workspaceId}:${folderUrl}:${nowIso()}`).digest('hex').slice(0, 12)}`
       const timestamp = nowIso()
+      if (isDefault) {
+        await query(
+          `UPDATE workspace_cloud_links SET is_default = 0, updated_at = $1 WHERE workspace_id = $2`,
+          [timestamp, workspaceId],
+        )
+      }
       await query(
-        `INSERT INTO workspace_cloud_links (id, workspace_id, provider, label, folder_url, notes, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [id, workspaceId, provider, label, folderUrl, notes, timestamp, timestamp],
+        `INSERT INTO workspace_cloud_links (id, workspace_id, provider, label, folder_url, notes, is_default, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [id, workspaceId, provider, label, folderUrl, notes, isDefault ? 1 : 0, timestamp, timestamp],
       )
       return {
         id,
@@ -5678,9 +5835,22 @@ export async function openDatabase({
         label,
         folderUrl,
         notes,
+        isDefault,
         createdAt: timestamp,
         updatedAt: timestamp,
       }
+    },
+
+    async setDefaultWorkspaceCloudLink(selectedWorkspaceId, linkId) {
+      const timestamp = nowIso()
+      const rows = await query(
+        `UPDATE workspace_cloud_links
+         SET is_default = CASE WHEN id = $2 THEN 1 ELSE 0 END, updated_at = $3
+         WHERE workspace_id = $1
+         RETURNING id`,
+        [selectedWorkspaceId, linkId, timestamp],
+      )
+      return rows.some((row) => row.id === linkId)
     },
 
     async deleteWorkspaceCloudLink(selectedWorkspaceId, linkId) {

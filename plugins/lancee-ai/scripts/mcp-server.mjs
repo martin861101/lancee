@@ -4,6 +4,7 @@ import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
+import { lanceeMcpToolDefinitions } from '../../../server/lancee-mcp.mjs'
 
 const clientId = 'lancee-codex-plugin'
 const scope = 'ai:invoke mcp:invoke'
@@ -387,17 +388,15 @@ const tools = [
   },
 ]
 
-const lanceeMcpToolNames = new Set([
-  'run_workflow',
-  'create_workflow',
-  'get_workflow_status',
-  'search_workflows',
-  'execute_python',
-  'execute_javascript',
-  'schedule_job',
-  'get_logs',
-  'call_external_api',
-])
+for (const definition of lanceeMcpToolDefinitions) {
+  const existingIndex = tools.findIndex((tool) => tool.name === definition.name)
+  if (existingIndex >= 0) tools[existingIndex] = definition
+  else tools.push(definition)
+}
+
+const lanceeMcpToolNames = new Set(
+  lanceeMcpToolDefinitions.map((definition) => definition.name),
+)
 
 async function callTool(name, argumentsValue = {}) {
   if (name === 'connect') {

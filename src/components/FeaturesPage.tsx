@@ -367,7 +367,7 @@ const groups: FeatureGroup[] = [
         icon: 'layers',
         title: 'MCP gateway & services',
         description:
-          'A built-in MCP catalog with the nine Lancee tools plus activatable external services, all approval-gated.',
+          'A built-in MCP catalog with 17 Lancee dashboard and workflow tools plus activatable external services, all approval-gated.',
         tags: ['Lancee tools', 'Bearer grants', 'Audited invocations'],
       },
       {
@@ -576,7 +576,7 @@ export default function FeaturesPage({
         <div className="features-hero__stats">
           <span><strong>30+</strong> product areas</span>
           <span><strong>5</strong> storefront styles</span>
-          <span><strong>9</strong> built-in Lancee tools</span>
+          <span><strong>17</strong> built-in Lancee tools</span>
           <span><strong>60s</strong> mail sync</span>
         </div>
       </section>

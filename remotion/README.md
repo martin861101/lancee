@@ -14,3 +14,17 @@ npx remotion render remotion/src/index.tsx StorefrontPreview public/storefront-p
 The additional compositions are `StorefrontPreview-blue-splash`,
 `StorefrontPreview-gold-dune`, `StorefrontPreview-red-tech`, and
 `StorefrontPreview-gsap-flowish`.
+
+## Dashboard tour
+
+`DashboardTour` presents real 1440×900 browser captures of every dashboard page
+inside a 1920×1080, 30 fps composition. Render the approximately 35-second H.264
+clip from the repository root with:
+
+```bash
+npm --prefix remotion run render:dashboard
+```
+
+The output is `public/dashboard-tour.mp4`; the numbered source images are in
+`remotion/public/dashboard-tour/`. Update the page order and labels in
+`src/dashboard-tour/scenes.ts`.

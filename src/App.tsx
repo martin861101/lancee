@@ -36,6 +36,9 @@ import {
   type Run,
   type RunEvent,
   type User,
+  type WorkspaceBuilderPayload,
+  type WorkspaceBuilderState,
+  type WorkspaceContext,
   type WorkspaceNotification,
 } from './lib/api'
 import { syncIdeaMutations } from './lib/ideasRepository'
@@ -55,11 +58,21 @@ const MessagesPage = lazy(() => import('./components/dashboard/MessagesPage'))
 const ServicesPage = lazy(() => import('./components/dashboard/ServicesPage'))
 const WorkspaceChat = lazy(() => import('./components/dashboard/WorkspaceChat'))
 const WorkflowsPage = lazy(() => import('./components/WorkflowsPage'))
+const WorkspaceBuilder = lazy(() => import('./components/workspace-builder/WorkspaceBuilder'))
 const StorefrontPage = lazy(() => import('./components/StorefrontPage'))
 const ReviewPage = lazy(() => import('./components/annotations/ReviewPage'))
 import FeaturesPage from './components/FeaturesPage'
 
-const SIGNUPS_PAUSED = true
+const SIGNUPS_PAUSED = false
+const SIDEBAR_STORAGE_KEY = 'lancee:sidebar-collapsed'
+
+function getStoredSidebarState() {
+  try {
+    return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
 
 type Page =
   | 'overview'
@@ -77,6 +90,7 @@ type Page =
   | 'files'
   | 'messages'
   | 'team'
+  | 'builder'
   | 'api'
   | 'settings'
 const pageIds = new Set<Page>([
@@ -95,6 +109,7 @@ const pageIds = new Set<Page>([
   'files',
   'messages',
   'team',
+  'builder',
   'api',
   'settings',
 ])
@@ -121,6 +136,9 @@ type IconName =
   | 'check-circle'
   | 'chevron-down'
   | 'close'
+  | 'cloud'
+  | 'cloud-rain'
+  | 'cloud-sun'
   | 'code'
   | 'command'
   | 'copy'
@@ -132,6 +150,7 @@ type IconName =
   | 'layers'
   | 'lightbulb'
   | 'logout'
+  | 'map-pin'
   | 'menu'
   | 'messages'
   | 'moon'
@@ -144,28 +163,30 @@ type IconName =
   | 'settings'
   | 'shield'
   | 'sparkles'
+  | 'snowflake'
   | 'sun'
   | 'target'
   | 'trash'
   | 'user'
   | 'wallet'
 
-const navItems: { id: Page; label: string; icon: IconName; section: string }[] = [
+const navItems: { id: Page; label: string; icon: IconName; section: string; modules?: string[] }[] = [
   { id: 'overview', label: 'Home', icon: 'grid', section: 'Your work' },
-  { id: 'clients', label: 'Clients', icon: 'user', section: 'Your work' },
-  { id: 'work', label: 'Projects', icon: 'briefcase', section: 'Your work' },
-  { id: 'ideas', label: 'Ideas', icon: 'lightbulb', section: 'Your work' },
-  { id: 'files', label: 'Files', icon: 'file', section: 'Your work' },
-  { id: 'messages', label: 'Messages', icon: 'messages', section: 'Your work' },
-  { id: 'automations', label: 'Automations', icon: 'activity', section: 'Business' },
-  { id: 'runs', label: 'Results', icon: 'play', section: 'Business' },
-  { id: 'workflows', label: 'Workflows', icon: 'layers', section: 'Business' },
-  { id: 'storefront', label: 'Storefront', icon: 'layers', section: 'Business' },
+  { id: 'clients', label: 'Clients', icon: 'user', section: 'Your work', modules: ['clients', 'client-portal'] },
+  { id: 'work', label: 'Projects', icon: 'briefcase', section: 'Your work', modules: ['projects', 'tasks', 'calendar'] },
+  { id: 'ideas', label: 'Ideas', icon: 'lightbulb', section: 'Your work', modules: ['whiteboard', 'notes'] },
+  { id: 'files', label: 'Files', icon: 'file', section: 'Your work', modules: ['files', 'annotations', 'knowledge-base'] },
+  { id: 'messages', label: 'Messages', icon: 'messages', section: 'Your work', modules: ['clients', 'client-portal'] },
+  { id: 'automations', label: 'Automations', icon: 'activity', section: 'Business', modules: ['workflows'] },
+  { id: 'runs', label: 'Results', icon: 'play', section: 'Business', modules: ['workflows'] },
+  { id: 'workflows', label: 'Workflows', icon: 'layers', section: 'Business', modules: ['workflows', 'approvals'] },
+  { id: 'storefront', label: 'Storefront', icon: 'layers', section: 'Business', modules: ['client-portal'] },
   { id: 'integrations', label: 'Connections', icon: 'plug', section: 'Business' },
-  { id: 'services', label: 'Services', icon: 'plug', section: 'Business' },
-  { id: 'money', label: 'Invoicing', icon: 'wallet', section: 'Business' },
+  { id: 'services', label: 'Services', icon: 'plug', section: 'Business', modules: ['workflows'] },
+  { id: 'money', label: 'Invoicing', icon: 'wallet', section: 'Business', modules: ['quotes', 'invoices', 'time-tracking'] },
   { id: 'analytics', label: 'Analytics', icon: 'target', section: 'Business' },
   { id: 'team', label: 'Team', icon: 'user', section: 'Platform' },
+  { id: 'builder', label: 'Workspace builder', icon: 'sparkles', section: 'Platform' },
   { id: 'settings', label: 'Settings', icon: 'settings', section: 'Platform' },
 ]
 
@@ -227,6 +248,21 @@ function Icon({
     ),
     'chevron-down': <path d="m7 10 5 5 5-5" />,
     close: <path d="m6 6 12 12M18 6 6 18" />,
+    cloud: (
+      <path d="M7.5 18.5h9a4.5 4.5 0 0 0 .5-8.97A5.5 5.5 0 0 0 6.32 11 3.75 3.75 0 0 0 7.5 18.5Z" />
+    ),
+    'cloud-rain': (
+      <>
+        <path d="M7.5 16.5h9a4.5 4.5 0 0 0 .5-8.97A5.5 5.5 0 0 0 6.32 9 3.75 3.75 0 0 0 7.5 16.5Z" />
+        <path d="m8 19-1 2M13 19l-1 2M18 19l-1 2" />
+      </>
+    ),
+    'cloud-sun': (
+      <>
+        <circle cx="16.5" cy="7.5" r="3" />
+        <path d="M16.5 2.5v1M16.5 11.5v1M11.5 7.5h1M20.5 7.5h1M13 4l.7.7M19.3 10.3l.7.7M13.7 16.5h6a4 4 0 0 0 .45-7.98A5 5 0 0 0 4.3 10.2a3.5 3.5 0 0 0 1.2 6.3h3.2" />
+      </>
+    ),
     code: <path d="m8 9-4 3 4 3M16 9l4 3-4 3M14 5l-4 14" />,
     command: (
       <>
@@ -280,6 +316,12 @@ function Icon({
     logout: (
       <>
         <path d="M10 17l5-5-5-5M15 12H3M15 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" />
+      </>
+    ),
+    'map-pin': (
+      <>
+        <path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" />
+        <circle cx="12" cy="10" r="2.5" />
       </>
     ),
     menu: <path d="M4 7h16M4 12h16M4 17h16" />,
@@ -337,6 +379,12 @@ function Icon({
       <>
         <path d="m12 3-1.2 3.3L7.5 7.5l3.3 1.2L12 12l1.2-3.3 3.3-1.2-3.3-1.2L12 3Z" />
         <path d="m5 13-.8 2.2L2 16l2.2.8L5 19l.8-2.2L8 16l-2.2-.8L5 13ZM19 13l-.6 1.4L17 15l1.4.6L19 17l.6-1.4L21 15l-1.4-.6L19 13Z" />
+      </>
+    ),
+    snowflake: (
+      <>
+        <path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9" />
+        <path d="m9 5 3 2 3-2M9 19l3-2 3 2M5 11l3 1-1 3M19 11l-3 1 1 3" />
       </>
     ),
     sun: (
@@ -524,10 +572,68 @@ function PageHeader({
   )
 }
 
+function formatOverviewDate(
+  value: Date,
+  options: Intl.DateTimeFormatOptions,
+  timeZone?: string | null,
+) {
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      ...options,
+      ...(timeZone ? { timeZone } : {}),
+    }).format(value)
+  } catch {
+    return new Intl.DateTimeFormat('en-US', options).format(value)
+  }
+}
+
+function overviewLocalHour(value: Date, timeZone?: string | null) {
+  try {
+    const hour = new Intl.DateTimeFormat('en-US', {
+      hour: '2-digit',
+      hourCycle: 'h23',
+      ...(timeZone ? { timeZone } : {}),
+    })
+      .formatToParts(value)
+      .find((part) => part.type === 'hour')?.value
+    const parsedHour = Number(hour)
+    return Number.isFinite(parsedHour) ? parsedHour : value.getHours()
+  } catch {
+    return value.getHours()
+  }
+}
+
+function weatherPresentation(weather: WorkspaceContext['weather']): {
+  label: string
+  icon: IconName
+} {
+  if (!weather) return { label: 'Weather unavailable', icon: 'cloud' }
+
+  const { weatherCode: code, isDay } = weather
+  if (code === 0) return { label: isDay ? 'Clear sky' : 'Clear night', icon: isDay ? 'sun' : 'moon' }
+  if (code === 1) return { label: 'Mainly clear', icon: 'cloud-sun' }
+  if (code === 2) return { label: 'Partly cloudy', icon: 'cloud-sun' }
+  if (code === 3) return { label: 'Overcast', icon: 'cloud' }
+  if (code === 45 || code === 48) return { label: 'Foggy', icon: 'cloud' }
+  if (code >= 51 && code <= 57) return { label: 'Drizzle', icon: 'cloud-rain' }
+  if (code >= 61 && code <= 67) return { label: 'Rain', icon: 'cloud-rain' }
+  if (code >= 71 && code <= 77) return { label: 'Snow', icon: 'snowflake' }
+  if (code >= 80 && code <= 82) return { label: 'Rain showers', icon: 'cloud-rain' }
+  if (code >= 85 && code <= 86) return { label: 'Snow showers', icon: 'snowflake' }
+  if (code >= 95) return { label: 'Thunderstorms', icon: 'cloud-rain' }
+  return { label: 'Current conditions', icon: 'cloud' }
+}
+
+function overviewLocationLabel(location: WorkspaceContext['location']) {
+  if (!location) return 'Location unavailable'
+  return [location.city, location.country].filter(Boolean).join(', ') || 'Local conditions'
+}
+
 function OverviewPage({
   user,
   automations,
   runs,
+  workspaceContext,
   prompt,
   selectedAutomation,
   busy,
@@ -541,6 +647,7 @@ function OverviewPage({
   user: User
   automations: Automation[]
   runs: Run[]
+  workspaceContext: WorkspaceContext | null
   prompt: string
   selectedAutomation: string
   busy: boolean
@@ -554,6 +661,7 @@ function OverviewPage({
   onNavigate: (page: Page) => void
   onCreateProject: () => void
 }) {
+  const [now, setNow] = useState(() => new Date())
   const activeAutomations = automations.filter((automation) => automation.status === 'active').length
   const chartValues = useMemo(() => {
     const start = new Date()
@@ -571,25 +679,68 @@ function OverviewPage({
   const completedInPeriod = chartValues.reduce((total, value) => total + value, 0)
   const chartMaximum = Math.max(...chartValues, 1)
   const failedRuns = runs.filter((run) => run.status === 'failed').length
-  const today = new Intl.DateTimeFormat('en', {
+  const timeZone = workspaceContext?.location?.timezone
+  const today = formatOverviewDate(now, {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
-  }).format(new Date())
+  }, timeZone)
+  const localTime = formatOverviewDate(now, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }, timeZone)
+  const hour = overviewLocalHour(now, timeZone)
+  const greeting = hour < 5 ? 'Good evening' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
+  const weather = workspaceContext?.weather
+  const weatherInfo = weatherPresentation(weather ?? null)
+  const locationLabel = overviewLocationLabel(workspaceContext?.location || null)
+  const temperatureLabel = weather ? `${Math.round(weather.temperatureC)}°C` : '—'
+
+  useEffect(() => {
+    const clock = window.setInterval(() => setNow(new Date()), 1_000)
+    return () => window.clearInterval(clock)
+  }, [])
 
   return (
     <div className="page page--overview">
-      <PageHeader
-        eyebrow={today}
-        title={`Good morning, ${user.name.split(' ')[0]}.`}
-        description="A simple view of your projects, money, and the few things that need you."
-        action={
-          <button className="button button--primary" onClick={onCreateProject}>
+      <section className="overview-hero" aria-labelledby="overview-greeting">
+        <div className="overview-hero__copy">
+          <div className="overview-date" aria-label={`${today} at ${localTime}`}>
+            <span className="overview-date__icon" aria-hidden="true">
+              <Icon name="calendar" size={15} />
+            </span>
+            <span>{today}</span>
+            <span className="overview-date__divider" aria-hidden="true" />
+            <strong>{localTime}</strong>
+          </div>
+          <h1 id="overview-greeting">
+            {greeting}, <em>{user.name.split(' ')[0]}.</em>
+          </h1>
+          <p>A clear view of your projects, cash flow, and the next best things to move forward.</p>
+        </div>
+
+        <div className="overview-hero__aside">
+          <div className="overview-context" aria-live="polite">
+            <span className={`overview-context__icon overview-context__icon--${weatherInfo.icon}`} aria-hidden="true">
+              <Icon name={weatherInfo.icon} size={25} />
+            </span>
+            <span className="overview-context__body">
+              <span className="overview-context__reading">
+                <strong>{temperatureLabel}</strong>
+                <span>{weatherInfo.label}</span>
+              </span>
+              <span className="overview-context__location">
+                <Icon name="map-pin" size={12} />
+                {locationLabel}
+              </span>
+            </span>
+          </div>
+          <button className="button button--primary overview-hero__action" onClick={onCreateProject}>
             <Icon name="plus" size={16} />
             New project
           </button>
-        }
-      />
+        </div>
+      </section>
 
       <section className="command-card">
         <div className="command-card__glow" aria-hidden="true" />
@@ -1326,6 +1477,7 @@ function IntegrationLogo({ integration }: { integration: Integration }) {
     paypal: <span className="logo-letter">P</span>,
     paystack: <span className="logo-letter">PS</span>,
     dropbox: <span className="logo-letter">Db</span>,
+    onedrive: <span className="logo-letter">OD</span>,
     notion: <span className="logo-notion">N</span>,
     github: <span className="logo-letter">GH</span>,
     drive: <span className="logo-drive" />,
@@ -1362,6 +1514,7 @@ function IntegrationLogo({ integration }: { integration: Integration }) {
 
 function IntegrationsPage({
   integrations,
+  connectionRequests,
   busyId,
   onToggle,
   onConfigureN8n,
@@ -1371,10 +1524,12 @@ function IntegrationsPage({
   onConfigurePaystack,
   onConfigureMail,
   onToggleGoogleDrive,
+  onOpenStorageSetup,
   onRequestConnection,
   onToast,
 }: {
   integrations: Integration[]
+  connectionRequests: IntegrationRequest[]
   busyId: string | null
   onToggle: (integration: Integration) => void
   onConfigureN8n: () => void
@@ -1384,12 +1539,13 @@ function IntegrationsPage({
   onConfigurePaystack: () => void
   onConfigureMail: () => void
   onToggleGoogleDrive: (integration: Integration) => void
+  onOpenStorageSetup: (provider: 'dropbox' | 'onedrive') => void
   onRequestConnection: () => void
   onToast: (message: string) => void
 }) {
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('All')
-  const categories = ['All', 'Payments', 'Design', 'Storage', 'Automation', 'Communication']
+  const categories = ['All', 'Payments', 'Design', 'Storage', 'Automation', 'Communication', 'Other']
   const connectionCatalog: Integration[] = [
     {
       id: 'general-ai',
@@ -1403,6 +1559,15 @@ function IntegrationsPage({
     ...integrations.filter(
       (integration) => !['codex-ai', 'codex-runtime'].includes(integration.id),
     ),
+    ...connectionRequests.map((request) => ({
+      id: `request:${request.id}`,
+      name: request.name,
+      description: request.details || 'Requested connector awaiting workspace setup.',
+      category: request.category,
+      connected: false,
+      icon: 'plug',
+      accent: '#786bff',
+    })),
   ]
   const filtered = connectionCatalog.filter(
     (integration) =>
@@ -1476,6 +1641,10 @@ function IntegrationsPage({
                 <span className="platform-label">
                   <Icon name="shield" size={12} /> Included
                 </span>
+              ) : integration.id.startsWith('request:') ? (
+                <span className="platform-label">
+                  <Icon name="plus" size={12} /> Requested
+                </span>
               ) : integration.connected ? (
                 <span className="connected-label">
                   <Icon name="check" size={12} /> Connected
@@ -1537,8 +1706,10 @@ function IntegrationsPage({
                 else if (integration.id === 'codex-ai') onConfigureCodex()
                 else if (integration.id === 'codex-runtime') onConfigureCodexRuntime()
                 else if (integration.id === 'paystack') onConfigurePaystack()
+                else if (integration.id.startsWith('request:')) onToast(`${integration.name} is saved as a pending connection request.`)
                 else if (integration.id === 'mail') onConfigureMail()
                 else if (integration.id === 'drive') onToggleGoogleDrive(integration)
+                else if (integration.id === 'dropbox' || integration.id === 'onedrive') onOpenStorageSetup(integration.id)
                 else if (integration.category === 'Payments') {
                   onToast(`Configure ${integration.name} from the connections page`)
                 }
@@ -1567,6 +1738,8 @@ function IntegrationsPage({
               )}
               {integration.id === 'mcp-grid'
                 ? 'Manage platform access'
+                : integration.id.startsWith('request:')
+                  ? 'Pending setup'
                 : integration.id === 'codex-ai'
                   ? integration.connected
                     ? 'Manage connection'
@@ -1589,8 +1762,12 @@ function IntegrationsPage({
                     ? 'Preview setup'
                   : integration.category === 'Storage'
                     ? integration.connected
-                      ? 'Disconnect'
-                      : 'Connect'
+                      ? integration.id === 'dropbox' || integration.id === 'onedrive'
+                        ? 'Manage storage point'
+                        : 'Disconnect'
+                      : integration.id === 'dropbox' || integration.id === 'onedrive'
+                        ? 'Set storage point'
+                        : 'Connect'
                   : integration.connected
                     ? 'Disconnect'
                     : 'Connect'}
@@ -4041,6 +4218,7 @@ function CreateAutomationForm({
   onCancel,
 }: {
   onSubmit: (input: Pick<Automation, 'name' | 'description' | 'model'> & {
+    instructionTemplate?: string
     execution?: Automation['execution']
     tools?: string[]
   }) => Promise<void>
@@ -4048,6 +4226,7 @@ function CreateAutomationForm({
 }) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [instructionTemplate, setInstructionTemplate] = useState('')
   const [model, setModel] = useState('Rules + connected tools')
   const [execution, setExecution] = useState<Automation['execution']>('core')
   const [tools, setTools] = useState<string[]>(['workspace.summary', 'projects.list'])
@@ -4056,7 +4235,7 @@ function CreateAutomationForm({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setBusy(true)
-    await onSubmit({ name, description, model, execution, tools })
+    await onSubmit({ name, description, instructionTemplate, model, execution, tools })
     setBusy(false)
   }
 
@@ -4106,6 +4285,17 @@ function CreateAutomationForm({
           <option>Scheduled workflow</option>
           <option>AI-assisted, with review</option>
         </select>
+      </label>
+      <label className="form-field">
+        <span>Reusable prompt or step plan</span>
+        <textarea
+          value={instructionTemplate}
+          onChange={(event) => setInstructionTemplate(event.target.value)}
+          placeholder='Optional: describe the default instruction, or provide a JSON plan with a "steps" array for an advanced multi-step workflow.'
+          rows={5}
+          maxLength={5000}
+        />
+        <small className="form-field__hint">Runs can override this prompt. JSON plans support up to 12 permission-checked Core steps.</small>
       </label>
       <label className="form-field">
         <span>Where it runs</span>
@@ -4410,6 +4600,7 @@ function Sidebar({
   activePage,
   user,
   mobileOpen,
+  collapsed,
   onNavigate,
   onClose,
   onSignOut,
@@ -4417,10 +4608,12 @@ function Sidebar({
   automationCount,
   connectionCount,
   pendingInvoiceCount,
+  enabledModules,
 }: {
   activePage: Page
   user: User
   mobileOpen: boolean
+  collapsed: boolean
   onNavigate: (page: Page) => void
   onClose: () => void
   onSignOut: () => void
@@ -4428,6 +4621,7 @@ function Sidebar({
   automationCount: number
   connectionCount: number
   pendingInvoiceCount: number
+  enabledModules: string[] | null
 }) {
   const workspaceInitials = user.workspace
     .split(/\s+/)
@@ -4437,8 +4631,15 @@ function Sidebar({
     .toUpperCase()
   return (
     <>
-      {mobileOpen && <div className="sidebar-scrim" onClick={onClose} />}
-      <aside className={`sidebar${mobileOpen ? ' is-open' : ''}`}>
+      {mobileOpen && (
+        <button
+          type="button"
+          className="sidebar-scrim"
+          onClick={onClose}
+          aria-label="Close navigation"
+        />
+      )}
+      <aside className={`sidebar${mobileOpen ? ' is-open' : ''}${collapsed ? ' is-collapsed' : ''}`}>
         <div className="sidebar__logo">
           <BrandMark />
           <span>lancee</span>
@@ -4461,10 +4662,12 @@ function Sidebar({
               <span className="nav-label">{section}</span>
               {navItems
                 .filter((item) => item.section === section)
+                .filter((item) => !enabledModules || !item.modules || item.modules.some((moduleId) => enabledModules.includes(moduleId)))
                 .map((item) => (
                   <button
                     key={item.id}
                     className={activePage === item.id ? 'is-active' : ''}
+                    aria-current={activePage === item.id ? 'page' : undefined}
                     onClick={() => {
                       onNavigate(item.id)
                       onClose()
@@ -5271,8 +5474,11 @@ function authViewFromLocation(): AuthView {
   if (pathname === '/signup/confirm') return 'confirm'
   if (pathname === '/signup') return 'register'
   if (pathname === '/signin') return 'login'
+  if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) return 'login'
   const params = new URLSearchParams(window.location.search)
-  return params.has('invite') || params.has('device') ? 'login' : 'landing'
+  return params.has('invite') || params.has('device') || params.has('page')
+    ? 'login'
+    : 'landing'
 }
 
 function authPath(view: AuthView) {
@@ -5280,6 +5486,28 @@ function authPath(view: AuthView) {
   if (view === 'register') return '/signup'
   if (view === 'confirm') return '/signup/confirm'
   return '/'
+}
+
+function dashboardPageFromLocation(): Page | null {
+  const pathname = window.location.pathname.replace(/\/+$/, '') || '/'
+  if (pathname === '/dashboard') return 'overview'
+
+  const match = pathname.match(/^\/dashboard\/([^/]+)$/)
+  if (match) {
+    try {
+      const page = decodeURIComponent(match[1])
+      return pageIds.has(page as Page) ? (page as Page) : null
+    } catch {
+      return null
+    }
+  }
+
+  const legacyPage = new URLSearchParams(window.location.search).get('page')
+  return legacyPage && pageIds.has(legacyPage as Page) ? (legacyPage as Page) : null
+}
+
+function dashboardPath(page: Page) {
+  return page === 'overview' ? '/dashboard' : `/dashboard/${page}`
 }
 
 function publicReviewRequest() {
@@ -5308,18 +5536,16 @@ function WorkspaceApp() {
   const [user, setUser] = useState<User | null>(null)
   const [sessionLoading, setSessionLoading] = useState(true)
   const [authView, setAuthView] = useState<AuthView>(authViewFromLocation)
-  const [activePage, setActivePage] = useState<Page>(() => {
-    const requestedPage = new URLSearchParams(window.location.search).get('page')
-    return requestedPage && pageIds.has(requestedPage as Page)
-      ? (requestedPage as Page)
-      : 'overview'
-  })
+  const [activePage, setActivePage] = useState<Page>(
+    () => dashboardPageFromLocation() ?? 'overview',
+  )
   const [automations, setAutomations] = useState<Automation[]>([])
   const [runs, setRuns] = useState<Run[]>([])
   const [workspaceNotifications, setWorkspaceNotifications] = useState<WorkspaceNotification[]>([])
   const [workProjectId, setWorkProjectId] = useState('')
   const [messageFocus, setMessageFocus] = useState<{ folder: string; uid: number } | null>(null)
   const [integrations, setIntegrations] = useState<Integration[]>([])
+  const [connectionRequests, setConnectionRequests] = useState<IntegrationRequest[]>([])
   const [n8nConfig, setN8nConfig] = useState<N8nConfig | null>(null)
   const [paystackConnection, setPaystackConnection] =
     useState<PaystackConnection | null>(null)
@@ -5334,6 +5560,9 @@ function WorkspaceApp() {
     openProjects: number; dueSoonProjects: number; totalClients: number
     outstandingAmount: number; pendingInvoices: number; dueThisWeek: number
   } | null>(null)
+  const [workspaceContext, setWorkspaceContext] = useState<WorkspaceContext | null>(null)
+  const [builderPayload, setBuilderPayload] = useState<WorkspaceBuilderPayload | null>(null)
+  const [builderLoading, setBuilderLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [prompt, setPrompt] = useState('')
   const [selectedAutomation, setSelectedAutomation] = useState('')
@@ -5344,27 +5573,52 @@ function WorkspaceApp() {
   const [toast, setToast] = useState('')
   const [commandOpen, setCommandOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(getStoredSidebarState)
+  const [storageSetupProvider, setStorageSetupProvider] = useState<'dropbox' | 'onedrive' | null>(null)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [settingsSection, setSettingsSection] =
     useState<'profile' | 'general' | 'dev'>('general')
+
+  const navigatePage = (nextPage: Page, replace = false) => {
+    setActivePage(nextPage)
+    setMobileOpen(false)
+    setNotificationsOpen(false)
+    setProfileOpen(false)
+
+    const nextPath = dashboardPath(nextPage)
+    const currentPath = `${window.location.pathname}${window.location.search}`
+    if (currentPath !== nextPath) {
+      const method = replace ? 'replaceState' : 'pushState'
+      window.history[method]({ page: nextPage }, '', nextPath)
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
   const visibleNotifications = workspaceNotifications
   const unreadNotifications = visibleNotifications.filter((notification) => !notification.readAt)
 
   const openClientProject = (projectId: string) => {
     setWorkProjectId(projectId)
-    setActivePage('work')
+    navigatePage('work')
   }
 
   const openClientMessage = (target: { folder: string; uid: number }) => {
     setMessageFocus(target)
-    setActivePage('messages')
+    navigatePage('messages')
   }
 
   useEffect(() => {
     applyTheme(theme)
   }, [theme])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarCollapsed))
+    } catch {
+      // Storage can be unavailable in hardened or private browser contexts.
+    }
+  }, [sidebarCollapsed])
 
   useEffect(() => {
     let active = true
@@ -5385,18 +5639,57 @@ function WorkspaceApp() {
   }, [])
 
   useEffect(() => {
-    const handlePopState = () => setAuthView(authViewFromLocation())
+    const handlePopState = () => {
+      setAuthView(authViewFromLocation())
+      const requestedPage = dashboardPageFromLocation()
+      if (requestedPage) setActivePage(requestedPage)
+      setMobileOpen(false)
+      setNotificationsOpen(false)
+      setProfileOpen(false)
+    }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
   useEffect(() => {
+    if (!user || deviceUserCode) return
+
+    const requestedPage = dashboardPageFromLocation() ?? activePage
+    setActivePage(requestedPage)
+
+    const params = new URLSearchParams(window.location.search)
+    params.delete('page')
+    const query = params.toString()
+    const canonicalPath = `${dashboardPath(requestedPage)}${query ? `?${query}` : ''}`
+    const currentPath = `${window.location.pathname}${window.location.search}`
+    if (currentPath !== canonicalPath) {
+      window.history.replaceState({ page: requestedPage }, '', canonicalPath)
+    }
+  }, [user, deviceUserCode, activePage])
+
+  useEffect(() => {
     if (!user) return
+    let active = true
     setLoading(true)
-    void Promise.all([
+    setAutomations([])
+    setRuns([])
+    setIntegrations([])
+    setConnectionRequests([])
+    setN8nConfig(null)
+    setPaystackConnection(null)
+    setMcpConnection(null)
+    setMcpServices([])
+    setCodexConnection(null)
+    setCodexRuntimeStatus(null)
+    setKeys([])
+    setAnalytics(null)
+    setWorkspaceNotifications([])
+    setSelectedAutomation('')
+    void Promise.allSettled([
       api.automations.list(),
       api.runs.list(),
       api.integrations.list(),
+      api.integrationRequests.list(),
       api.n8n.getConfig(),
       api.money.getPaystackStatus(),
       api.mcp.getConnection(),
@@ -5407,11 +5700,11 @@ function WorkspaceApp() {
       api.analytics.get(),
       api.notifications.list(),
     ])
-      .then(
-        ([
+      .then(([
           automationData,
           runData,
           integrationData,
+          integrationRequestData,
           n8nData,
           paystackData,
           mcpConnectionData,
@@ -5422,47 +5715,158 @@ function WorkspaceApp() {
           analyticsData,
           notificationData,
         ]) => {
-          setAutomations(automationData)
-          setRuns(runData)
+          if (!active) return
+
+          const loadedAutomations = automationData.status === 'fulfilled'
+            ? automationData.value
+            : []
+          const loadedRuns = runData.status === 'fulfilled' ? runData.value : []
+          const loadedN8n = n8nData.status === 'fulfilled' ? n8nData.value : null
+
+          setAutomations(loadedAutomations)
+          setRuns(loadedRuns)
           setIntegrations(
-            integrationData.map((integration) =>
+            (integrationData.status === 'fulfilled' ? integrationData.value : []).map((integration) =>
               integration.id === 'n8n'
-                ? { ...integration, connected: n8nData.connected }
+                ? { ...integration, connected: loadedN8n?.connected ?? integration.connected }
                 : integration,
             ),
           )
-          setN8nConfig(n8nData)
-          setPaystackConnection(paystackData)
-          setMcpConnection(mcpConnectionData)
-          setMcpServices(mcpServiceData)
-          setCodexConnection(codexConnectionData)
-          setCodexRuntimeStatus(codexRuntimeData)
-          setIntegrations((current) =>
-            current.map((integration) =>
-              integration.id === 'codex-runtime'
-                ? { ...integration, connected: codexRuntimeData.authenticated }
-                : integration,
-            ),
-          )
-          setKeys(keyData)
-          setWorkspaceNotifications(notificationData)
-          setAnalytics({
-            openProjects: analyticsData.metrics.openProjects,
-            dueSoonProjects: analyticsData.metrics.dueSoonProjects,
-            totalClients: analyticsData.metrics.totalClients,
-            outstandingAmount: analyticsData.metrics.outstandingAmount,
-            pendingInvoices: analyticsData.metrics.pendingInvoices,
-            dueThisWeek: analyticsData.metrics.dueThisWeek,
-          })
-          setSelectedAutomation((current) => current || automationData[0]?.id || '')
-        },
-      )
+          if (integrationRequestData.status === 'fulfilled') {
+            setConnectionRequests(integrationRequestData.value)
+          }
+          if (loadedN8n) setN8nConfig(loadedN8n)
+          if (paystackData.status === 'fulfilled') setPaystackConnection(paystackData.value)
+          if (mcpConnectionData.status === 'fulfilled') setMcpConnection(mcpConnectionData.value)
+          if (mcpServiceData.status === 'fulfilled') setMcpServices(mcpServiceData.value)
+          if (codexConnectionData.status === 'fulfilled') setCodexConnection(codexConnectionData.value)
+          if (codexRuntimeData.status === 'fulfilled') {
+            setCodexRuntimeStatus(codexRuntimeData.value)
+            setIntegrations((current) =>
+              current.map((integration) =>
+                integration.id === 'codex-runtime'
+                  ? { ...integration, connected: codexRuntimeData.value.authenticated }
+                  : integration,
+              ),
+            )
+          }
+          if (keyData.status === 'fulfilled') setKeys(keyData.value)
+          if (notificationData.status === 'fulfilled') {
+            setWorkspaceNotifications(notificationData.value)
+          }
+          if (analyticsData.status === 'fulfilled') {
+            setAnalytics({
+              openProjects: analyticsData.value.metrics.openProjects,
+              dueSoonProjects: analyticsData.value.metrics.dueSoonProjects,
+              totalClients: analyticsData.value.metrics.totalClients,
+              outstandingAmount: analyticsData.value.metrics.outstandingAmount,
+              pendingInvoices: analyticsData.value.metrics.pendingInvoices,
+              dueThisWeek: analyticsData.value.metrics.dueThisWeek,
+            })
+          }
+          setSelectedAutomation((current) => current || loadedAutomations[0]?.id || '')
+
+          const failures = [
+            automationData,
+            runData,
+            integrationData,
+            integrationRequestData,
+            n8nData,
+            paystackData,
+            mcpConnectionData,
+            mcpServiceData,
+            codexConnectionData,
+            codexRuntimeData,
+            keyData,
+            analyticsData,
+            notificationData,
+          ].filter((result) => result.status === 'rejected').length
+          if (failures > 0) {
+            setToast(`${failures} workspace ${failures === 1 ? 'service is' : 'services are'} temporarily unavailable.`)
+          }
+        })
       .catch(() => {
-        setToast('Some workspace data could not be loaded. Refresh to try again.')
+        if (active) setToast('Workspace data could not be loaded. Refresh to try again.')
       })
       .finally(() => {
-        setLoading(false)
+        if (active) setLoading(false)
       })
+    return () => {
+      active = false
+    }
+  }, [user])
+
+  useEffect(() => {
+    if (!user) return
+    const refreshAssistantChanges = () => {
+      void Promise.all([
+        api.automations.list(),
+        api.runs.list(),
+        api.integrations.list(),
+        api.integrationRequests.list(),
+      ]).then(([nextAutomations, nextRuns, nextIntegrations, nextRequests]) => {
+        setAutomations(nextAutomations)
+        setRuns(nextRuns)
+        setIntegrations(nextIntegrations)
+        setConnectionRequests(nextRequests)
+      }).catch(() => undefined)
+    }
+    window.addEventListener('lancee:dashboard-changed', refreshAssistantChanges)
+    return () => window.removeEventListener('lancee:dashboard-changed', refreshAssistantChanges)
+  }, [user])
+
+  useEffect(() => {
+    if (!user) {
+      setBuilderPayload(null)
+      setBuilderLoading(false)
+      return
+    }
+    let active = true
+    setBuilderLoading(true)
+    void api.workspaceBuilder
+      .get()
+      .then((payload) => {
+        if (active) setBuilderPayload(payload)
+      })
+      .catch(() => {
+        if (active) setToast('Workspace setup could not be loaded. You can keep using your workspace.')
+      })
+      .finally(() => {
+        if (active) setBuilderLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [user])
+
+  useEffect(() => {
+    if (!user) {
+      setWorkspaceContext(null)
+      return
+    }
+    let active = true
+    const loadWorkspaceContext = () => {
+      void api.workspace
+        .getContext()
+        .then((context) => {
+          if (active) setWorkspaceContext(context)
+        })
+        .catch(() => {
+          if (active) {
+            setWorkspaceContext({
+              location: null,
+              weather: null,
+              fetchedAt: new Date().toISOString(),
+            })
+          }
+        })
+    }
+    loadWorkspaceContext()
+    const refresh = window.setInterval(loadWorkspaceContext, 15 * 60 * 1000)
+    return () => {
+      active = false
+      window.clearInterval(refresh)
+    }
   }, [user])
 
   useEffect(() => {
@@ -5555,6 +5959,14 @@ function WorkspaceApp() {
     [activePage],
   )
 
+  useEffect(() => {
+    document.title = user
+      ? `${pageLabel} · lancee`
+      : authView === 'landing'
+        ? 'lancee - Intelligent work, orchestrated'
+        : `${authView === 'register' || authView === 'confirm' ? 'Create account' : 'Sign in'} · lancee`
+  }, [pageLabel, user, authView])
+
   const navigateAuth = (view: AuthView, replace = false) => {
     setAuthView(view)
     const method = replace ? 'replaceState' : 'pushState'
@@ -5573,9 +5985,8 @@ function WorkspaceApp() {
         `/?device=${encodeURIComponent(deviceUserCode)}`,
       )
     } else {
-      navigateAuth('landing', true)
+      navigatePage(activePage, true)
     }
-    setActivePage('overview')
     setToast('Welcome back to lancee')
   }
 
@@ -5590,8 +6001,7 @@ function WorkspaceApp() {
   const confirmRegistration = async (token: string, password: string) => {
     const session = await api.auth.confirmRegistration(token, password)
     setUser(session)
-    navigateAuth('landing', true)
-    setActivePage('overview')
+    navigatePage('overview', true)
     setToast('Your workspace is ready')
   }
 
@@ -5610,14 +6020,24 @@ function WorkspaceApp() {
       invitationToken,
     )
     setUser(session)
-    navigateAuth('landing', true)
-    setActivePage('overview')
+    navigatePage('overview', true)
     if (invitationToken) {
       window.history.replaceState({}, '', window.location.pathname)
       setToast(`You joined ${session.workspace}`)
     } else {
       setToast('Your workspace is ready')
     }
+  }
+
+  const updateBuilderState = (state: WorkspaceBuilderState) => {
+    setBuilderPayload((current) => current ? { ...current, state } : current)
+  }
+
+  const completeWorkspaceBuilder = (state: WorkspaceBuilderState, name: string) => {
+    updateBuilderState(state)
+    setUser((current) => current ? { ...current, workspace: name || current.workspace } : current)
+    navigatePage('overview', true)
+    setToast('Your tailored workspace is ready')
   }
 
   const signOut = async () => {
@@ -5686,6 +6106,7 @@ function WorkspaceApp() {
 
   const createAutomation = async (
     input: Pick<Automation, 'name' | 'description' | 'model'> & {
+      instructionTemplate?: string
       execution?: Automation['execution']
       tools?: string[]
     },
@@ -5693,7 +6114,7 @@ function WorkspaceApp() {
     const automation = await api.automations.create(input)
     setAutomations((current) => [automation, ...current])
     setModal(null)
-    setActivePage('automations')
+    navigatePage('automations')
     setToast(`${automation.name} was saved as a draft automation`)
   }
 
@@ -5724,7 +6145,7 @@ function WorkspaceApp() {
       const workflow = await api.automations.setStatus(draft.id, 'active')
       setAutomations((current) => [workflow, ...current])
       setSelectedAutomation(workflow.id)
-      setActivePage('automations')
+      navigatePage('automations')
       setToast(`${workflow.name} is active and ready to run`)
     } catch (error) {
       void api.automations.list().then(setAutomations).catch(() => undefined)
@@ -5764,7 +6185,7 @@ function WorkspaceApp() {
   const runAutomation = (automation: Automation) => {
     setSelectedAutomation(automation.id)
     setPrompt(`Run ${automation.name} with its default workflow`)
-    setActivePage('overview')
+    navigatePage('overview')
     setToast('Task prepared — review it, then start')
   }
 
@@ -5843,6 +6264,7 @@ function WorkspaceApp() {
       category: input.category,
       details: input.details.trim(),
     })
+    setConnectionRequests((current) => [request, ...current])
     setModal(null)
     setToast(`${request.name} connection request saved`)
   }
@@ -6015,6 +6437,33 @@ function WorkspaceApp() {
     )
   }
 
+  if (builderLoading) {
+    return (
+      <main className="auth-boot" aria-label="Loading workspace setup">
+        <BrandMark />
+        <span className="spinner spinner--dark" />
+        <p>Preparing your workspace builder…</p>
+      </main>
+    )
+  }
+
+  if (
+    builderPayload?.state.requiredSetup &&
+    builderPayload.state.status !== 'completed'
+  ) {
+    return (
+      <Suspense fallback={<main className="auth-boot"><span className="spinner spinner--dark" /></main>}>
+        <WorkspaceBuilder
+          initial={builderPayload}
+          workspaceName={user.workspace}
+          onStateChange={updateBuilderState}
+          onComplete={completeWorkspaceBuilder}
+          onInviteTeam={() => navigatePage('team')}
+        />
+      </Suspense>
+    )
+  }
+
   let page: ReactNode
   if (loading) {
     page = <EmptySkeleton />
@@ -6026,6 +6475,7 @@ function WorkspaceApp() {
             user={user}
             automations={automations}
             runs={runs}
+            workspaceContext={workspaceContext}
             prompt={prompt}
             selectedAutomation={selectedAutomation}
             busy={dispatching}
@@ -6033,8 +6483,8 @@ function WorkspaceApp() {
             onPromptChange={setPrompt}
             onAutomationChange={setSelectedAutomation}
             onDispatch={dispatch}
-            onNavigate={setActivePage}
-            onCreateProject={() => setActivePage('work')}
+            onNavigate={navigatePage}
+            onCreateProject={() => navigatePage('work')}
           />
         )
         break
@@ -6104,6 +6554,7 @@ function WorkspaceApp() {
         page = (
           <IntegrationsPage
             integrations={integrations}
+            connectionRequests={connectionRequests}
             busyId={busyId}
             onToggle={toggleIntegration}
             onConfigureN8n={() => setModal('n8n')}
@@ -6111,8 +6562,13 @@ function WorkspaceApp() {
             onConfigureCodex={() => setModal('codex-ai')}
             onConfigureCodexRuntime={() => setModal('codex-runtime')}
             onConfigurePaystack={() => setModal('paystack')}
-            onConfigureMail={() => setActivePage('messages')}
+            onConfigureMail={() => navigatePage('messages')}
             onToggleGoogleDrive={(integration) => void toggleGoogleDrive(integration)}
+            onOpenStorageSetup={(provider) => {
+              setStorageSetupProvider(provider)
+              navigatePage('files')
+              setToast(`${provider === 'onedrive' ? 'OneDrive' : 'Dropbox'} storage point setup is ready.`)
+            }}
             onRequestConnection={() => setModal('integration-request')}
             onToast={setToast}
           />
@@ -6156,7 +6612,7 @@ function WorkspaceApp() {
       case 'analytics':
         page = (
           <Suspense fallback={<EmptySkeleton />}>
-            <AnalyticsPage onOpenFiles={() => setActivePage('files')} />
+            <AnalyticsPage onOpenFiles={() => navigatePage('files')} />
           </Suspense>
         )
         break
@@ -6164,8 +6620,11 @@ function WorkspaceApp() {
         page = (
           <Suspense fallback={<EmptySkeleton />}>
             <FilesPage
-              onOpenConnections={() => setActivePage('integrations')}
+              onOpenConnections={() => navigatePage('integrations')}
               onToast={setToast}
+              ownerName={user.name}
+              ownerInitials={user.initials}
+              initialStorageProvider={storageSetupProvider}
             />
           </Suspense>
         )
@@ -6190,6 +6649,21 @@ function WorkspaceApp() {
           </Suspense>
         )
         break
+      case 'builder':
+        page = builderPayload ? (
+          <Suspense fallback={<EmptySkeleton />}>
+            <WorkspaceBuilder
+              initial={builderPayload}
+              workspaceName={user.workspace}
+              embedded
+              onStateChange={updateBuilderState}
+              onComplete={completeWorkspaceBuilder}
+              onExit={() => navigatePage('overview')}
+              onInviteTeam={() => navigatePage('team')}
+            />
+          </Suspense>
+        ) : <EmptySkeleton />
+        break
       case 'api':
         page = (
           <ApiPage
@@ -6206,7 +6680,7 @@ function WorkspaceApp() {
           <SettingsPage
             user={user}
             onToast={setToast}
-            onNavigate={setActivePage}
+            onNavigate={navigatePage}
             onSaved={(settings) =>
               setUser((current) =>
                 current ? { ...current, workspace: settings.name } : current,
@@ -6222,14 +6696,15 @@ function WorkspaceApp() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${sidebarCollapsed ? ' sidebar-is-collapsed' : ''}`}>
       <Sidebar
         activePage={activePage}
         user={user}
         mobileOpen={mobileOpen}
+        collapsed={sidebarCollapsed}
         onNavigate={(nextPage) => {
           if (nextPage === 'settings') setSettingsSection('general')
-          setActivePage(nextPage)
+          navigatePage(nextPage)
         }}
         onClose={() => setMobileOpen(false)}
         onSignOut={() => void signOut()}
@@ -6237,10 +6712,23 @@ function WorkspaceApp() {
         automationCount={automations.length}
         connectionCount={integrations.filter((integration) => integration.connected).length}
         pendingInvoiceCount={analytics?.pendingInvoices ?? 0}
+        enabledModules={
+          builderPayload?.state.status === 'completed'
+            ? builderPayload.state.generated.modules || null
+            : null
+        }
       />
       <div className="app-main">
         <header className="topbar">
           <div className="topbar__left">
+            <button
+              className="sidebar-toggle"
+              onClick={() => setSidebarCollapsed((current) => !current)}
+              aria-label={sidebarCollapsed ? 'Show navigation' : 'Hide navigation'}
+              title={sidebarCollapsed ? 'Show navigation' : 'Hide navigation'}
+            >
+              <Icon name="menu" />
+            </button>
             <button
               className="mobile-menu-button"
               onClick={() => setMobileOpen(true)}
@@ -6313,7 +6801,7 @@ function WorkspaceApp() {
                       onClick={() => {
                         void api.notifications.markRead(notification.id).catch(() => undefined)
                         setWorkspaceNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, readAt: item.readAt || new Date().toISOString() } : item))
-                        setActivePage(
+                        navigatePage(
                           notification.entityType === 'project'
                             ? 'work'
                             : notification.entityType === 'invoice'
@@ -6373,21 +6861,21 @@ function WorkspaceApp() {
                   </header>
                   <button onClick={() => {
                     setSettingsSection('profile')
-                    setActivePage('settings')
+                    navigatePage('settings')
                     setProfileOpen(false)
                   }}>
                     <Icon name="user" size={16} /><span><strong>Profile</strong><small>Personal details and account</small></span>
                   </button>
                   <button onClick={() => {
                     setSettingsSection('general')
-                    setActivePage('settings')
+                    navigatePage('settings')
                     setProfileOpen(false)
                   }}>
                     <Icon name="settings" size={16} /><span><strong>Settings</strong><small>Workspace preferences</small></span>
                   </button>
                   <button onClick={() => {
                     setSettingsSection('dev')
-                    setActivePage('settings')
+                    navigatePage('settings')
                     setProfileOpen(false)
                   }}>
                     <Icon name="code" size={16} /><span><strong>Dev Tools</strong><small>Database, API keys, and logs</small></span>
@@ -6523,7 +7011,7 @@ function WorkspaceApp() {
       <CommandPalette
         open={commandOpen}
         onClose={() => setCommandOpen(false)}
-        onNavigate={setActivePage}
+        onNavigate={navigatePage}
         onCreateAutomation={() => setModal('automation')}
       />
       <Suspense fallback={null}><WorkspaceChat /></Suspense>
