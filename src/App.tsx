@@ -40,6 +40,7 @@ import {
   type WorkspaceBuilderState,
   type WorkspaceContext,
   type WorkspaceNotification,
+  type WhatsAppStatus,
 } from './lib/api'
 import { syncIdeaMutations } from './lib/ideasRepository'
 import { IDEA_SYNC_REQUEST_EVENT } from './pwa'
@@ -121,6 +122,7 @@ type ModalName =
   | 'codex-ai'
   | 'codex-runtime'
   | 'paystack'
+  | 'whatsapp'
   | 'integration-request'
   | null
 type IconName =
@@ -1504,6 +1506,7 @@ function IntegrationLogo({ integration }: { integration: Integration }) {
         <i />
       </span>
     ),
+    whatsapp: <span className="logo-letter">WA</span>,
   }
   return (
     <span className="integration-logo" style={{ '--integration-accent': integration.accent } as React.CSSProperties}>
@@ -1523,6 +1526,7 @@ function IntegrationsPage({
   onConfigureCodexRuntime,
   onConfigurePaystack,
   onConfigureMail,
+  onConfigureWhatsApp,
   onToggleGoogleDrive,
   onOpenStorageSetup,
   onRequestConnection,
@@ -1538,6 +1542,7 @@ function IntegrationsPage({
   onConfigureCodexRuntime: () => void
   onConfigurePaystack: () => void
   onConfigureMail: () => void
+  onConfigureWhatsApp: () => void
   onToggleGoogleDrive: (integration: Integration) => void
   onOpenStorageSetup: (provider: 'dropbox' | 'onedrive') => void
   onRequestConnection: () => void
@@ -1708,6 +1713,7 @@ function IntegrationsPage({
                 else if (integration.id === 'paystack') onConfigurePaystack()
                 else if (integration.id.startsWith('request:')) onToast(`${integration.name} is saved as a pending connection request.`)
                 else if (integration.id === 'mail') onConfigureMail()
+                else if (integration.id === 'whatsapp') onConfigureWhatsApp()
                 else if (integration.id === 'drive') onToggleGoogleDrive(integration)
                 else if (integration.id === 'dropbox' || integration.id === 'onedrive') onOpenStorageSetup(integration.id)
                 else if (integration.category === 'Payments') {
@@ -1754,6 +1760,10 @@ function IntegrationsPage({
                     ? integration.connected
                       ? 'Open Messages'
                       : 'Set up mail'
+                  : integration.id === 'whatsapp'
+                    ? integration.connected
+                      ? 'Manage WhatsApp'
+                      : 'Scan WhatsApp QR'
                   : integration.id === 'paystack'
                     ? integration.connected
                       ? 'Configure'
@@ -1775,6 +1785,155 @@ function IntegrationsPage({
           </article>
         ))}
       </section>
+    </div>
+  )
+}
+
+function WhatsAppConnectionPanel({
+  status,
+  canManage,
+  onStatusChange,
+  onClose,
+  onToast,
+}: {
+  status: WhatsAppStatus
+  canManage: boolean
+  onStatusChange: (next: WhatsAppStatus) => void
+  onClose: () => void
+  onToast: (message: string) => void
+}) {
+  const [selfNumber, setSelfNumber] = useState(status.selfNumber ? `+${status.selfNumber}` : '')
+  const [notificationsEnabled, setNotificationsEnabled] = useState(status.notificationsEnabled)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    setNotificationsEnabled(status.notificationsEnabled)
+  }, [status.notificationsEnabled])
+
+  useEffect(() => {
+    if (!canManage || !['connecting', 'qr'].includes(status.status)) return
+    const timer = window.setInterval(() => {
+      void api.whatsapp.status().then(onStatusChange).catch(() => undefined)
+    }, 1_500)
+    return () => window.clearInterval(timer)
+  }, [canManage, onStatusChange, status.status])
+
+  const connect = async (event: FormEvent) => {
+    event.preventDefault()
+    setBusy(true)
+    try {
+      const next = await api.whatsapp.connect({ selfNumber, notificationsEnabled })
+      onStatusChange(next)
+      onToast('WhatsApp is ready. Scan the QR code with your phone.')
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : 'Unable to start WhatsApp connection.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const disconnect = async () => {
+    if (!window.confirm('Disconnect WhatsApp and remove its saved session from this workspace?')) return
+    setBusy(true)
+    try {
+      onStatusChange(await api.whatsapp.disconnect())
+      onToast('WhatsApp disconnected.')
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : 'Unable to disconnect WhatsApp.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const sendTest = async () => {
+    setBusy(true)
+    try {
+      const result = await api.whatsapp.sendTest()
+      onToast(`Test notification sent to +${result.recipient || status.selfNumber}.`)
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : 'Unable to send the WhatsApp test.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const toggleNotifications = async (enabled: boolean) => {
+    setNotificationsEnabled(enabled)
+    if (!status.configured || status.status !== 'connected') return
+    setBusy(true)
+    try {
+      onStatusChange(await api.whatsapp.setNotificationsEnabled(enabled))
+      onToast(enabled ? 'WhatsApp platform notifications enabled.' : 'WhatsApp platform notifications paused.')
+    } catch (error) {
+      setNotificationsEnabled(!enabled)
+      onToast(error instanceof Error ? error.message : 'Unable to update WhatsApp notifications.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!canManage) {
+    return <div className="panel-copy">Only the workspace owner can scan a WhatsApp QR code or change notification delivery.</div>
+  }
+
+  const statusLabel = status.status === 'connected'
+    ? 'Connected'
+    : status.status === 'qr'
+      ? 'Waiting for QR scan'
+      : status.status === 'connecting'
+        ? 'Connecting…'
+        : status.status === 'error'
+          ? 'Connection error'
+          : 'Not connected'
+  const statusClass = status.status === 'connected'
+    ? ' is-connected'
+    : ['connecting', 'qr'].includes(status.status)
+      ? ' is-pending'
+      : status.status === 'error'
+        ? ' is-error'
+        : ''
+
+  return (
+    <div className="connection-form">
+      <p className="panel-copy">This connector uses Baileys on the server. It sends platform notifications only to the WhatsApp number you verify below — never to an arbitrary recipient.</p>
+      <div className={`connection-state${statusClass}`} role="status" aria-live="polite">
+        <span />
+        {statusLabel}
+      </div>
+      <form onSubmit={(event) => void connect(event)}>
+        <label className="form-field">
+          <span>Your WhatsApp number</span>
+          <input
+            value={selfNumber}
+            onChange={(event) => setSelfNumber(event.target.value)}
+            placeholder="+27821234567"
+            inputMode="tel"
+            autoComplete="tel"
+            disabled={busy || status.status === 'connected'}
+            required
+          />
+          <small>Use the full international number, including the country code.</small>
+        </label>
+        <label className="checkbox-row">
+          <input type="checkbox" checked={notificationsEnabled} onChange={(event) => void toggleNotifications(event.target.checked)} disabled={busy} />
+          <span>Send platform notifications to me on WhatsApp</span>
+        </label>
+        {status.error && <p className="form-error">{status.error}</p>}
+        {status.qr && status.status !== 'connected' && (
+          <div className="whatsapp-qr-card">
+            {status.qr.startsWith('data:image/')
+              ? <img src={status.qr} alt="WhatsApp pairing QR code" />
+              : <pre>{status.qrText || 'QR code is ready; install the QR renderer on the server.'}</pre>}
+            <p>Open WhatsApp on your phone → Linked devices → Link a device, then scan this code.</p>
+          </div>
+        )}
+        <div className="form-actions">
+          {status.status !== 'connected' && <button className="button button--dark" type="submit" disabled={busy}>{busy ? 'Starting…' : 'Start WhatsApp connection'}</button>}
+          {status.status === 'connected' && <button className="button button--secondary" type="button" onClick={() => void sendTest()} disabled={busy}>{busy ? 'Sending…' : 'Send test to me'}</button>}
+          {status.configured && <button className="button button--secondary" type="button" onClick={() => void disconnect()} disabled={busy}>Disconnect</button>}
+          <button className="text-button" type="button" onClick={onClose}>Close</button>
+        </div>
+      </form>
     </div>
   )
 }
@@ -5549,6 +5708,7 @@ function WorkspaceApp() {
   const [n8nConfig, setN8nConfig] = useState<N8nConfig | null>(null)
   const [paystackConnection, setPaystackConnection] =
     useState<PaystackConnection | null>(null)
+  const [whatsappStatus, setWhatsappStatus] = useState<WhatsAppStatus | null>(null)
   const [mcpConnection, setMcpConnection] = useState<McpConnection | null>(null)
   const [mcpServices, setMcpServices] = useState<McpService[]>([])
   const [codexConnection, setCodexConnection] =
@@ -5677,6 +5837,7 @@ function WorkspaceApp() {
     setConnectionRequests([])
     setN8nConfig(null)
     setPaystackConnection(null)
+    setWhatsappStatus(null)
     setMcpConnection(null)
     setMcpServices([])
     setCodexConnection(null)
@@ -5692,6 +5853,7 @@ function WorkspaceApp() {
       api.integrationRequests.list(),
       api.n8n.getConfig(),
       api.money.getPaystackStatus(),
+      user.role === 'owner' ? api.whatsapp.status() : Promise.resolve(null),
       api.mcp.getConnection(),
       api.mcp.listServices(),
       api.codexDevice.getConnection(),
@@ -5707,6 +5869,7 @@ function WorkspaceApp() {
           integrationRequestData,
           n8nData,
           paystackData,
+          whatsappData,
           mcpConnectionData,
           mcpServiceData,
           codexConnectionData,
@@ -5737,6 +5900,7 @@ function WorkspaceApp() {
           }
           if (loadedN8n) setN8nConfig(loadedN8n)
           if (paystackData.status === 'fulfilled') setPaystackConnection(paystackData.value)
+          if (whatsappData.status === 'fulfilled' && whatsappData.value) setWhatsappStatus(whatsappData.value)
           if (mcpConnectionData.status === 'fulfilled') setMcpConnection(mcpConnectionData.value)
           if (mcpServiceData.status === 'fulfilled') setMcpServices(mcpServiceData.value)
           if (codexConnectionData.status === 'fulfilled') setCodexConnection(codexConnectionData.value)
@@ -5773,6 +5937,7 @@ function WorkspaceApp() {
             integrationRequestData,
             n8nData,
             paystackData,
+            whatsappData,
             mcpConnectionData,
             mcpServiceData,
             codexConnectionData,
@@ -6563,6 +6728,20 @@ function WorkspaceApp() {
             onConfigureCodexRuntime={() => setModal('codex-runtime')}
             onConfigurePaystack={() => setModal('paystack')}
             onConfigureMail={() => navigatePage('messages')}
+            onConfigureWhatsApp={() => {
+              if (user.role !== 'owner') {
+                setToast('Only the workspace owner can manage the WhatsApp connection.')
+                return
+              }
+              if (whatsappStatus) {
+                setModal('whatsapp')
+                return
+              }
+              void api.whatsapp.status().then((next) => {
+                setWhatsappStatus(next)
+                setModal('whatsapp')
+              }).catch((error) => setToast(error instanceof Error ? error.message : 'Unable to load WhatsApp status.'))
+            }}
             onToggleGoogleDrive={(integration) => void toggleGoogleDrive(integration)}
             onOpenStorageSetup={(provider) => {
               setStorageSetupProvider(provider)
@@ -6950,6 +7129,24 @@ function WorkspaceApp() {
             onSave={savePaystackConnection}
             onDisconnect={disconnectPaystack}
             onCancel={() => setModal(null)}
+            onToast={setToast}
+          />
+        </Modal>
+      )}
+      {modal === 'whatsapp' && whatsappStatus && (
+        <Modal
+          title="Connect WhatsApp"
+          description="Scan once to send platform notifications to your own WhatsApp number."
+          onClose={() => setModal(null)}
+        >
+          <WhatsAppConnectionPanel
+            status={whatsappStatus}
+            canManage={user.role === 'owner'}
+            onStatusChange={(next) => {
+              setWhatsappStatus(next)
+              setIntegrations((current) => current.map((item) => item.id === 'whatsapp' ? { ...item, connected: next.connected } : item))
+            }}
+            onClose={() => setModal(null)}
             onToast={setToast}
           />
         </Modal>

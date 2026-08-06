@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, type ProposedMcpAction, type RunEvent } from '../../lib/api'
 
 type Message = {
@@ -64,6 +64,12 @@ export default function WorkspaceChat() {
   const [message, setMessage] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [busy, setBusy] = useState(false)
+  const messagesElement = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const element = messagesElement.current
+    if (element) element.scrollTop = element.scrollHeight
+  }, [messages, busy])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -107,6 +113,7 @@ export default function WorkspaceChat() {
       const service = objectValue(data.service)
       let actionMessage = `${result.message} (${result.duration}ms)`
       let actionState: Message['actionState'] = result.ok ? 'completed' : 'failed'
+      let continuedResponse: Awaited<ReturnType<typeof api.chat.complete>> | null = null
       if (typeof workflow.id === 'string') {
         actionMessage = `${String(workflow.name || 'Workflow')} created · ${String(workflow.status || 'ready')}`
       }
@@ -127,10 +134,35 @@ export default function WorkspaceChat() {
           if (run.status !== 'running') break
         }
       }
+      if (!result.ok) {
+        const detail = summarizeOutput(result.data)
+        actionMessage = `${result.message}${detail ? ` · ${detail}` : ''} (${result.duration}ms)`
+      }
+      if (result.ok && action.continueAfterSuccess) {
+        const originalRequest = messages.slice(0, index).findLast((item) => item.role === 'user')?.content
+        if (originalRequest) {
+          actionMessage = `${actionMessage} · preparing the next approval…`
+          continuedResponse = await api.chat.complete(
+            originalRequest,
+            messages.slice(0, index + 1).map(({ role, content }) => ({ role, content })),
+            { serviceId: action.serviceId, toolId: action.toolId, data: result.data },
+          )
+        }
+      }
       window.dispatchEvent(new Event(DASHBOARD_CHANGED_EVENT))
-      setMessages((current) => current.map((item, itemIndex) => itemIndex === index
-        ? { ...item, actionState, actionMessage }
-        : item))
+      setMessages((current) => {
+        const updated = current.map((item, itemIndex) => itemIndex === index
+          ? { ...item, actionState, actionMessage }
+          : item)
+        return continuedResponse
+          ? [...updated, {
+              role: 'assistant' as const,
+              content: continuedResponse.content || '',
+              proposedAction: continuedResponse.proposedAction || undefined,
+              actionState: continuedResponse.proposedAction ? 'pending' as const : undefined,
+            }]
+          : updated
+      })
     } catch (error) {
       setMessages((current) => current.map((item, itemIndex) => itemIndex === index
         ? { ...item, actionState: 'failed', actionMessage: error instanceof Error ? error.message : 'I could not complete that action.' }
@@ -152,7 +184,7 @@ export default function WorkspaceChat() {
             <div><span className="micro-label">Workspace assistant</span><strong>Ask about your work</strong></div>
             <button type="button" onClick={() => setOpen(false)} aria-label="Close assistant">×</button>
           </header>
-          <div className="workspace-chat__messages">
+          <div className="workspace-chat__messages" ref={messagesElement}>
             {messages.length === 0 && (
               <p>Ask about any dashboard area. I can use approved MCP services, create files and records, add connector requests, and build prompt-backed workflows. Every tool action asks for confirmation first.</p>
             )}

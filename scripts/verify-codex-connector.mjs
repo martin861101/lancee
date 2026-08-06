@@ -35,6 +35,20 @@ async function startAiProvider() {
   const port = await availablePort()
   const server = createHttpServer(async (request, response) => {
     assert.equal(request.method, 'POST')
+    if (request.url === '/search') {
+      const chunks = []
+      for await (const chunk of request) chunks.push(chunk)
+      const parameters = new URLSearchParams(Buffer.concat(chunks).toString('utf8'))
+      assert.match(parameters.get('q') || '', /baking companies/i)
+      response.setHeader('Content-Type', 'text/html; charset=UTF-8')
+      response.end(`<!doctype html><html><body>
+        <a class="result__a" href="https://example.com/bimbo">Grupo Bimbo company profile</a>
+        <a class="result__snippet">Global baking company with bread and snack brands.</a>
+        <a class="result__a" href="https://example.com/flowers">Flowers Foods company profile</a>
+        <a class="result__snippet">Producer of packaged bakery foods.</a>
+      </body></html>`)
+      return
+    }
     assert.equal(request.url, '/chat/completions')
     assert.equal(request.headers.authorization, 'Bearer provider-test-key')
     const chunks = []
@@ -45,13 +59,30 @@ async function startAiProvider() {
     response.setHeader('Content-Type', 'application/json')
     if (body.tools?.length) {
       const userMessage = [...body.messages].reverse().find((message) => message.role === 'user')?.content || ''
-      const requestedTool = /run workflow/i.test(userMessage)
-        ? 'lancee_run_workflow'
-        : 'lancee_create_workflow'
+      const availableToolNames = body.tools.map((tool) => tool.function?.name)
+      const requestedTool = availableToolNames.includes('lancee_web_search') && /search|research/i.test(userMessage)
+        ? 'lancee_web_search'
+        : availableToolNames.includes('lancee_create_pdf') && /pdf|untrusted_tool_result/i.test(userMessage)
+          ? 'lancee_create_pdf'
+          : /create.*file|file.*containing/i.test(userMessage)
+            ? 'lancee_create_file'
+            : /run workflow/i.test(userMessage)
+              ? 'lancee_run_workflow'
+              : 'lancee_create_workflow'
       const workflowId = userMessage.match(/aut_[a-f0-9]{12}/)?.[0]
       const argumentsValue = requestedTool === 'lancee_run_workflow'
         ? { workflow_id: workflowId, instruction: 'Summarize this workspace.' }
-        : {
+        : requestedTool === 'lancee_web_search'
+          ? { query: 'notable baking companies', limit: 10 }
+          : requestedTool === 'lancee_create_pdf'
+            ? {
+                name: 'baking-companies.pdf',
+                title: 'Notable Baking Companies',
+                content: '1. Grupo Bimbo — Global baking company.\n   Source: https://example.com/bimbo\n\n2. Flowers Foods — Packaged bakery foods producer.\n   Source: https://example.com/flowers',
+              }
+        : requestedTool === 'lancee_create_file'
+          ? { name: 'assistant-note.md', content: '# Saved by Lancee', mime_type: 'text/markdown' }
+          : {
             name: 'Assistant workspace pulse',
             description: 'Summarize live workspace activity through the Lancee Core.',
             execution: 'core',
@@ -59,6 +90,9 @@ async function startAiProvider() {
             activate: true,
           }
       assert(body.tools.some((tool) => tool.function?.name === requestedTool))
+      if (['lancee_create_file', 'lancee_web_search', 'lancee_create_pdf'].includes(requestedTool)) {
+        assert.deepEqual(body.tools.map((tool) => tool.function?.name), [requestedTool])
+      }
       response.end(JSON.stringify({
         model: 'connector-test-model',
         choices: [{
@@ -109,6 +143,7 @@ async function startApplication(aiEndpoint) {
       AI_API_KEY: 'provider-test-key',
       AI_MODEL: 'connector-test-model',
       AI_ENDPOINT_URL: aiEndpoint,
+      LANCEE_WEB_SEARCH_URL: `${new URL(aiEndpoint).origin}/search`,
       SMTP_ENABLED: 'false',
       LANCEE_MCP_CODE_EXECUTION: 'true',
       LANCEE_MCP_PYTHON_BIN: process.env.LANCEE_MCP_PYTHON_BIN || 'python3',
@@ -285,7 +320,7 @@ try {
   assert.equal(servicesResponse.status, 200)
   const builtInService = (await servicesResponse.json()).services.find((service) => service.id === 'lancee')
   assert.equal(builtInService.active, true)
-  assert.equal(builtInService.tools.length, 17)
+  assert.equal(builtInService.tools.length, 19)
 
   const assistantCreateResponse = await sessionRequest(
     application.origin,
@@ -331,6 +366,28 @@ try {
   const assistantWorkflow = (await approvedCreateResponse.json()).data.workflow
   assert.equal(assistantWorkflow.status, 'active')
 
+  const assistantFileResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/ai/chat',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'Create a file called assistant-note.md containing # Saved by Lancee.' }),
+    },
+  )
+  assert.equal(assistantFileResponse.status, 200)
+  const assistantFile = await assistantFileResponse.json()
+  assert.deepEqual({
+    serviceId: assistantFile.proposedAction.serviceId,
+    toolId: assistantFile.proposedAction.toolId,
+    arguments: assistantFile.proposedAction.arguments,
+  }, {
+    serviceId: 'lancee',
+    toolId: 'create_file',
+    arguments: { name: 'assistant-note.md', content: '# Saved by Lancee', mime_type: 'text/markdown' },
+  })
+
   const createFileResponse = await sessionRequest(
     application.origin,
     cookie,
@@ -341,15 +398,95 @@ try {
         'Content-Type': 'application/json',
         'Idempotency-Key': 'assistant-create-file-0001',
       },
-      body: JSON.stringify({
-        serviceId: 'lancee',
-        toolId: 'create_file',
-        arguments: { name: 'assistant-note.md', content: '# Saved by Lancee', mime_type: 'text/markdown' },
-      }),
+      body: JSON.stringify(assistantFile.proposedAction),
     },
   )
   assert.equal(createFileResponse.status, 200)
   assert.match((await createFileResponse.json()).data.file.id, /^doc_[a-f0-9]{16}$/)
+
+  const researchRequest = 'Search for notable baking companies, extract a sourced list, and save it to Files as a PDF.'
+  const assistantSearchResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/ai/chat',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: researchRequest }),
+    },
+  )
+  assert.equal(assistantSearchResponse.status, 200)
+  const assistantSearch = await assistantSearchResponse.json()
+  assert.equal(assistantSearch.proposedAction.toolId, 'web_search')
+  assert.equal(assistantSearch.proposedAction.continueAfterSuccess, true)
+
+  const approvedSearchResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/mcp/invoke',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'assistant-web-search-0001',
+      },
+      body: JSON.stringify(assistantSearch.proposedAction),
+    },
+  )
+  assert.equal(approvedSearchResponse.status, 200)
+  const approvedSearch = await approvedSearchResponse.json()
+  assert.equal(approvedSearch.ok, true)
+  assert.equal(approvedSearch.data.results.length, 2)
+
+  const assistantPdfResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/ai/chat',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: researchRequest,
+        history: [
+          { role: 'user', content: researchRequest },
+          { role: 'assistant', content: assistantSearch.content },
+        ],
+        continuation: {
+          serviceId: assistantSearch.proposedAction.serviceId,
+          toolId: assistantSearch.proposedAction.toolId,
+          data: approvedSearch.data,
+        },
+      }),
+    },
+  )
+  assert.equal(assistantPdfResponse.status, 200)
+  const assistantPdf = await assistantPdfResponse.json()
+  assert.equal(assistantPdf.proposedAction.toolId, 'create_pdf')
+
+  const approvedPdfResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/mcp/invoke',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'assistant-create-pdf-0001',
+      },
+      body: JSON.stringify(assistantPdf.proposedAction),
+    },
+  )
+  assert.equal(approvedPdfResponse.status, 200)
+  const approvedPdf = await approvedPdfResponse.json()
+  assert.equal(approvedPdf.data.file.mimeType, 'application/pdf')
+  const pdfDownloadResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    `/api/documents/${approvedPdf.data.file.id}/download`,
+  )
+  assert.equal(pdfDownloadResponse.status, 200)
+  assert.equal(pdfDownloadResponse.headers.get('content-type'), 'application/pdf')
+  assert.equal(Buffer.from(await pdfDownloadResponse.arrayBuffer()).subarray(0, 5).toString(), '%PDF-')
 
   const requestConnectorResponse = await sessionRequest(
     application.origin,
@@ -487,6 +624,8 @@ try {
       'create_project',
       'set_project_status',
       'create_file',
+      'web_search',
+      'create_pdf',
       'request_connector',
       'configure_mcp_service',
       'delete_workspace_resource',

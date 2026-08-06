@@ -3200,6 +3200,16 @@ kbd {
   animation: pulse 1.5s ease-in-out infinite;
 }
 
+.connection-state.is-error {
+  color: #a64b42;
+  background: #fff0ee;
+  border-color: #f0d1cc;
+}
+
+.connection-state.is-error > span {
+  background: #c86659;
+}
+
 .webhook-directions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr);
@@ -4512,6 +4522,69 @@ kbd {
   margin-top: 5px;
   color: #9ba198;
   font-size: 7px;
+}
+
+.connection-form {
+  min-width: min(100%, 420px);
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 14px 0;
+  color: #4e554b;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.checkbox-row input {
+  margin-top: 2px;
+  accent-color: #25d366;
+}
+
+.whatsapp-qr-card {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  margin: 18px 0;
+  padding: 16px;
+  background: #f5f8f2;
+  border: 1px solid #dce6d6;
+  border-radius: 14px;
+  text-align: center;
+}
+
+.whatsapp-qr-card img {
+  width: 280px;
+  max-width: 100%;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.whatsapp-qr-card pre {
+  max-width: 100%;
+  overflow: auto;
+  padding: 10px;
+  color: #30352d;
+  background: #ffffff;
+  font-size: 7px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.whatsapp-qr-card p {
+  max-width: 340px;
+  margin: 0;
+  color: #697168;
+  font-size: 8px;
+  line-height: 1.5;
+}
+
+.form-error {
+  margin: 10px 0;
+  color: #b74e4e;
+  font-size: 9px;
 }
 
 .form-footer {

@@ -920,6 +920,17 @@ export async function openDatabase({
     )`,
     `ALTER TABLE tenant_integration_tokens ADD COLUMN IF NOT EXISTS refresh_iv TEXT`,
     `ALTER TABLE tenant_integration_tokens ADD COLUMN IF NOT EXISTS refresh_auth_tag TEXT`,
+    `CREATE TABLE IF NOT EXISTS whatsapp_connections (
+      workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+      self_number TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'disconnected'
+        CHECK (status IN ('disconnected', 'connecting', 'connected', 'error')),
+      connected_jid TEXT,
+      last_error TEXT NOT NULL DEFAULT '',
+      notifications_enabled ${isSqlite ? 'INTEGER NOT NULL DEFAULT 0 CHECK (notifications_enabled IN (0, 1))' : 'BOOLEAN NOT NULL DEFAULT FALSE'},
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS ai_conversations (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1425,6 +1436,14 @@ export async function openDatabase({
     `INSERT INTO workspace_integrations (
        workspace_id, integration_id, connected, updated_at
      )
+     SELECT id, 'whatsapp', 0, $1 FROM workspaces WHERE 1 = 1
+     ON CONFLICT (workspace_id, integration_id) DO NOTHING`,
+    [nowIso()],
+  )
+  await query(
+    `INSERT INTO workspace_integrations (
+       workspace_id, integration_id, connected, updated_at
+     )
      SELECT id, 'mail', 0, $1 FROM workspaces WHERE 1 = 1
      ON CONFLICT (workspace_id, integration_id) DO NOTHING`,
     [nowIso()],
@@ -1587,6 +1606,7 @@ export async function openDatabase({
     { id: 'codex-ai', connected: 0 },
     { id: 'codex-runtime', connected: 0 },
     { id: 'mail', connected: 0 },
+    { id: 'whatsapp', connected: 0 },
   ]
   for (const integration of defaultIntegrations) {
     await query(
@@ -3491,6 +3511,7 @@ export async function openDatabase({
         paystackConnection,
         codexConnection,
         mailAccount,
+        whatsappConnection,
         cloudLinks,
       ] = await Promise.all([
         this.getMcpAccess(selectedWorkspaceId),
@@ -3499,6 +3520,7 @@ export async function openDatabase({
         this.getPaymentConnection(selectedWorkspaceId, 'paystack'),
         this.getCodexConnection(selectedWorkspaceId),
         this.getMailAccount(selectedWorkspaceId),
+        this.getWhatsAppConnection(selectedWorkspaceId),
         this.listWorkspaceCloudLinks(selectedWorkspaceId),
       ])
       const integrationMeta = {
@@ -3511,6 +3533,7 @@ export async function openDatabase({
         'codex-ai': { name: 'lancee AI for Codex', description: 'Let an external Codex client call this workspace’s configured AI provider.', category: 'Automation', icon: 'codex', accent: '#6c654f' },
         'codex-runtime': { name: 'Codex Workspace', description: 'Run OpenAI Codex inside lancee against the server-configured project workspace.', category: 'Automation', icon: 'codex', accent: '#171a15' },
         mail: { name: 'Mail', description: 'Read and send workspace email, then trigger native automations from recipients, subjects, and keywords.', category: 'Communication', icon: 'messages', accent: '#6854e8' },
+        whatsapp: { name: 'WhatsApp', description: 'Scan a QR code once, then receive platform notifications on your own WhatsApp number.', category: 'Communication', icon: 'whatsapp', accent: '#25d366' },
       }
       return rows.filter((row) => Object.hasOwn(integrationMeta, row.integration_id)).map((row) => {
         const meta = integrationMeta[row.integration_id]
@@ -3529,6 +3552,8 @@ export async function openDatabase({
           connected = Boolean(paystackConnection.configured)
         } else if (row.integration_id === 'mail') {
           connected = mailAccount?.status === 'connected'
+        } else if (row.integration_id === 'whatsapp') {
+          connected = whatsappConnection?.status === 'connected'
         }
         return {
           id: row.integration_id,
@@ -3914,6 +3939,102 @@ export async function openDatabase({
         )
         return rows.length > 0
       })
+    },
+
+    async getWhatsAppConnection(selectedWorkspaceId) {
+      const rows = await query(
+        `SELECT workspace_id, self_number, status, connected_jid, last_error,
+                notifications_enabled, created_at, updated_at
+         FROM whatsapp_connections
+         WHERE workspace_id = $1`,
+        [selectedWorkspaceId],
+      )
+      const row = rows[0]
+      if (!row) return null
+      return {
+        workspaceId: row.workspace_id,
+        selfNumber: row.self_number,
+        status: row.status,
+        connectedJid: row.connected_jid || null,
+        lastError: row.last_error || '',
+        notificationsEnabled: Boolean(row.notifications_enabled),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }
+    },
+
+    async listWhatsAppConnections() {
+      const rows = await query(
+        `SELECT workspace_id, self_number, status, connected_jid, last_error,
+                notifications_enabled, created_at, updated_at
+         FROM whatsapp_connections`,
+      )
+      return rows.map((row) => ({
+        workspaceId: row.workspace_id,
+        selfNumber: row.self_number,
+        status: row.status,
+        connectedJid: row.connected_jid || null,
+        lastError: row.last_error || '',
+        notificationsEnabled: Boolean(row.notifications_enabled),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }))
+    },
+
+    async upsertWhatsAppConnection({ workspaceId, selfNumber, notificationsEnabled = true, status = 'disconnected', connectedJid = null, lastError = '' }) {
+      const timestamp = nowIso()
+      const enabled = isSqlite ? (notificationsEnabled ? 1 : 0) : Boolean(notificationsEnabled)
+      await query(
+        `INSERT INTO whatsapp_connections (
+           workspace_id, self_number, status, connected_jid, last_error,
+           notifications_enabled, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (workspace_id) DO UPDATE SET
+           self_number = EXCLUDED.self_number,
+           status = EXCLUDED.status,
+           connected_jid = EXCLUDED.connected_jid,
+           last_error = EXCLUDED.last_error,
+           notifications_enabled = EXCLUDED.notifications_enabled,
+           updated_at = EXCLUDED.updated_at`,
+        [workspaceId, selfNumber, status, connectedJid, String(lastError || '').slice(0, 500), enabled, timestamp, timestamp],
+      )
+      return this.getWhatsAppConnection(workspaceId)
+    },
+
+    async setWhatsAppConnectionStatus(selectedWorkspaceId, { status, selfNumber = null, connectedJid = null, lastError = '' }) {
+      const timestamp = nowIso()
+      await query(
+        `UPDATE whatsapp_connections
+         SET status = $1,
+             self_number = COALESCE($2, self_number),
+             connected_jid = $3,
+             last_error = $4,
+             updated_at = $5
+         WHERE workspace_id = $6`,
+        [status, selfNumber, connectedJid, String(lastError || '').slice(0, 500), timestamp, selectedWorkspaceId],
+      )
+      return this.getWhatsAppConnection(selectedWorkspaceId)
+    },
+
+    async setWhatsAppNotificationPreference(selectedWorkspaceId, notificationsEnabled) {
+      const enabled = isSqlite ? (notificationsEnabled ? 1 : 0) : Boolean(notificationsEnabled)
+      await query(
+        `UPDATE whatsapp_connections
+         SET notifications_enabled = $1, updated_at = $2
+         WHERE workspace_id = $3`,
+        [enabled, nowIso(), selectedWorkspaceId],
+      )
+      return this.getWhatsAppConnection(selectedWorkspaceId)
+    },
+
+    async deleteWhatsAppConnection(selectedWorkspaceId) {
+      await query(`DELETE FROM whatsapp_connections WHERE workspace_id = $1`, [selectedWorkspaceId])
+      await query(
+        `UPDATE workspace_integrations SET connected = 0, updated_at = $1
+         WHERE workspace_id = $2 AND integration_id = 'whatsapp'`,
+        [nowIso(), selectedWorkspaceId],
+      )
+      return true
     },
 
     async saveAiConversation({ workspaceId, userId, threadId = null, title = null, model, messages, tokensUsed = 0 }) {

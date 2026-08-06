@@ -92,6 +92,18 @@ export type Integration = {
   accent: string
 }
 
+export type WhatsAppStatus = {
+  configured: boolean
+  connected: boolean
+  status: 'disconnected' | 'connecting' | 'connected' | 'error' | 'qr'
+  selfNumber: string
+  notificationsEnabled: boolean
+  qr: string | null
+  qrText: string | null
+  error: string
+  connectedJid: string | null
+}
+
 export type GoogleDriveFile = {
   id: string
   name: string
@@ -217,6 +229,7 @@ export type ProposedMcpAction = {
   description: string
   risk: 'low' | 'medium' | 'high'
   readOnly: boolean
+  continueAfterSuccess?: boolean
 }
 
 export type StorefrontDomain = {
@@ -1197,12 +1210,16 @@ export const api = {
     },
   },
   chat: {
-    async complete(message: string, history: Array<{ role: 'user' | 'assistant'; content: string }> = []) {
+    async complete(
+      message: string,
+      history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+      continuation?: { serviceId: string; toolId: string; data: unknown },
+    ) {
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         credentials: 'same-origin',
         headers: mutationHeaders(true),
-        body: JSON.stringify({ message, history }),
+        body: JSON.stringify({ message, history, ...(continuation ? { continuation } : {}) }),
       })
       const payload = (await response.json()) as {
         content?: string
@@ -1476,6 +1493,68 @@ export const api = {
           throw new Error(payload.error || 'Unable to remove the integration token.')
         }
       },
+    },
+  },
+  whatsapp: {
+    async status() {
+      const response = await fetch('/api/whatsapp/status', { credentials: 'same-origin' })
+      const payload = (await response.json()) as WhatsAppStatus & { error?: string }
+      if (!response.ok || typeof payload.status !== 'string') {
+        throw new Error(payload.error || 'Unable to load WhatsApp status.')
+      }
+      return payload
+    },
+    async connect(input: { selfNumber: string; notificationsEnabled: boolean }) {
+      const response = await fetch('/api/whatsapp/connect', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify(input),
+      })
+      const payload = (await response.json()) as WhatsAppStatus & { error?: string }
+      if (!response.ok || typeof payload.status !== 'string') {
+        throw new Error(payload.error || 'Unable to start WhatsApp connection.')
+      }
+      return payload
+    },
+    async disconnect() {
+      const response = await fetch('/api/whatsapp/disconnect', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: '{}',
+      })
+      const payload = (await response.json()) as WhatsAppStatus & { error?: string }
+      if (!response.ok || typeof payload.status !== 'string') {
+        throw new Error(payload.error || 'Unable to disconnect WhatsApp.')
+      }
+      return payload
+    },
+    async setNotificationsEnabled(notificationsEnabled: boolean) {
+      const response = await fetch('/api/whatsapp/settings', {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify({ notificationsEnabled }),
+      })
+      const payload = (await response.json()) as WhatsAppStatus & { error?: string }
+      if (!response.ok || typeof payload.status !== 'string') {
+        throw new Error(payload.error || 'Unable to update WhatsApp notifications.')
+      }
+      return payload
+    },
+    async sendTest() {
+      const response = await fetch('/api/whatsapp/test', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify({ confirm: true }),
+      })
+      const payload = (await response.json()) as { ok?: boolean; recipient?: string; error?: string }
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || 'Unable to send the WhatsApp test.')
+      }
+      return payload
     },
   },
   integrationRequests: {

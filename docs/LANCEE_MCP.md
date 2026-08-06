@@ -16,6 +16,8 @@ workspace-scoped bearer token.
 | `create_project` | Create a project for an existing or new client. |
 | `set_project_status` | Move a project to a supported dashboard status. |
 | `create_file` | Save a text, Markdown, or JSON file in the Files library. |
+| `web_search` | Search the public web for bounded source titles, URLs, and snippets. |
+| `create_pdf` | Generate a text report as a valid PDF and save it in Files. |
 | `request_connector` | Add a pending connector card to Connections. |
 | `configure_mcp_service` | Activate or deactivate a live service discovered by the approved MCP gateway. |
 | `delete_workspace_resource` | Owner-only permanent deletion for an automation or workspace file. |
@@ -41,8 +43,11 @@ Edge runs reuse the signed n8n delivery path.
 The authenticated dashboard assistant receives these tools as native function
 declarations from `/api/ai/chat`. OpenAI-compatible providers (including
 Hermes), Anthropic, and Gemini responses are parsed through their structured
-tool-call fields. Plain-text/XML tool tags are not used. The model only proposes
-one call; the browser displays the tool name, bounded argument summary, and
+tool-call fields. Plain-text/XML tool tags are not used. Explicit requests to
+create, generate, make, save, or write a file are narrowed to the built-in
+`create_file` declaration so tool-heavy providers reliably return the intended
+proposal. The model only proposes one call; the browser scrolls the new result
+into view and displays the tool name, bounded argument summary, and
 low/medium/high risk before it can invoke `/api/mcp/invoke`. The user can
 **Confirm** or **Deny** each request. Destructive tools use a distinct
 **Approve high-risk action** control and still enforce workspace-owner authority
@@ -50,6 +55,15 @@ on the server. Built-in calls route directly to the same runtime used by the
 Codex connector. External catalog tools route to the configured Hygrid gateway,
 while Basebox tools use its authenticated MCP Streamable HTTP transport. Only
 live, workspace-activated external services are exposed to the assistant.
+
+A request combining research with PDF output is deliberately split into two
+approved calls. `web_search` submits a bounded query to the configured public
+search endpoint (DuckDuckGo HTML by default). After it succeeds, the browser
+returns its structured result to `/api/ai/chat` as explicitly untrusted data.
+The assistant may then propose `create_pdf`; it cannot write the file until the
+user confirms that second card. This avoids scraping Google result pages with
+`extract_table_data` and prevents a read-only search result from silently
+authorizing a Files mutation.
 
 Successful actions emit a dashboard refresh event so automations, runs,
 connection requests, integrations, and Files update without treating the AI's
@@ -86,6 +100,12 @@ against that workspace before access.
   workspace id. The same tool works with the local SQLite development fallback.
 - File creation accepts only UTF-8 text, Markdown, or valid JSON up to 512 KB.
   File names cannot contain path separators or null characters.
+- Public search is fixed to a server-configured endpoint, uses a 15-second
+  timeout, accepts no user-selected URL, and bounds responses to 1 MB and 20
+  results. Result text remains untrusted during continuation.
+- PDF creation accepts up to 200 KB of text, generates the document locally
+  without executing HTML or remote content, and stores it as
+  `application/pdf` in the workspace Files library.
 - Connector requests are persisted in `integration_requests` and displayed as
   pending cards in Connections. They are never marked connected and never
   synthesize provider credentials.
@@ -142,7 +162,9 @@ Run the focused integration check with:
 npm run verify:codex-connector
 ```
 
-This verifier covers the full 17-tool catalog, assistant proposal and approval,
-file creation, connector persistence, dashboard queries, saved prompt fallback,
+This verifier covers the full 19-tool catalog, natural-language file routing,
+the two-approval research-to-PDF chain, assistant proposal and approval, file
+and PDF creation, connector persistence,
+dashboard queries, saved prompt fallback,
 active workflow creation, Core execution, persisted logs, durable scheduling,
 code execution, and blocked private API targets.

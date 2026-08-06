@@ -111,9 +111,13 @@ the supporting automation documentation in [`automations/`](automations/).
 - **Connections** — independent backend-managed Google Drive OAuth with
   non-sensitive per-file access through Google Picker, encrypted workspace
   Paystack credentials, signed n8n webhooks, and a separate MCP gateway limited
-  to browser automation and utility tools. Requests for additional business
-  systems are persisted without pretending an unsupported provider is
-  connected.
+  to browser automation and utility tools. The owner can also connect
+  WhatsApp with a Baileys QR scan; platform notifications are restricted to
+  that verified owner number. Saved sessions restore on backend startup,
+  transient socket closures reconnect automatically, and the UI exposes the
+  current connection state. Requests for additional business systems are
+  persisted without pretending an unsupported provider is connected. See
+  [`docs/WHATSAPP_BAILEYS.md`](docs/WHATSAPP_BAILEYS.md).
 - **Codex Workspace** — an embedded Codex App Server connection with native
   OpenAI device login, isolated per-user auth state, sandboxed repository work,
   and streamed task output.
@@ -248,7 +252,7 @@ tool invocation are live server-to-server calls; bearer tokens never enter the
 browser.
 The workspace assistant uses native provider function calls to propose tools,
 but the browser still shows an explicit risk-labelled **Confirm** or **Approve
-high-risk action** control before invoking one. The 17 built-in Lancee tools
+high-risk action** control before invoking one. The 19 built-in Lancee tools
 are always available to an authenticated workspace; optional external MCP
 services still require their server-side bearer grant and per-service
 activation. Invocation resolves the catalog tool id to the live runtime at the
@@ -264,6 +268,49 @@ are additionally restricted to workspace owners.
 
 See [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) and
 [`mcp-conf/MCP.md`](mcp-conf/MCP.md).
+
+### Generated MCP Grid integration
+
+The integration plan `3527e5a9-20b6-498f-913c-3b0ba403e15e` is installed in
+[`src/integrations/mcp-grid.ts`](src/integrations/mcp-grid.ts). It exposes the
+29 selected catalog tools through `invokeMcpTool` and reads `MCP_GATEWAY_URL`
+and `MCP_API_TOKEN` only from the server-side environment. The compatible
+client is vendored at [`vendor/mcp-grid-client/`](vendor/mcp-grid-client/), so
+container builds do not depend on a sibling checkout.
+
+See [`mcp-services.md`](mcp-services.md) for the complete action and skill
+catalog enabled by this plan.
+
+### Local MCP server
+
+The same app now serves an MCP endpoint at `/mcp` on the normal application
+port (`5177` by default). It exposes the 29 selected actions as MCP tools and
+the 15 reusable workflows as MCP prompts, while using the configured MCP Grid
+backend for execution. This keeps the platform and MCP entrypoint in one
+deployable app; set `MCP_GATEWAY_URL` to the managed `/home/apps/mcp` gateway
+or another compatible gateway.
+
+Set a separate client-facing token for the endpoint:
+
+```dotenv
+MCP_SERVER_TOKEN=replace-with-a-client-token
+```
+
+Connect an MCP client to `https://lancee.hookitupservices.com/mcp` with
+`Authorization: Bearer $MCP_SERVER_TOKEN`. The route is served by the app on
+port `5177` behind the existing HTTPS reverse proxy. The local stdio bridge is
+also available with `pnpm mcp:server`; use `pnpm mcp:server:http` only when a
+separate port is specifically required.
+
+To regenerate or update this managed block, authenticate with the server-side
+token and run:
+
+```bash
+export MCP_GATEWAY_URL=https://mcp.hygridtech.co.za
+mcp-grid integrate \
+  --gateway "$MCP_GATEWAY_URL" \
+  --plan-id 3527e5a9-20b6-498f-913c-3b0ba403e15e
+```
 
 The downloaded Claude plugin can be invoked from a Claude environment with
 `/mcp-server-dev:build-mcp-server` after the project plugin directory is
@@ -386,6 +433,18 @@ to create a workflow produces a typed approval request; approval creates and
 activates the workflow, saves its optional reusable prompt or JSON step plan,
 refreshes the dashboard UI, and makes it immediately eligible for
 `run_workflow` or `schedule_job`.
+
+Explicit file-writing prompts are routed directly to the built-in
+`create_file` declaration instead of making the provider choose from the full
+tool catalog. The assistant scrolls the resulting confirmation card into view;
+the file is written to **Files** only after the user selects **Confirm**.
+
+Research-to-PDF prompts use a bounded two-approval chain. Lancee first proposes
+the read-only `web_search` tool, returns sourced titles, URLs, and snippets, and
+then proposes `create_pdf` with a concise report. External result text is
+treated as untrusted evidence and cannot authorize the PDF write. Each step can
+be denied independently, and the resulting PDF is stored as a native Files
+document.
 
 The bridge is implemented by
 [`plugins/lancee-ai/scripts/mcp-server.mjs`](plugins/lancee-ai/scripts/mcp-server.mjs)
@@ -706,7 +765,7 @@ durable single-process development fallback through `DATABASE_PATH`.
 ## Development and verification
 
 ```bash
-pnpm install --frozen-lockfile
+pnpm install --frozen-lockfile --ignore-scripts
 pnpm dev
 ```
 
@@ -728,6 +787,7 @@ pnpm verify:google-drive
 pnpm verify:workspace-flows
 pnpm verify:workspace-builder
 pnpm verify:client-files
+pnpm verify:whatsapp
 pnpm verify:platform
 # With DATABASE_URL or PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE:
 pnpm verify:postgres
