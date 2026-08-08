@@ -12,6 +12,8 @@ export default function ReviewPage({ reviewId, token }: { reviewId: string; toke
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [busyItemId, setBusyItemId] = useState<string | null>(null)
+  const [itemComments, setItemComments] = useState<Record<string, string>>({})
   const [error, setError] = useState('')
   const annotationState = useAnnotations()
   const { replaceAnnotations } = annotationState
@@ -97,6 +99,10 @@ export default function ReviewPage({ reviewId, token }: { reviewId: string; toke
       setError('Every annotation needs a comment before you submit the review.')
       return
     }
+    if (review?.packageItems.some((item) => item.status === 'waiting')) {
+      setError('Approve or request changes for every item before submitting the review package.')
+      return
+    }
     setBusy(true)
     try {
       const submitted = await annotationService.submitReview(reviewId, token)
@@ -107,6 +113,28 @@ export default function ReviewPage({ reviewId, token }: { reviewId: string; toke
       setError(caught instanceof Error ? caught.message : 'Unable to submit the review.')
     } finally {
       setBusy(false)
+    }
+  }
+
+  const respondToItem = async (itemId: string, status: 'approved' | 'needs_changes') => {
+    if (!editable) return
+    const comment = (itemComments[itemId] || '').trim()
+    if (status === 'needs_changes' && !comment) {
+      setError('Add a comment describing the changes you need.')
+      return
+    }
+    setBusyItemId(itemId)
+    try {
+      const item = await annotationService.respondToItem(reviewId, token, itemId, { status, comment })
+      setReview((current) => current
+        ? { ...current, packageItems: current.packageItems.map((candidate) => candidate.id === item.id ? item : candidate) }
+        : current)
+      setItemComments((current) => ({ ...current, [itemId]: '' }))
+      setError('')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to save this response.')
+    } finally {
+      setBusyItemId(null)
     }
   }
 
@@ -132,18 +160,55 @@ export default function ReviewPage({ reviewId, token }: { reviewId: string; toke
     <main className="review-page">
       <header className="review-page__header">
         <div>
-          <span className="review-page__eyebrow">Client artwork review</span>
+          <span className="review-page__eyebrow">Client review package</span>
           <h1>{review.projectName}</h1>
-          <p>{review.clientName} · {review.artwork?.name || 'No artwork selected'}</p>
+          <p>{review.clientName} · {review.packageItems.length} deliverable{review.packageItems.length === 1 ? '' : 's'}</p>
         </div>
         <span className={`annotation-status annotation-status--${review.status}`}>{review.status === 'open' ? 'Your feedback is open' : review.status === 'submitted' ? 'Review submitted' : 'Review closed'}</span>
       </header>
       <section className="review-page__intro">
-        <h2>Review the artwork</h2>
-        <p>Click an area to select it, or draw a rectangle or polygon to leave focused feedback. Add a comment to every note before submitting.</p>
+        <h2>{review.title}</h2>
+        <p>{review.body || 'Review each deliverable, approve it or request changes, then submit the package once.'}</p>
+        {review.dueAt && <small>Requested by {new Date(review.dueAt).toLocaleDateString()}</small>}
       </section>
       {error && <p className="annotation-review-error" role="alert">{error}</p>}
-      <div className="review-page__body">
+      {review.packageItems.length > 0 && (
+        <section className="client-review-items" aria-label="Review package deliverables">
+          {review.packageItems.map((item) => (
+            <article key={item.id} className={`client-review-item client-review-item--${item.status}`}>
+              <header>
+                <div><span>Deliverable</span><h2>{item.title}</h2></div>
+                <span className={`review-state review-state--${item.status}`}>{item.status === 'waiting' ? 'Waiting for review' : item.status === 'needs_changes' ? 'Needs changes' : 'Approved'}</span>
+              </header>
+              {item.preview?.imageUrl && <img src={item.preview.imageUrl} alt={`${item.title} preview`} />}
+              {item.comments.length > 0 && (
+                <div className="client-review-item__comments">
+                  {item.comments.map((comment) => <blockquote key={comment.id}><p>{comment.body}</p><small>{comment.authorName} · {new Date(comment.createdAt).toLocaleDateString()}</small></blockquote>)}
+                </div>
+              )}
+              {editable && (
+                <div className="client-review-item__response">
+                  <textarea
+                    value={itemComments[item.id] || ''}
+                    onChange={(event) => setItemComments((current) => ({ ...current, [item.id]: event.target.value }))}
+                    placeholder="Add a comment…"
+                    rows={3}
+                    maxLength={2_000}
+                  />
+                  <div>
+                    <button type="button" className="button button--secondary" onClick={() => void respondToItem(item.id, 'needs_changes')} disabled={busyItemId === item.id}>Request changes</button>
+                    <button type="button" className="button button--primary" onClick={() => void respondToItem(item.id, 'approved')} disabled={busyItemId === item.id}>{busyItemId === item.id ? 'Saving…' : 'Approve'}</button>
+                  </div>
+                </div>
+              )}
+            </article>
+          ))}
+        </section>
+      )}
+      {review.artwork && (
+        <section className="review-page__annotation-intro"><h2>Focused artwork notes</h2><p>Draw on the artwork when a visual note is more useful than a general comment.</p></section>
+      )}
+      <div className={`review-page__body${review.artwork ? '' : ' review-page__body--empty'}`}>
         {review.artwork ? (
           <ArtworkAnnotator
             artworkUrl={review.artwork.imageUrl}
@@ -156,24 +221,22 @@ export default function ReviewPage({ reviewId, token }: { reviewId: string; toke
             onUpdate={(annotation) => void updateGeometry(annotation)}
             onDelete={(annotationId) => void deleteAnnotation(annotationId)}
           />
-        ) : (
-          <div className="annotation-review-state"><strong>No artwork is available for this review.</strong></div>
-        )}
-        <AnnotationSidebar
-          annotations={annotationState.annotations}
-          selectedId={selectedId}
-          canEditMetadata={editable}
-          canEditStatus={false}
-          canDelete={editable}
-          onSelect={setSelectedId}
-          onSave={(annotation, fields) => void saveMetadata(annotation.id, fields)}
-          onDelete={(annotation) => void deleteAnnotation(annotation.id)}
-        />
+        ) : null}
+        {review.artwork && <AnnotationSidebar
+            annotations={annotationState.annotations}
+            selectedId={selectedId}
+            canEditMetadata={editable}
+            canEditStatus={false}
+            canDelete={editable}
+            onSelect={setSelectedId}
+            onSave={(annotation, fields) => void saveMetadata(annotation.id, fields)}
+            onDelete={(annotation) => void deleteAnnotation(annotation.id)}
+          />}
       </div>
       <footer className="review-page__footer">
         <div>
-          <strong>{annotationState.annotations.length} annotation{annotationState.annotations.length === 1 ? '' : 's'}</strong>
-          <span>{review.status === 'open' ? 'Your feedback remains editable until submission.' : 'This review is now read-only.'}</span>
+          <strong>{review.packageItems.filter((item) => item.status !== 'waiting').length} of {review.packageItems.length} reviewed</strong>
+          <span>{review.status === 'open' ? 'Responses remain editable until submission.' : 'This review package is now read-only.'}</span>
         </div>
         <div className="review-page__actions">
           {review.status === 'open' && <button type="button" className="button button--primary" onClick={() => void submitReview()} disabled={busy}>{busy ? 'Saving…' : 'Submit review'}</button>}

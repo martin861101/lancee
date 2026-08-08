@@ -1,19 +1,17 @@
 import assert from 'node:assert/strict'
 import { createHash, scryptSync } from 'node:crypto'
 import { once } from 'node:events'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createInterface } from 'node:readline'
 import { spawn } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 
 const projectDirectory = new URL('..', import.meta.url).pathname
 const temporaryDirectory = await mkdtemp(join(tmpdir(), 'lancee-codex-'))
 const databasePath = join(temporaryDirectory, 'lancee.sqlite')
-const pluginDataPath = join(temporaryDirectory, 'plugin-data')
 const password = 'codex-connector-test-password'
 const passwordSalt = 'codex-connector-test-salt'
 const passwordHash = scryptSync(password, passwordSalt, 64).toString('hex')
@@ -209,13 +207,13 @@ async function waitForRun(origin, cookie, runId) {
   return run
 }
 
-async function issueDeviceCode(origin) {
+async function issueDeviceCode(origin, scope = 'ai:invoke') {
   const response = await fetch(`${origin}/api/codex/device/code`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       client_id: 'lancee-codex-plugin',
-      scope: 'ai:invoke',
+      scope,
     }),
   })
   assert.equal(response.status, 201)
@@ -260,51 +258,27 @@ async function exchange(origin, deviceCode) {
   })
 }
 
-function startConnector(origin) {
-  const output = []
-  const child = spawn(
-    process.execPath,
-    ['plugins/lancee-ai/scripts/mcp-server.mjs'],
-    {
-      cwd: projectDirectory,
-      env: {
-        ...process.env,
-        LANCEE_BASE_URL: origin,
-        PLUGIN_DATA: pluginDataPath,
-      },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    },
-  )
-  child.stderr.on('data', (chunk) => output.push(chunk.toString()))
-  const pending = new Map()
-  const lines = createInterface({ input: child.stdout, crlfDelay: Infinity })
-  lines.on('line', (line) => {
-    const message = JSON.parse(line)
-    const callback = pending.get(message.id)
-    if (callback) {
-      pending.delete(message.id)
-      callback.resolve(message)
-    }
-  })
+function createMcpClient(origin, token) {
   let requestId = 0
-  const rpc = (method, params = {}) =>
-    new Promise((resolve, reject) => {
-      requestId += 1
-      const id = requestId
-      pending.set(id, { resolve, reject })
-      child.stdin.write(`${JSON.stringify({
+  const rpc = async (method, params = {}) => {
+    requestId += 1
+    const response = await fetch(`${origin}/mcp`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
         jsonrpc: '2.0',
-        id,
+        id: requestId,
         method,
         params,
-      })}\n`)
-      setTimeout(() => {
-        if (!pending.has(id)) return
-        pending.delete(id)
-        reject(new Error(`Connector RPC timed out: ${method}\n${output.join('')}`))
-      }, 5_000).unref()
+      }),
     })
-  return { child, rpc, output }
+    assert.equal(response.status, 200)
+    return response.json()
+  }
+  return { rpc }
 }
 
 let aiProvider
@@ -320,7 +294,7 @@ try {
   assert.equal(servicesResponse.status, 200)
   const builtInService = (await servicesResponse.json()).services.find((service) => service.id === 'lancee')
   assert.equal(builtInService.active, true)
-  assert.equal(builtInService.tools.length, 19)
+  assert.equal(builtInService.tools.length, 18)
 
   const assistantCreateResponse = await sessionRequest(
     application.origin,
@@ -501,14 +475,14 @@ try {
       body: JSON.stringify({
         serviceId: 'lancee',
         toolId: 'request_connector',
-        arguments: { name: 'PostgreSQL MCP', category: 'Automation', details: 'Workspace-scoped database tools.' },
+        arguments: { name: 'PostgreSQL reporting adapter', category: 'Automation', details: 'Workspace-scoped reporting tools.' },
       }),
     },
   )
   assert.equal(requestConnectorResponse.status, 200)
   const requestsResponse = await sessionRequest(application.origin, cookie, '/api/integration-requests')
   assert.equal(requestsResponse.status, 200)
-  assert((await requestsResponse.json()).requests.some((item) => item.name === 'PostgreSQL MCP'))
+  assert((await requestsResponse.json()).requests.some((item) => item.name === 'PostgreSQL reporting adapter'))
 
   const assistantRunResponse = await sessionRequest(
     application.origin,
@@ -596,29 +570,24 @@ try {
   assert.equal(statusResponse.status, 200)
   assert.equal((await statusResponse.json()).model, 'connector-test-model')
 
-  connector = startConnector(application.origin)
+  const mcpAuthorization = await issueDeviceCode(application.origin, 'mcp:invoke')
+  await approve(application.origin, cookie, mcpAuthorization.user_code, 'mcp:invoke')
+  const mcpTokenResponse = await exchange(application.origin, mcpAuthorization.device_code)
+  assert.equal(mcpTokenResponse.status, 200)
+  const mcpToken = (await mcpTokenResponse.json()).access_token
+  connector = createMcpClient(application.origin, mcpToken)
   const initialized = await connector.rpc('initialize', {
     protocolVersion: '2025-06-18',
     capabilities: {},
     clientInfo: { name: 'verifier', version: '1.0.0' },
   })
-  assert.equal(initialized.result.serverInfo.name, 'lancee-ai')
+  assert.equal(initialized.result.serverInfo.name, 'lancee')
   const listed = await connector.rpc('tools/list')
   assert.deepEqual(
     listed.result.tools.map((tool) => tool.name),
     [
-      'connect',
-      'ai_status',
-      'complete',
       'run_workflow',
       'create_workflow',
-      'get_workflow_status',
-      'search_workflows',
-      'execute_python',
-      'execute_javascript',
-      'schedule_job',
-      'get_logs',
-      'call_external_api',
       'query_dashboard',
       'create_client',
       'create_project',
@@ -627,36 +596,15 @@ try {
       'web_search',
       'create_pdf',
       'request_connector',
-      'configure_mcp_service',
       'delete_workspace_resource',
+      'get_workflow_status',
+      'search_workflows',
+      'execute_python',
+      'execute_javascript',
+      'schedule_job',
+      'get_logs',
+      'call_external_api',
     ],
-  )
-
-  const firstConnect = await connector.rpc('tools/call', {
-    name: 'connect',
-    arguments: {},
-  })
-  const connectorGrant = firstConnect.result.structuredContent
-  assert.equal(connectorGrant.status, 'authorization_required')
-  await approve(application.origin, cookie, connectorGrant.userCode, 'ai:invoke mcp:invoke')
-
-  const secondConnect = await connector.rpc('tools/call', {
-    name: 'connect',
-    arguments: {},
-  })
-  assert.equal(secondConnect.result.structuredContent.connected, true)
-  assert.equal(
-    secondConnect.result.structuredContent.workspace,
-    'Codex Connector Workspace',
-  )
-
-  const completion = await connector.rpc('tools/call', {
-    name: 'complete',
-    arguments: { prompt: 'Verify the connector.' },
-  })
-  assert.equal(
-    completion.result.structuredContent.content,
-    'Device-authenticated completion',
   )
 
   const workflowSearch = await connector.rpc('tools/call', {
@@ -769,12 +717,6 @@ try {
   )
   assert.equal((await twoDevicesResponse.json()).activeConnections, 2)
 
-  const state = JSON.parse(
-    await readFile(join(pluginDataPath, 'device-auth.json'), 'utf8'),
-  )
-  assert.match(state.accessToken, /^lnc_codex_/)
-  assert.equal(Object.hasOwn(state, 'pending'), false)
-
   const revokeResponse = await fetch(
     `${application.origin}/api/codex/connection/revoke`,
     {
@@ -790,7 +732,6 @@ try {
   )
   assert.equal(revokedStatusResponse.status, 401)
 
-  await stopChild(connector.child)
   connector = null
   await stopChild(application.child)
   application = null
@@ -821,10 +762,9 @@ try {
   database.close()
 
   console.log(
-    'Codex connector verified: Connections catalog state, device approval, scoped MCP tools, code execution, durable scheduling, revocation, and hashed token storage.',
+    'Codex connector verified: Connections catalog state, device approval, local HTTP MCP tools, code execution, durable scheduling, revocation, and hashed token storage.',
   )
 } finally {
-  await stopChild(connector?.child)
   await stopChild(application?.child)
   if (aiProvider?.server.listening) {
     aiProvider.server.close()

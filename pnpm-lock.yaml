@@ -47,9 +47,6 @@ importers:
       marked:
         specifier: ^18.0.7
         version: 18.0.7
-      mcp-grid-client:
-        specifier: file:vendor/mcp-grid-client
-        version: file:vendor/mcp-grid-client
       motion:
         specifier: ^12.42.2
         version: 12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -2366,9 +2363,6 @@ packages:
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
-
-  mcp-grid-client@file:vendor/mcp-grid-client:
-    resolution: {directory: vendor/mcp-grid-client, type: directory}
 
   media-typer@1.1.1:
     resolution: {integrity: sha512-yz3xRaG20c6/BOzvYoDaGtPmGscs7YivItZEEqe6GbwNfHuxu9YNmvnEkMzKldAGY4/80pRcQRZSEnhquk9XuQ==}
@@ -5550,8 +5544,6 @@ snapshots:
   marked@18.0.7: {}
 
   math-intrinsics@1.1.0: {}
-
-  mcp-grid-client@file:vendor/mcp-grid-client: {}
 
   media-typer@1.1.1: {}
 

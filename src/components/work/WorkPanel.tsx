@@ -15,9 +15,11 @@ import type {
   ProjectFile,
   ProjectComment,
   DraftInvoice,
+  ClientApproval,
 } from '../../lib/api'
 import { api } from '../../lib/api'
 import { AnnotationReviewPanel } from '../annotations/AnnotationReviewPanel'
+import ReviewPackagesPanel from './ReviewPackagesPanel'
 import '../work-page.css'
 import './work-panel.css'
 
@@ -73,7 +75,7 @@ export default function WorkPanel({
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null)
   const [dropLaneId, setDropLaneId] = useState<string | null>(null)
   const [activeProjectTab, setActiveProjectTab] =
-    useState<'board' | 'details' | 'files' | 'links' | 'review'>('board')
+    useState<'board' | 'details' | 'files' | 'reviews' | 'activity'>('board')
   const [teamMembers, setTeamMembers] = useState<Array<{ id: string; name: string }>>([])
   const [customBuckets, setCustomBuckets] = useState<Array<{ id: string; label: string }>>([])
   const [bucketAssignees, setBucketAssignees] = useState<Record<string, string>>({})
@@ -84,6 +86,13 @@ export default function WorkPanel({
   const [taskSaving, setTaskSaving] = useState(false)
   const [taskDeletingId, setTaskDeletingId] = useState('')
   const [reviewComments, setReviewComments] = useState<ProjectComment[]>([])
+  const [reviewPackages, setReviewPackages] = useState<ClientApproval[]>([])
+  const [selectedReviewPackageId, setSelectedReviewPackageId] = useState<string | null>(null)
+  const [reviewPackageDialogOpen, setReviewPackageDialogOpen] = useState(false)
+  const [reviewPackageSelection, setReviewPackageSelection] = useState<Record<string, boolean>>({})
+  const [reviewPackagePreviews, setReviewPackagePreviews] = useState<Record<string, string>>({})
+  const [reviewPackageMessage, setReviewPackageMessage] = useState('')
+  const [reviewPackageDeadline, setReviewPackageDeadline] = useState('')
   const [draftInvoice, setDraftInvoice] = useState<DraftInvoice | null>(null)
   const [draftAmount, setDraftAmount] = useState('')
   const [approvalBusy, setApprovalBusy] = useState(false)
@@ -216,6 +225,8 @@ export default function WorkPanel({
     setFiles([])
     setProjectDriveLinks([])
     setTasks([])
+    setReviewPackages([])
+    setReviewComments([])
     try {
       const [projectLinks, projectFiles, driveLinks, projectTasks] = await Promise.all([
         api.projects.links.list(project.id),
@@ -229,6 +240,8 @@ export default function WorkPanel({
       setTasks(projectTasks)
       const review = await api.projectsWorkflow.approvals(project.id)
       setReviewComments(review.comments)
+      setReviewPackages(review.approvals)
+      setSelectedReviewPackageId(review.approvals[0]?.id || null)
       setDraftInvoice(review.draftInvoice)
       setDraftAmount(review.draftInvoice ? String(review.draftInvoice.amountMinor / 100) : '')
     } catch {
@@ -236,18 +249,59 @@ export default function WorkPanel({
       setFiles([])
       setProjectDriveLinks([])
       setTasks([])
+      setReviewPackages([])
+      setReviewComments([])
       onToast('Some project details could not be loaded.')
     } finally {
       setWorkspaceLoading(false)
     }
   }
 
+  const openReviewPackageComposer = () => {
+    if (!selectedProject) return
+    const populatedBuckets = new Set(tasks.map((task) => task.bucketId))
+    setReviewPackageSelection(Object.fromEntries(
+      projectLanes.map((lane) => [lane.id, populatedBuckets.has(lane.id) || lane.id === 'review']),
+    ))
+    const imageFiles = files.filter((file) => file.mimeType.toLowerCase().startsWith('image/'))
+    setReviewPackagePreviews(Object.fromEntries(
+      projectLanes.map((lane, index) => [lane.id, imageFiles[index]?.id || '']),
+    ))
+    setReviewPackageMessage(`Hi ${selectedProject.client},\n\nPlease review the selected deliverables.`)
+    const defaultDeadline = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+    setReviewPackageDeadline(defaultDeadline.toISOString().slice(0, 10))
+    setReviewPackageDialogOpen(true)
+  }
+
   const sendForApproval = async () => {
     if (!selectedProject || approvalBusy) return
+    const selectedItems = projectLanes
+      .filter((lane) => reviewPackageSelection[lane.id])
+      .map((lane) => ({
+        bucketId: lane.id,
+        title: lane.label,
+        previewFileId: reviewPackagePreviews[lane.id] || null,
+      }))
+    if (!selectedItems.length) {
+      onToast('Select at least one bucket for the review package.')
+      return
+    }
     setApprovalBusy(true)
     try {
-      const result = await api.projectsWorkflow.sendApproval(selectedProject.id)
+      const result = await api.projectsWorkflow.sendApproval(selectedProject.id, {
+        title: `Review ${selectedProject.name}`,
+        body: reviewPackageMessage.trim(),
+        dueAt: reviewPackageDeadline
+          ? new Date(`${reviewPackageDeadline}T23:59:59`).toISOString()
+          : null,
+        items: selectedItems,
+      })
       setLastReviewUrl(result.approval.reviewUrl || '')
+      const refreshed = await api.projectsWorkflow.approvals(selectedProject.id)
+      setReviewPackages(refreshed.approvals)
+      setReviewComments(refreshed.comments)
+      setSelectedReviewPackageId(refreshed.approvals[0]?.id || null)
+      setReviewPackageDialogOpen(false)
       setSelectedProject((current) => current ? { ...current, status: 'In review' } : current)
       setProjects((current) => current.map((item) => item.id === selectedProject.id ? { ...item, status: 'In review' } : item))
       onToast(result.delivery === 'sent' ? 'Tokenized review link sent to the client.' : 'Tokenized review link created. Configure SMTP to send it automatically.')
@@ -376,6 +430,19 @@ export default function WorkPanel({
     }
   }
 
+  const toggleTaskComplete = async (task: ProjectTask) => {
+    if (!selectedProject) return
+    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, completed: !task.completed } : item))
+    try {
+      const updated = await api.projects.tasks.update(selectedProject.id, task.id, { completed: !task.completed })
+      setTasks((current) => current.map((item) => item.id === updated.id ? updated : item))
+      onToast(updated.completed ? 'Task completed.' : 'Task reopened.')
+    } catch (error) {
+      setTasks((current) => current.map((item) => item.id === task.id ? task : item))
+      onToast(error instanceof Error ? error.message : 'Unable to update the task.')
+    }
+  }
+
   const deleteTask = async (task: ProjectTask) => {
     if (!selectedProject || taskDeletingId) return
     if (!window.confirm(`Delete “${task.title}”?`)) return
@@ -497,9 +564,10 @@ export default function WorkPanel({
   }
 
   const addLink = async () => {
-    if (!editingProject || !newLinkUrl.trim()) return
+    const targetProject = editingProject || selectedProject
+    if (!targetProject || !newLinkUrl.trim()) return
     try {
-      const link = await api.projects.links.add(editingProject.id, newLinkUrl.trim(), newLinkLabel.trim())
+      const link = await api.projects.links.add(targetProject.id, newLinkUrl.trim(), newLinkLabel.trim())
       setLinks((current) => [...current, link])
       setNewLinkUrl('')
       setNewLinkLabel('')
@@ -531,7 +599,8 @@ export default function WorkPanel({
   }
 
   const attachFiles = async (event: ChangeEvent<HTMLInputElement>) => {
-    if (!editingProject) return
+    const targetProject = editingProject || selectedProject
+    if (!targetProject) return
     const selected = validateSelectedFiles(Array.from(event.target.files || []))
     event.target.value = ''
     if (selected.length === 0) return
@@ -540,7 +609,7 @@ export default function WorkPanel({
     try {
       for (const selectedFile of selected) {
         const attached = await api.projects.files.add(
-          editingProject.id,
+          targetProject.id,
           selectedFile,
         )
         setFiles((current) => [...current, attached])
@@ -608,7 +677,6 @@ export default function WorkPanel({
     { id: 'in-progress', label: 'In progress', status: 'In progress', tone: 'blue' },
     { id: 'waiting', label: 'Waiting on client', status: 'Waiting on client', tone: 'amber' },
     { id: 'review', label: 'Review', status: 'In review', tone: 'pink' },
-    { id: 'client-comments', label: 'Client Comments', status: null, tone: 'violet' },
     { id: 'completed', label: 'Completed', status: 'Ready', tone: 'green' },
     ...customBuckets.map((bucket, index) => ({
       ...bucket,
@@ -616,6 +684,18 @@ export default function WorkPanel({
       tone: ['blue', 'amber', 'pink', 'green'][index % 4],
     })),
   ]
+  const latestBucketReview = (bucketId: string) => {
+    for (const reviewPackage of reviewPackages) {
+      const item = reviewPackage.items.find((candidate) => candidate.bucketId === bucketId)
+      if (item) return item
+    }
+    return null
+  }
+  const reviewStateLabel = {
+    waiting: 'Waiting review',
+    needs_changes: 'Needs changes',
+    approved: 'Approved',
+  } as const
 
   return (
     <>
@@ -649,8 +729,8 @@ export default function WorkPanel({
                 >
                   Edit details
                 </button>
-                <button type="button" className="button button--primary" onClick={() => void sendForApproval()} disabled={approvalBusy || !clients.find((client) => client.id === selectedProject.clientId)?.email}>
-                  {approvalBusy ? 'Sending…' : 'Send for approval'}
+                <button type="button" className="button button--primary" onClick={openReviewPackageComposer} disabled={approvalBusy || !clients.find((client) => client.id === selectedProject.clientId)?.email}>
+                  Send for approval
                 </button>
                 <button
                   type="button"
@@ -714,11 +794,11 @@ export default function WorkPanel({
                 <button type="button" className={activeProjectTab === 'files' ? 'is-active' : ''} onClick={() => setActiveProjectTab('files')}>
                   ◫ Files <span>{files.length}</span>
                 </button>
-                <button type="button" className={activeProjectTab === 'review' ? 'is-active' : ''} onClick={() => setActiveProjectTab('review')}>
-                  ◉ Review
+                <button type="button" className={activeProjectTab === 'reviews' ? 'is-active' : ''} onClick={() => setActiveProjectTab('reviews')}>
+                  ◉ Reviews <span>{reviewPackages.length}</span>
                 </button>
-                <button type="button" className={activeProjectTab === 'links' ? 'is-active' : ''} onClick={() => setActiveProjectTab('links')}>
-                  ↗ Links <span>{links.length + projectDriveLinks.length}</span>
+                <button type="button" className={activeProjectTab === 'activity' ? 'is-active' : ''} onClick={() => setActiveProjectTab('activity')}>
+                  ≋ Activity <span>{reviewComments.length}</span>
                 </button>
               </div>
               {activeProjectTab === 'board' ? (
@@ -728,16 +808,24 @@ export default function WorkPanel({
               )}
             </div>
 
-            {activeProjectTab === 'review' ? (
-              <section className="project-section-panel project-section-panel--review">
-                <AnnotationReviewPanel
-                  projectId={selectedProject.id}
-                  imageUrl={(() => {
-                    const image = files.find((file) => file.mimeType.toLowerCase().startsWith('image/'))
-                    return image ? api.projects.files.downloadUrl(image.id) : null
-                  })()}
+            {activeProjectTab === 'reviews' ? (
+              <div className="project-reviews-view">
+                <ReviewPackagesPanel
+                  packages={reviewPackages}
+                  selectedId={selectedReviewPackageId}
+                  onSelect={setSelectedReviewPackageId}
+                  formatDate={formatDate}
                 />
-              </section>
+                <section className="project-section-panel project-section-panel--review">
+                  <AnnotationReviewPanel
+                    projectId={selectedProject.id}
+                    imageUrl={(() => {
+                      const image = files.find((file) => file.mimeType.toLowerCase().startsWith('image/'))
+                      return image ? api.projects.files.downloadUrl(image.id) : null
+                    })()}
+                  />
+                </section>
+              </div>
             ) : activeProjectTab === 'details' ? (
               <section className="project-section-panel">
                 <header><div><span>Project details</span><h2>{selectedProject.name}</h2></div><button className="button button--secondary" onClick={() => void beginEdit(selectedProject)}>Edit details</button></header>
@@ -758,7 +846,7 @@ export default function WorkPanel({
                 </header>
                 <div className="project-section-list">
                   {files.map((file) => (
-                    <article key={file.id}><span>◫</span><div><strong>{file.name}</strong><small>{(file.size / 1024).toFixed(1)} KB · {file.mimeType}</small></div><a href={api.projects.files.downloadUrl(file.id)}>Download</a><button onClick={() => void removeFile(file.id)}>Remove</button></article>
+                    <article key={file.id} className="project-file-row">{file.mimeType.startsWith('image/') ? <img src={api.projects.files.downloadUrl(file.id)} alt={`${file.name} preview`} /> : <span>◫</span>}<div><strong>{file.name}</strong><small>{(file.size / 1024).toFixed(1)} KB · {file.mimeType}</small></div><a href={api.projects.files.downloadUrl(file.id)}>Download</a><button onClick={() => void removeFile(file.id)}>Remove</button></article>
                   ))}
                   {projectDriveLinks.map((link) => (
                     <article key={link.id}><span>▰</span><div><strong>{link.name}</strong><small>Google Drive · {link.resourceKind}</small></div>{link.webViewLink && <a href={link.webViewLink} target="_blank" rel="noreferrer">Open ↗</a>}</article>
@@ -766,19 +854,30 @@ export default function WorkPanel({
                   {!files.length && !projectDriveLinks.length && <p>No project files yet.</p>}
                 </div>
               </section>
-            ) : activeProjectTab === 'links' ? (
+            ) : activeProjectTab === 'activity' ? (
               <section className="project-section-panel">
-                <header><div><span>Project links</span><h2>References and shared URLs</h2></div></header>
+                <header><div><span>Project activity</span><h2>Feedback, links, and project events</h2></div></header>
                 <div className="project-link-composer">
                   <input value={newLinkLabel} onChange={(event) => setNewLinkLabel(event.target.value)} placeholder="Label" />
                   <input value={newLinkUrl} onChange={(event) => setNewLinkUrl(event.target.value)} placeholder="https://…" />
                   <button className="button button--primary" onClick={() => void addLink()}>Add link</button>
                 </div>
                 <div className="project-section-list">
+                  {reviewComments.map((comment) => (
+                    <article key={comment.id}><span>💬</span><div><strong>{comment.authorName}</strong><small>{comment.body}</small></div><span>{formatDate(comment.createdAt)}</span></article>
+                  ))}
                   {links.map((link) => (
                     <article key={link.id}><span>↗</span><div><strong>{link.label || 'Shared reference'}</strong><small>{link.url}</small></div><a href={link.url} target="_blank" rel="noreferrer">Open ↗</a><button onClick={() => void removeLink(link.id)}>Remove</button></article>
                   ))}
-                  {!links.length && <p>No project links yet.</p>}
+                  {draftInvoice && (
+                    <article className="project-activity-invoice">
+                      <span>R</span>
+                      <div><strong>{draftInvoice.invoiceNumber}</strong><small>Draft invoice · {draftInvoice.status.replaceAll('_', ' ')}</small></div>
+                      <label><span>ZAR</span><input type="number" min="0" step="0.01" value={draftAmount} onChange={(event) => setDraftAmount(event.target.value)} /></label>
+                      <div><button type="button" onClick={() => void saveDraftAmount()}>Save</button>{draftInvoice.status !== 'sent' && <button type="button" onClick={() => void sendDraftInvoice()} disabled={draftInvoice.amountMinor < 100}>Send</button>}</div>
+                    </article>
+                  )}
+                  {!links.length && !reviewComments.length && !draftInvoice && <p>No project activity yet.</p>}
                 </div>
               </section>
             ) : workspaceLoading ? (
@@ -789,6 +888,7 @@ export default function WorkPanel({
                   {projectLanes.map((lane) => {
                     const isCurrent = lane.status === selectedProject.status
                     const laneTasks = tasks.filter((task) => task.bucketId === lane.id)
+                    const laneReview = latestBucketReview(lane.id)
                     const laneAssetCount =
                       laneTasks.length + (lane.id === 'backlog'
                         ? 1 + (selectedProject.boardId ? 1 : 0)
@@ -798,8 +898,6 @@ export default function WorkPanel({
                             ? links.length + (isCurrent ? 1 : 0)
                             : lane.id === 'review'
                               ? projectDriveLinks.length + (isCurrent ? 1 : 0)
-                              : lane.id === 'client-comments'
-                                ? reviewComments.length + (draftInvoice ? 1 : 0)
                               : isCurrent ? 1 : 0)
                     return (
                       <section
@@ -833,10 +931,14 @@ export default function WorkPanel({
                         </label>
                         <div className="project-lane__body">
                           {laneTasks.map((task) => (
-                            <article key={task.id} className="project-kanban-card project-task-card">
+                            <article key={task.id} className={`project-kanban-card project-task-card${task.completed ? ' is-completed' : ''}`}>
                               <span>Task</span>
-                              <h3>{task.title}</h3>
+                              <div className="project-task-card__title">
+                                <button type="button" className="project-task-check" onClick={() => void toggleTaskComplete(task)} aria-label={task.completed ? `Reopen ${task.title}` : `Complete ${task.title}`} aria-pressed={task.completed}>{task.completed ? '✓' : ''}</button>
+                                <h3>{task.title}</h3>
+                              </div>
                               <p>{task.notes || 'No notes added yet.'}</p>
+                              {laneReview && <div className="project-review-meta"><span className={`review-state review-state--${laneReview.status}`}>{reviewStateLabel[laneReview.status]}</span>{laneReview.commentCount > 0 && <button type="button" onClick={() => openTaskComposer(lane.id, task)}>💬 {laneReview.commentCount}</button>}</div>}
                               <footer>
                                 <em>{task.notes ? 'Notes added' : 'Add notes'}</em>
                                 <div className="project-task-card__actions">
@@ -877,22 +979,6 @@ export default function WorkPanel({
                             </div>
                           )}
 
-                          {lane.id === 'client-comments' && (
-                            <>
-                              {reviewComments.map((comment) => (
-                                <article key={comment.id} className="project-kanban-card">
-                                  <span>Client comment</span><h3>{comment.authorName}</h3><p>{comment.body}</p><footer><em>{new Date(comment.createdAt).toLocaleDateString()}</em><i>CC</i></footer>
-                                </article>
-                              ))}
-                              {draftInvoice && (
-                                <article className="project-kanban-card">
-                                  <span>Draft invoice · {draftInvoice.status.replaceAll('_', ' ')}</span><h3>{draftInvoice.invoiceNumber}</h3><p>{draftInvoice.description}</p><label className="project-invoice-amount"><span>Amount (ZAR)</span><input type="number" min="0" step="0.01" value={draftAmount} onChange={(event) => setDraftAmount(event.target.value)} /></label><footer><button type="button" onClick={() => void saveDraftAmount()}>Save</button>{draftInvoice.status !== 'sent' && <button type="button" onClick={() => void sendDraftInvoice()} disabled={draftInvoice.amountMinor < 100}>Send invoice</button>}</footer>
-                                </article>
-                              )}
-                              {!reviewComments.length && !draftInvoice && <div className="project-lane__empty"><span>Comments and approved invoice drafts appear here.</span></div>}
-                            </>
-                          )}
-
                           {isCurrent && (
                             <article
                               className={`project-kanban-card project-kanban-card--primary${draggingProjectId === selectedProject.id ? ' is-dragging' : ''}`}
@@ -915,7 +1001,8 @@ export default function WorkPanel({
                                 <em>{statusLabels[selectedProject.status]}</em>
                                 <i>{ownerInitials}</i>
                               </footer>
-                              <button type="button" className="project-card-action" onClick={(event) => { event.stopPropagation(); void sendForApproval() }} disabled={approvalBusy}>Send to client</button>
+                              {laneReview && <div className="project-review-meta"><span className={`review-state review-state--${laneReview.status}`}>{reviewStateLabel[laneReview.status]}</span>{laneReview.commentCount > 0 && <span>💬 {laneReview.commentCount}</span>}</div>}
+                              <button type="button" className="project-card-action" onClick={(event) => { event.stopPropagation(); openReviewPackageComposer() }} disabled={approvalBusy}>Send to client</button>
                             </article>
                           )}
 
@@ -923,7 +1010,9 @@ export default function WorkPanel({
                             <article key={file.id} className="project-kanban-card">
                               <span>Attached file</span>
                               <h3>{file.name}</h3>
+                              {file.mimeType.toLowerCase().startsWith('image/') && <img className="project-card-preview" src={api.projects.files.downloadUrl(file.id)} alt={`${file.name} preview`} />}
                               <p>{(file.size / 1024).toFixed(1)} KB · {file.mimeType || 'Project file'}</p>
+                              {laneReview && <div className="project-review-meta"><span className={`review-state review-state--${laneReview.status}`}>{reviewStateLabel[laneReview.status]}</span>{laneReview.commentCount > 0 && <span>💬 {laneReview.commentCount}</span>}</div>}
                               <footer>
                                 <em>File</em>
                                 <a href={api.projects.files.downloadUrl(file.id)}>Download</a>
@@ -976,6 +1065,16 @@ export default function WorkPanel({
                     )
                   })}
                 </div>
+                <ReviewPackagesPanel
+                  packages={reviewPackages}
+                  selectedId={selectedReviewPackageId}
+                  onSelect={(id) => {
+                    setSelectedReviewPackageId(id)
+                    setActiveProjectTab('reviews')
+                  }}
+                  formatDate={formatDate}
+                  compact
+                />
               </div>
             )}
           </section>
@@ -1419,6 +1518,61 @@ export default function WorkPanel({
         </div>
       )}
 
+      {reviewPackageDialogOpen && selectedProject && (
+        <div className="work-dialog-backdrop" onMouseDown={() => { if (!approvalBusy) setReviewPackageDialogOpen(false) }}>
+          <form
+            className="work-dialog work-dialog--review-package"
+            onSubmit={(event) => { event.preventDefault(); void sendForApproval() }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="work-dialog__header">
+              <span>New review package</span>
+              <button type="button" onClick={() => setReviewPackageDialogOpen(false)} disabled={approvalBusy} aria-label="Close">×</button>
+            </div>
+            <h2>Send selected buckets for approval</h2>
+            <p>{selectedProject.client} receives one secure page with every selected deliverable, preview, and response control.</p>
+            <fieldset className="work-dialog__fieldset review-package-picker">
+              <legend>Select buckets</legend>
+              {projectLanes.map((lane) => (
+                <div key={lane.id} className="review-package-picker__row">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(reviewPackageSelection[lane.id])}
+                      onChange={(event) => setReviewPackageSelection((current) => ({ ...current, [lane.id]: event.target.checked }))}
+                    />
+                    <span><strong>{lane.label}</strong><small>{tasks.filter((task) => task.bucketId === lane.id).length} task{tasks.filter((task) => task.bucketId === lane.id).length === 1 ? '' : 's'}</small></span>
+                  </label>
+                  {files.some((file) => file.mimeType.startsWith('image/')) && (
+                    <select
+                      value={reviewPackagePreviews[lane.id] || ''}
+                      onChange={(event) => setReviewPackagePreviews((current) => ({ ...current, [lane.id]: event.target.value }))}
+                      aria-label={`${lane.label} preview image`}
+                      disabled={!reviewPackageSelection[lane.id]}
+                    >
+                      <option value="">No preview</option>
+                      {files.filter((file) => file.mimeType.startsWith('image/')).map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}
+                    </select>
+                  )}
+                </div>
+              ))}
+            </fieldset>
+            <label>
+              <span>Message</span>
+              <textarea value={reviewPackageMessage} onChange={(event) => setReviewPackageMessage(event.target.value)} rows={5} maxLength={2_000} required />
+            </label>
+            <label>
+              <span>Deadline</span>
+              <input type="date" value={reviewPackageDeadline} onChange={(event) => setReviewPackageDeadline(event.target.value)} min={new Date().toISOString().slice(0, 10)} />
+            </label>
+            <div className="work-dialog__actions">
+              <button type="button" className="button button--secondary" onClick={() => setReviewPackageDialogOpen(false)} disabled={approvalBusy}>Cancel</button>
+              <button type="submit" className="button button--primary" disabled={approvalBusy || !Object.values(reviewPackageSelection).some(Boolean)}>{approvalBusy ? 'Sending…' : 'Send review package'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {taskDialogOpen && selectedProject && (
         <div className="work-dialog-backdrop" onMouseDown={closeTaskComposer}>
           <form
@@ -1443,6 +1597,17 @@ export default function WorkPanel({
                 maxLength={160}
               />
             </label>
+            {editingTask && (
+              <section className="task-feedback">
+                <span>Client feedback</span>
+                {reviewComments
+                  .filter((comment) => comment.taskId === editingTask.id || (!comment.taskId && comment.bucketId === editingTask.bucketId))
+                  .map((comment) => (
+                    <blockquote key={comment.id}><strong>{comment.authorName}</strong><p>{comment.body}</p><small>{formatDate(comment.createdAt)}</small></blockquote>
+                  ))}
+                {!reviewComments.some((comment) => comment.taskId === editingTask.id || (!comment.taskId && comment.bucketId === editingTask.bucketId)) && <p>No client feedback on this task yet.</p>}
+              </section>
+            )}
             <label>
               <span>Bucket</span>
               <select

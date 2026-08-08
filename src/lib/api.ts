@@ -196,7 +196,7 @@ export type McpService = {
   status: 'live' | 'unreachable'
   active: boolean
   tools: McpTool[]
-  credentialMode: 'Workspace vault' | 'Credential-free' | 'Server-side access key'
+  credentialMode: 'Lancee workspace token'
 }
 
 export type McpConnection = {
@@ -204,7 +204,7 @@ export type McpConnection = {
   capabilityEndpoint: string
   authSource: string
   sourcePath: string
-  mode: 'DNS gateway'
+  mode: 'In-process Lancee MCP'
   accessStatus: 'available' | 'pending' | 'approved'
   connected: boolean
   lastSync: string
@@ -426,6 +426,59 @@ export type WorkspaceSettings = {
   updatedAt: string
 }
 
+export type PricingRegion = 'ZA' | 'US' | 'UK' | 'OTHER'
+export type BillingPeriod = 'monthly' | 'yearly'
+export type PlanCode = 'solo' | 'pro' | 'studio'
+
+export type PricingPlan = {
+  id: string
+  planCode: PlanCode
+  name: string
+  region: PricingRegion
+  currency: string
+  symbol: string
+  monthlyPrice: number
+  yearlyPrice: number
+  perUser: boolean
+  recommended: boolean
+  sortOrder: number
+}
+
+export type PricingCatalog = {
+  region: PricingRegion
+  currency: string
+  symbol: string
+  plans: PricingPlan[]
+  trialDays: number
+}
+
+export type Subscription = {
+  workspaceId: string
+  planCode: PlanCode
+  billingPeriod: BillingPeriod
+  region: PricingRegion
+  status: 'trial' | 'active' | 'canceled' | 'past_due'
+  trialStartedAt: string
+  trialEndsAt: string
+  trialDays: number
+  trialDaysLeft: number
+  isOnTrial: boolean
+  subscribedAt: string | null
+  updatedAt: string
+}
+
+export type SubscriptionState = {
+  subscription: Subscription
+  currentPlan: PricingPlan | null
+  plans: PricingPlan[]
+}
+
+export type SubscriptionInput = {
+  planCode?: PlanCode
+  billingPeriod?: BillingPeriod
+  region?: PricingRegion
+}
+
 export type WorkspaceBuilderAnswers = {
   business: {
     name: string
@@ -561,6 +614,8 @@ export type ProjectTask = {
   bucketId: string
   title: string
   notes: string
+  completed: boolean
+  completedAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -597,10 +652,39 @@ export type DraftInvoice = {
 export type ProjectComment = {
   id: string
   projectId: string
+  approvalId?: string | null
+  reviewItemId: string | null
+  bucketId: string | null
+  taskId: string | null
   authorType: 'workspace' | 'client'
   authorName: string
   body: string
   createdAt: string
+}
+
+export type ReviewPackageItemStatus = 'waiting' | 'needs_changes' | 'approved'
+
+export type ReviewPackageItem = {
+  id: string
+  approvalId: string
+  projectId: string
+  bucketId: string
+  title: string
+  status: ReviewPackageItemStatus
+  position: number
+  previewFileId: string | null
+  preview: {
+    id: string
+    name: string
+    mimeType: string
+    size: number
+    imageUrl: string
+  } | null
+  commentCount: number
+  comments: ProjectComment[]
+  respondedAt: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export type ClientApproval = {
@@ -615,11 +699,14 @@ export type ClientApproval = {
   body: string
   comment: string | null
   expiresAt: string
+  dueAt: string | null
   createdAt: string
   respondedAt: string | null
   reviewUrl?: string
   reviewId?: string | null
   artworkVersionId?: string | null
+  packageNumber?: number
+  items: ReviewPackageItem[]
 }
 
 export type Client = {
@@ -1373,7 +1460,12 @@ export const api = {
       if (!response.ok || !payload.approvals || !payload.comments) throw new Error(payload.error || 'Unable to load project review state.')
       return { approvals: payload.approvals, comments: payload.comments, draftInvoice: payload.draftInvoice || null }
     },
-    async sendApproval(projectId: string, input: { title?: string; body?: string } = {}) {
+    async sendApproval(projectId: string, input: {
+      title?: string
+      body?: string
+      dueAt?: string | null
+      items: Array<{ bucketId: string; title: string; previewFileId?: string | null }>
+    }) {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/approvals`, {
         method: 'POST', credentials: 'same-origin', headers: mutationHeaders(true), body: JSON.stringify(input),
       })
@@ -1731,10 +1823,10 @@ export const api = {
       }
       cachedMcpConnection = {
         gatewayUrl: payload.gatewayUrl,
-        capabilityEndpoint: '/api/v1/capabilities',
-        authSource: 'Managed bearer grant · server-side only',
-        sourcePath: 'Server-managed gateway',
-        mode: 'DNS gateway',
+        capabilityEndpoint: '/mcp',
+        authSource: 'Lancee workspace token',
+        sourcePath: 'Local Lancee tool registry',
+        mode: 'In-process Lancee MCP',
         accessStatus: payload.status,
         connected: payload.status === 'approved',
         lastSync: 'Never',
@@ -1775,10 +1867,10 @@ export const api = {
       const previous = cachedMcpConnection
       cachedMcpConnection = {
         gatewayUrl: payload.gatewayUrl || previous?.gatewayUrl || '',
-        capabilityEndpoint: '/api/v1/capabilities',
-        authSource: 'Managed bearer grant · server-side only',
-        sourcePath: 'Server-managed gateway',
-        mode: 'DNS gateway',
+        capabilityEndpoint: '/mcp',
+        authSource: 'Lancee workspace token',
+        sourcePath: 'Local Lancee tool registry',
+        mode: 'In-process Lancee MCP',
         accessStatus: payload.status,
         connected: payload.status === 'approved',
         requestedAt: payload.requestedAt ?? previous?.requestedAt ?? null,
@@ -1873,10 +1965,10 @@ export const api = {
       const previous = cachedMcpConnection
       cachedMcpConnection = {
         gatewayUrl: payload.gatewayUrl || previous?.gatewayUrl || '',
-        capabilityEndpoint: '/api/v1/capabilities',
-        authSource: 'Managed bearer grant · server-side only',
-        sourcePath: 'Server-managed gateway',
-        mode: 'DNS gateway',
+        capabilityEndpoint: '/mcp',
+        authSource: 'Lancee workspace token',
+        sourcePath: 'Local Lancee tool registry',
+        mode: 'In-process Lancee MCP',
         accessStatus: payload.status,
         connected: false,
         lastSync: 'Never',
@@ -2084,6 +2176,46 @@ export const api = {
         throw new Error(payload.error || 'Unable to upload the workspace logo.')
       }
       return payload as WorkspaceSettings
+    },
+  },
+  pricing: {
+    async get(region?: PricingRegion): Promise<PricingCatalog> {
+      const query = region ? `?region=${encodeURIComponent(region)}` : ''
+      const response = await fetch(`/api/pricing${query}`, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+      })
+      const payload = (await response.json()) as PricingCatalog & { error?: string }
+      if (!response.ok || !Array.isArray(payload.plans)) {
+        throw new Error(payload.error || 'Unable to load pricing.')
+      }
+      return payload
+    },
+  },
+  subscription: {
+    async get(): Promise<SubscriptionState> {
+      const response = await fetch('/api/subscription', {
+        credentials: 'same-origin',
+        cache: 'no-store',
+      })
+      const payload = (await response.json()) as SubscriptionState & { error?: string }
+      if (!response.ok || !payload.subscription) {
+        throw new Error(payload.error || 'Unable to load your subscription.')
+      }
+      return payload
+    },
+    async update(input: SubscriptionInput): Promise<SubscriptionState> {
+      const response = await fetch('/api/subscription', {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify(input),
+      })
+      const payload = (await response.json()) as SubscriptionState & { error?: string }
+      if (!response.ok || !payload.subscription) {
+        throw new Error(payload.error || 'Unable to update your plan.')
+      }
+      return payload
     },
   },
   workspaceBuilder: {
@@ -3010,7 +3142,7 @@ export const api = {
         }
         return payload.task
       },
-      async update(projectId: string, taskId: string, fields: Partial<Pick<ProjectTask, 'bucketId' | 'title' | 'notes'>>): Promise<ProjectTask> {
+      async update(projectId: string, taskId: string, fields: Partial<Pick<ProjectTask, 'bucketId' | 'title' | 'notes' | 'completed'>>): Promise<ProjectTask> {
         const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`, {
           method: 'PATCH',
           credentials: 'same-origin',

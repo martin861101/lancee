@@ -22,10 +22,10 @@ uses Drive version checks to prevent stale saves. Paystack opens a workspace
 credential form, and n8n opens its signed webhook configuration. Generic
 connection toggles cannot manufacture a connected state.
 
-MCP remains a separate automation-tool gateway. By default the server returns
-only `Browser` and `Utilities` categories from the live MCP catalog. Override
-that allowlist explicitly with `MCP_ALLOWED_CATEGORIES`; do not use MCP as a
-substitute for durable business-system connections.
+MCP is a local protocol surface over these Lancee-owned services. It is not a
+second integration backend and it does not discover external MCP servers.
+Provider connections remain application-managed and can register approved
+tools with Lancee's local capability registry.
 
 ## Payments and invoicing
 
@@ -87,85 +87,38 @@ five-minute timestamp window and persisted nonce replay protection. Every
 attempt records status, duration, correlation, and retry lineage. The shared
 secret is AES-256-GCM encrypted at rest. See [`N8N.md`](N8N.md).
 
-## MCP Service Grid
+## Lancee MCP
 
-The MCP server implementation and documentation live in:
+MCP is included as a platform capability for every workspace. It is served by
+the Lancee application itself at `POST /mcp`; there is no server URL, gateway
+key, external catalog, or per-service activation to configure.
 
-```text
-/home/apps/mcp
-```
-
-lancee reaches it through the configured DNS gateway:
-
-```text
-https://mcp.hygridtech.co.za
-```
-
-MCP is included as a platform capability for every workspace. It is not a
-business integration a user installs or disconnects. The UI requires no MCP
-URL or API key entry, and the default category allowlist exposes only browser
-automation and utility services.
-
-### Bearer access lifecycle
-
-Every new workspace starts with MCP in `available` state. When the gateway is
-configured, the workspace can load its live service catalog and select
-**Request bearer access**:
+An MCP client completes Lancee's device-code approval flow and presents a token
+with `mcp:invoke`:
 
 ```http
-POST /api/mcp/access-request
-Cookie: lancee_session=<HttpOnly session>
-```
-
-The application backend owns `MCP_API_TOKEN` and performs all MCP calls
-server-to-server:
-
-- If the bearer token is configured, the request is approved
-  immediately.
-- If it is not configured, the request remains pending for a future workspace
-  approval workflow.
-- Approved users can activate or deactivate services.
-- Revoking bearer access disables services but never removes MCP from the
-  workspace.
-
-`GET /api/mcp/access` returns status and non-secret gateway metadata.
-`POST /api/mcp/access/revoke` revokes the workspace grant. Bearer state and
-per-service activation are stored in workspace-scoped `mcp_access` and
-`mcp_service_state` rows and survive process restarts. Workspace invitations
-use a separate expiring-token flow.
-
-### Discovery
-
-```http
-GET /api/v1/capabilities
-Authorization: Bearer <server-side token>
-```
-
-The platform exposes only services and tools returned by the gateway's live
-capability response. The browser receives the runtime input schemas and builds
-bounded representative arguments for manual tests. After bearer approval,
-users activate only the services they want. Activation is durable, and test
-results come from the real gateway tool call rather than a local simulation.
-
-### Tool invocation
-
-Production application calls should use the stable catalog route:
-
-```http
-POST /api/v1/tools/{tool_id}/call
-Authorization: Bearer <server-side token>
+POST /mcp
+Authorization: Bearer lnc_codex_...
 Content-Type: application/json
 ```
 
-The MCP registry resolves the active worker. Disabled services/tools cannot be invoked, and a missing live lease returns `503`.
+The token resolves the user and workspace. `tools/list` returns only the local
+Lancee registry, and `tools/call` invokes the same services used by dashboard
+and automation flows. The browser-facing `/api/mcp/*` routes are UI adapters
+over that registry; they do not make server-to-server MCP calls.
 
 ### Credential boundary
 
-- `PUBLIC_API_TOKEN` never enters the browser bundle.
-- Bearer request responses never contain a token or token hint.
-- Provider API keys referenced by MCP tools remain in the server-side secret store.
-- The frontend receives names, descriptions, tool schemas, activation state, and normalized invocation results only.
-- Browser artifacts must be proxied by an authenticated backend before embedding.
+- Lancee stores device-token hashes, never the returned plaintext token.
+- Tool arguments cannot choose a workspace or supply provider credentials.
+- Provider credentials remain in the Lancee vault and are used only by the
+  application-owned integration adapter.
+- The frontend receives tool names, descriptions, schemas, risk annotations,
+  and normalized results only.
+- Browser and document artifacts remain behind authenticated Lancee routes.
+
+The protocol, tools, and security boundaries are documented in
+[`LANCEE_MCP.md`](LANCEE_MCP.md).
 
 Durable storage and mutation replay behavior are documented in
 [`DURABLE_FOUNDATION.md`](DURABLE_FOUNDATION.md).

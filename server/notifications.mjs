@@ -207,18 +207,6 @@ export function invoiceEmail({ clientName, workspaceName, description, invoiceNu
   return { text, html }
 }
 
-export function mcpAccessEmail({ userName }) {
-  const text = `${userName} requested bearer access to the lancee MCP Service Grid.`
-  const html = emailShell({
-    preheader: 'A workspace member requested MCP Service Grid access.',
-    eyebrow: 'Admin notice',
-    title: 'MCP bearer access request',
-    bodyHtml: `<strong>${escapeHtml(userName)}</strong> requested bearer access to the lancee MCP Service Grid.`,
-    note: 'Approve or revoke this request from MCP in the lancee workspace.',
-  })
-  return { text, html }
-}
-
 export function testEmail() {
   const text = 'SMTP notifications are configured correctly for lancee. Your platform is ready to send transactional email.'
   const html = emailShell({

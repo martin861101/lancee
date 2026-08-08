@@ -92,10 +92,11 @@ The catalog contains only implemented connection transports:
 - Paystack creates hosted ZAR payment links and verifies raw-body webhooks.
 - n8n supports signed GET and POST tests in both directions and executes saved
   automation runs.
-- MCP is included in every workspace. Bearer requests and selected-service
-  activation are durable; catalog discovery and tool invocation use the live
-  DNS-gateway transport.
-- MCP credentials and predefined provider keys stay on the server. The browser receives service metadata and normalized results only.
+- MCP is included in every workspace through the application-owned `/mcp`
+  route and local tool registry; no separate gateway or service activation is
+  required.
+- Device tokens are hashed and provider keys stay in the Lancee vault. The
+  browser receives tool metadata and normalized results only.
 - Unsupported systems are stored as connection requests, not toggled into a
   fake connected state.
 

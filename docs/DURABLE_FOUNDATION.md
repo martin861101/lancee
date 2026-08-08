@@ -135,13 +135,14 @@ scopes return `403`; unknown or revoked keys return `401`.
 
 ## MCP persistence
 
-Bearer lifecycle state is stored in `mcp_access`. Service choices are stored in
-`mcp_service_state`. Revoking access resets the grant to `available` and
-deactivates every service for that workspace.
+Lancee MCP uses the existing hashed device-token records and workspace context.
+Its local service is always active, so no external gateway lease or per-service
+activation is required. The legacy `mcp_access` and `mcp_service_state` tables
+remain temporarily for schema compatibility but do not authorize the local
+tool runtime.
 
-The MCP gateway catalog and tool invocation transport are live server-to-server
-calls. The durability verifier runs against an isolated gateway stub so it
-checks the actual request/response boundary without using production services.
+The focused MCP and connector verifiers exercise the in-process protocol
+adapter and the authenticated HTTP `/mcp` boundary without production services.
 
 ## Verification
 

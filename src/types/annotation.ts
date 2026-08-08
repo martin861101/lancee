@@ -1,4 +1,5 @@
 import type { ImageAnnotation } from '@annotorious/react'
+import type { ReviewPackageItem } from '../lib/api'
 
 export type ReviewStatus = 'open' | 'submitted' | 'closed'
 export type AnnotationPriority = 'low' | 'medium' | 'high'
@@ -39,6 +40,11 @@ export type Review = {
   projectId: string
   projectName: string
   clientName: string
+  clientEmail: string
+  approvalId: string
+  title: string
+  body: string
+  dueAt: string | null
   artworkId: string | null
   artworkVersionId: string | null
   artwork: ReviewArtwork | null
@@ -48,6 +54,7 @@ export type Review = {
   submittedAt: string | null
   closedAt: string | null
   annotations: ReviewAnnotation[]
+  packageItems: ReviewPackageItem[]
 }
 
 export type AnnotationMetadataUpdate = Partial<

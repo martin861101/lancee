@@ -13,7 +13,7 @@ canonical identity) and documents the rest as follow-ups.
 | --- | --- |
 | Framework / package manager | React 19 + TypeScript + Vite client (`src/`), Express backend in plain `.mjs` (`server/`). `pnpm` lockfile, `npm` scripts. |
 | Frontend structure | `src/App.tsx` (auth + landing + policy pages), `src/components/` (dashboard, work, money, workflows, annotations, storefront), `src/lib/` (api, theme, ideasRepository, offlineStore, pwa). |
-| Backend structure | `server/index.mjs` (Express app, all routes), `database.mjs` (SQLite/PostgreSQL query layer), feature modules (`paystack.mjs`, `n8n.mjs`, `ai.mjs`, `core.mjs`, `mail.mjs`, `notifications.mjs`, `google-drive.mjs`, `lancee-mcp.mjs`, `mcp.mjs`, `basebox-mcp.mjs`, `vault.mjs`, `redis.mjs`, `codex-app-server.mjs`). |
+| Backend structure | `server/index.mjs` (Express app, all routes), `database.mjs` (SQLite/PostgreSQL query layer), feature modules (`paystack.mjs`, `n8n.mjs`, `ai.mjs`, `core.mjs`, `mail.mjs`, `notifications.mjs`, `google-drive.mjs`, `lancee-mcp-protocol.mjs`, `lancee-mcp.mjs`, `vault.mjs`, `redis.mjs`, `codex-app-server.mjs`). |
 | Database / migrations | `server/database.mjs` schema via `CREATE TABLE IF NOT EXISTS`; no versioned migration system; `scripts/migrate-sqlite-to-postgres.mjs` for the SQLite→PostgreSQL move. |
 | Authentication / authorization | Cookie sessions, scrypt password hashing, rate limiting, workspace membership + invitations, API keys with permissions, device-code auth for Codex. |
 | Workspace model | Single primary workspace (`WORKSPACE_ID=wsp_primary`) with owner/collaborator/viewer roles and invites. |
@@ -27,7 +27,7 @@ canonical identity) and documents the rest as follow-ups.
 | Admin configuration | Environment-based (`ADMIN_*`, `WORKSPACE_*`); no admin UI. |
 | Env validation | None centralized; values read ad hoc with `process.env.X || default` in `server/index.mjs`. |
 | Test framework | `scripts/verify-*.mjs` (node) for server flows, Vitest in the storefront, `npm run verify:platform`. |
-| Integrations to keep unchanged | Mail connector, Paystack, n8n, Google Drive, MCP Service Grid, AI providers, Codex app server, storefront (Saleor), remotion assets. |
+| Integrations to keep unchanged | Mail connector, Paystack, n8n, Google Drive, local Lancee MCP, AI providers, Codex app server, storefront (Saleor), remotion assets. |
 
 ## Implementation Checklist
 

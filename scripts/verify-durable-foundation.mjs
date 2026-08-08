@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { createHash, scryptSync } from 'node:crypto'
 import { once } from 'node:events'
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
-import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -29,72 +28,7 @@ async function availablePort() {
   return port
 }
 
-async function startMcpGateway() {
-  const port = await availablePort()
-  const server = createHttpServer(async (request, response) => {
-    assert.equal(request.headers.authorization, 'Bearer test-mcp-token')
-    response.setHeader('Content-Type', 'application/json')
-    response.setHeader('X-Request-Id', 'req_mcp_verifier')
-    if (request.method === 'GET' && request.url === '/api/v1/capabilities') {
-      response.end(JSON.stringify({
-        services: [{
-          service_id: 'browser-worker',
-          display_name: 'Browser & documents',
-          status: 'available',
-          revision: 'test',
-        }, {
-          service_id: 'crm-data-worker',
-          display_name: 'CRM data',
-          status: 'available',
-          revision: 'test',
-        }],
-        tools: [{
-          service_id: 'browser-worker',
-          catalog_id: 'browser.open',
-          name: 'browser.open',
-          title: 'Open a page',
-          description: 'Opens an allowed test page.',
-          input_schema: {
-            type: 'object',
-            properties: { url: { type: 'string' } },
-            required: ['url'],
-          },
-          tags: ['browser'],
-        }, {
-          service_id: 'crm-data-worker',
-          catalog_id: 'crm.read',
-          name: 'crm.read',
-          title: 'Read CRM',
-          description: 'Reads business-system records.',
-          input_schema: { type: 'object', properties: {} },
-          tags: ['data'],
-        }],
-        skills: [],
-      }))
-      return
-    }
-    if (request.method === 'POST' && request.url === '/api/v1/tools/browser.open/call') {
-      const chunks = []
-      for await (const chunk of request) chunks.push(chunk)
-      const input = JSON.parse(Buffer.concat(chunks).toString('utf8'))
-      response.end(JSON.stringify({
-        service_id: 'browser-worker',
-        tool: 'browser.open',
-        is_error: false,
-        data: { opened: input.url },
-        result: 'opened',
-      }))
-      return
-    }
-    response.statusCode = 404
-    response.end(JSON.stringify({ error: 'Not found' }))
-  })
-  server.listen(port, '127.0.0.1')
-  await once(server, 'listening')
-  return { server, url: `http://127.0.0.1:${port}` }
-}
-
-async function startApplication(mcpGatewayUrl) {
+async function startApplication() {
   const port = await availablePort()
   const origin = `http://127.0.0.1:${port}`
   const output = []
@@ -113,9 +47,6 @@ async function startApplication(mcpGatewayUrl) {
       ADMIN_PASSWORD_HASH: passwordHash,
       WORKSPACE_ID: 'wsp_durable_test',
       WORKSPACE_NAME: 'Durable Test Workspace',
-      MCP_API_TOKEN: 'test-mcp-token',
-      MCP_GATEWAY_URL: mcpGatewayUrl,
-      MCP_ALLOW_INSECURE: 'true',
       SMTP_ENABLED: 'false',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -175,10 +106,8 @@ async function sessionRequest(origin, cookie, path, options = {}) {
 }
 
 let application
-let mcpGateway
 try {
-  mcpGateway = await startMcpGateway()
-  application = await startApplication(mcpGateway.url)
+  application = await startApplication()
   let cookie = await login(application.origin)
 
   const missingIdempotency = await sessionRequest(
@@ -210,16 +139,11 @@ try {
   const services = (await serviceList.json()).services
   assert.deepEqual(
     services.map((service) => service.id),
-    ['lancee', 'basebox', 'browser-worker'],
+    ['lancee'],
   )
   const lanceeService = services.find((service) => service.id === 'lancee')
   assert.equal(lanceeService.active, true)
   assert(lanceeService.tools.some((tool) => tool.id === 'create_workflow'))
-  const baseboxService = services.find((service) => service.id === 'basebox')
-  assert.equal(baseboxService.status, 'unreachable')
-  assert.equal(baseboxService.active, false)
-  assert.deepEqual(baseboxService.tools, [])
-
   const serviceMutation = await sessionRequest(
     application.origin,
     cookie,
@@ -233,8 +157,7 @@ try {
       body: JSON.stringify({ active: true }),
     },
   )
-  assert.equal(serviceMutation.status, 200)
-  assert.equal((await serviceMutation.json()).active, true)
+  assert.equal(serviceMutation.status, 409)
 
   const invocation = await sessionRequest(
     application.origin,
@@ -247,14 +170,16 @@ try {
         'Idempotency-Key': 'mcp-invoke-browser-0001',
       },
       body: JSON.stringify({
-        serviceId: 'browser-worker',
-        toolId: 'browser.open',
-        arguments: { url: 'https://example.test' },
+        serviceId: 'lancee',
+        toolId: 'query_dashboard',
+        arguments: { resource: 'projects' },
       }),
     },
   )
   assert.equal(invocation.status, 200)
-  assert.deepEqual((await invocation.json()).data, { opened: 'https://example.test' })
+  const invocationData = (await invocation.json()).data
+  assert.equal(invocationData.resource, 'projects')
+  assert(Array.isArray(invocationData.rows))
 
   const teamInvite = await sessionRequest(
     application.origin,
@@ -399,7 +324,7 @@ try {
   assert.deepEqual(JSON.parse(storedKey.permissions), ['workspace:read', 'mcp:read'])
   persisted.close()
 
-  application = await startApplication(mcpGateway.url)
+  application = await startApplication()
   cookie = await login(application.origin)
 
   const persistedAccess = await sessionRequest(
@@ -416,11 +341,11 @@ try {
   )
   const servicePayload = await persistedServices.json()
   assert.ok(Array.isArray(servicePayload.services))
-  const bw = servicePayload.services.find((s) => s.id === 'browser-worker')
-  assert.ok(bw)
-  assert.strictEqual(bw.active, true)
-  assert.strictEqual(bw.name, 'Browser & documents')
-  assert.ok(Array.isArray(bw.tools))
+  const lancee = servicePayload.services.find((service) => service.id === 'lancee')
+  assert.ok(lancee)
+  assert.strictEqual(lancee.active, true)
+  assert.strictEqual(lancee.name, 'Lancee')
+  assert.ok(Array.isArray(lancee.tools))
 
   const persistedKeys = await sessionRequest(
     application.origin,
@@ -446,13 +371,9 @@ try {
   assert.equal(rejectedKey.status, 401)
 
   console.log(
-    'Durable foundation verified: workspace auth, expiring team invitations, MCP execution, hashed API keys, idempotency, restart persistence, and revocation.',
+    'Durable foundation verified: workspace auth, expiring team invitations, local Lancee MCP execution, hashed API keys, idempotency, restart persistence, and revocation.',
   )
 } finally {
   if (application) await stopApplication(application)
-  if (mcpGateway) {
-    mcpGateway.server.close()
-    await once(mcpGateway.server, 'close')
-  }
   await rm(temporaryDirectory, { recursive: true, force: true })
 }

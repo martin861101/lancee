@@ -1,7 +1,6 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
-COPY vendor/mcp-grid-client ./vendor/mcp-grid-client
 RUN corepack enable && pnpm install --frozen-lockfile --ignore-scripts
 COPY . .
 RUN pnpm build

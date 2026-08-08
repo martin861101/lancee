@@ -62,6 +62,8 @@ const WorkflowsPage = lazy(() => import('./components/WorkflowsPage'))
 const WorkspaceBuilder = lazy(() => import('./components/workspace-builder/WorkspaceBuilder'))
 const StorefrontPage = lazy(() => import('./components/StorefrontPage'))
 const ReviewPage = lazy(() => import('./components/annotations/ReviewPage'))
+const PricingPage = lazy(() => import('./components/pricing/PricingPage'))
+const PricingLanding = lazy(() => import('./components/pricing/PricingLanding'))
 import FeaturesPage from './components/FeaturesPage'
 
 const SIGNUPS_PAUSED = false
@@ -93,6 +95,7 @@ type Page =
   | 'team'
   | 'builder'
   | 'api'
+  | 'pricing'
   | 'settings'
 const pageIds = new Set<Page>([
   'overview',
@@ -112,6 +115,7 @@ const pageIds = new Set<Page>([
   'team',
   'builder',
   'api',
+  'pricing',
   'settings',
 ])
 type ModalName =
@@ -144,6 +148,7 @@ type IconName =
   | 'code'
   | 'command'
   | 'copy'
+  | 'credit-card'
   | 'file'
   | 'filter'
   | 'grid'
@@ -188,6 +193,7 @@ const navItems: { id: Page; label: string; icon: IconName; section: string; modu
   { id: 'money', label: 'Invoicing', icon: 'wallet', section: 'Business', modules: ['quotes', 'invoices', 'time-tracking'] },
   { id: 'analytics', label: 'Analytics', icon: 'target', section: 'Business' },
   { id: 'team', label: 'Team', icon: 'user', section: 'Platform' },
+  { id: 'pricing', label: 'Pricing', icon: 'credit-card', section: 'Platform' },
   { id: 'builder', label: 'Workspace builder', icon: 'sparkles', section: 'Platform' },
   { id: 'settings', label: 'Settings', icon: 'settings', section: 'Platform' },
 ]
@@ -275,6 +281,12 @@ function Icon({
       <>
         <rect x="8" y="8" width="12" height="12" rx="2" />
         <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+      </>
+    ),
+    'credit-card': (
+      <>
+        <rect x="2" y="5" width="20" height="14" rx="2" />
+        <path d="M2 10h20M6 15h4" />
       </>
     ),
     file: (
@@ -864,7 +876,7 @@ function OverviewPage({
         <article className="panel activity-panel">
           <div className="panel-heading">
             <div>
-              <h3>Studio rhythm</h3>
+              <h3>Projects</h3>
               <p>Work completed over the last 14 days</p>
             </div>
             <span className="period-button">
@@ -1605,7 +1617,7 @@ function IntegrationsPage({
           <h2>Your everyday tools, in one view.</h2>
           <p>
             {connectionCatalog.filter((item) => item.connected && item.id !== 'mcp-grid').length}{' '}
-            tools are connected, plus the built-in service connector.
+            tools are connected, plus the built-in Lancee MCP surface.
           </p>
         </div>
         <div className="integration-banner__status">
@@ -1615,7 +1627,7 @@ function IntegrationsPage({
       </section>
 
       <p className="integration-boundary-note">
-        Business connections run through the lancee application backend. MCP stays available for narrow, approved utility tools and skills inside automations.
+        Business connections and MCP tools share the Lancee application backend. Provider capabilities are local adapters, not separate MCP servers.
       </p>
 
       <div className="toolbar integrations-toolbar">
@@ -1670,14 +1682,14 @@ function IntegrationsPage({
               <div className="protocol-badges protocol-badges--mcp" aria-label="MCP features">
                 <span>MCP</span>
                 <span>Built in</span>
-                <small>Managed service access</small>
+                <small>Local tool registry</small>
               </div>
             )}
             {integration.id === 'codex-ai' && (
               <div className="protocol-badges" aria-label="Codex AI authorization">
-                <span>MCP</span>
-                <span>Outbound</span>
-                <small>Codex calls lancee AI</small>
+                <span>Device API</span>
+                <span>Scoped</span>
+                <small>Agent calls Lancee AI</small>
               </div>
             )}
             {integration.id === 'codex-runtime' && (
@@ -1743,7 +1755,7 @@ function IntegrationsPage({
                 />
               )}
               {integration.id === 'mcp-grid'
-                ? 'Manage platform access'
+                ? 'View Lancee MCP'
                 : integration.id.startsWith('request:')
                   ? 'Pending setup'
                 : integration.id === 'codex-ai'
@@ -2412,24 +2424,18 @@ function PaystackConnectionForm({
 function McpIntegrationPanel({
   connection,
   services,
-  onRequestAccess,
   onSync,
-  onToggle,
   onInvoke,
-  onRevokeAccess,
   onClose,
 }: {
   connection: McpConnection
   services: McpService[]
-  onRequestAccess: () => Promise<void>
   onSync: () => Promise<void>
-  onToggle: (service: McpService) => Promise<void>
   onInvoke: (
     service: McpService,
     toolId: string,
     toolArguments: Record<string, unknown>,
   ) => Promise<McpInvocationResult>
-  onRevokeAccess: () => Promise<void>
   onClose: () => void
 }) {
   const [busy, setBusy] = useState('')
@@ -2437,20 +2443,7 @@ function McpIntegrationPanel({
   const [results, setResults] = useState<Partial<Record<string, McpInvocationResult>>>({})
   const toolCount = services.reduce((total, service) => total + service.tools.length, 0)
   const activeCount = services.filter((service) => service.active).length
-  const accessApproved = connection.accessStatus === 'approved'
-  const accessPending = connection.accessStatus === 'pending'
-
-  const requestAccess = async () => {
-    setError('')
-    setBusy('request')
-    try {
-      await onRequestAccess()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to request bearer access.')
-    } finally {
-      setBusy('')
-    }
-  }
+  const accessApproved = connection.connected
 
   const sync = async () => {
     setError('')
@@ -2459,18 +2452,6 @@ function McpIntegrationPanel({
       await onSync()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to sync MCP services.')
-    } finally {
-      setBusy('')
-    }
-  }
-
-  const toggle = async (service: McpService) => {
-    setError('')
-    setBusy(service.id)
-    try {
-      await onToggle(service)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to update the service.')
     } finally {
       setBusy('')
     }
@@ -2523,12 +2504,6 @@ function McpIntegrationPanel({
     }
   }
 
-  const revokeAccess = async () => {
-    setBusy('revoke')
-    await onRevokeAccess()
-    setBusy('')
-  }
-
   return (
     <div className="mcp-panel">
       <section className="mcp-connection">
@@ -2542,30 +2517,26 @@ function McpIntegrationPanel({
         </div>
         <div className="mcp-connection__identity">
           <span className="micro-label">Included platform capability</span>
-          <h3>MCP Service Grid</h3>
+          <h3>Lancee MCP</h3>
           <p>
-            Every lancee workspace can browse the catalog and request managed bearer
-            access—without configuring a server URL or API key.
+            One local MCP route exposes Lancee's workspace-scoped tools without
+            an external gateway or separate server configuration.
           </p>
         </div>
-        <span className={`connection-state${accessApproved ? ' is-connected' : ''}${accessPending ? ' is-pending' : ''}`}>
+        <span className={`connection-state${accessApproved ? ' is-connected' : ''}`}>
           <span />
-          {accessApproved
-            ? 'Bearer access active'
-            : accessPending
-              ? 'Approval pending'
-              : 'Included'}
+          {accessApproved ? 'Local MCP active' : 'Unavailable'}
         </span>
       </section>
 
       <div className="mcp-route-strip">
         <div>
-          <span>DNS gateway</span>
+          <span>Application endpoint</span>
           <code>{connection.gatewayUrl}</code>
         </div>
         <Icon name="arrow-right" size={15} />
         <div>
-          <span>Discovery</span>
+          <span>Local registry</span>
           <code>{connection.capabilityEndpoint}</code>
         </div>
         <Icon name="arrow-right" size={15} />
@@ -2573,62 +2544,36 @@ function McpIntegrationPanel({
           <span>Authentication</span>
           <strong>
             <Icon name="shield" size={13} />
-            {accessApproved
-              ? 'Managed bearer grant'
-              : accessPending
-                ? 'Request pending'
-                : 'Request required'}
+            Workspace-scoped token
           </strong>
         </div>
       </div>
 
       <section className={`mcp-access-state mcp-access-state--${connection.accessStatus}`}>
         <span className="mcp-access-state__icon">
-          <Icon name={accessApproved ? 'check-circle' : accessPending ? 'activity' : 'key'} size={22} />
+          <Icon name={accessApproved ? 'check-circle' : 'activity'} size={22} />
         </span>
         <div>
           <span className="micro-label">Workspace access</span>
           <h3>
-            {accessApproved
-              ? 'Your bearer grant is active'
-              : accessPending
-                ? 'Your access request is being reviewed'
-                : 'Request bearer access once'}
+            {accessApproved ? 'The local Lancee MCP is active' : 'The local MCP route is unavailable'}
           </h3>
           <p>
             {accessApproved
-              ? 'Approved services can now be activated for automations. The platform injects the bearer credential only during server-side calls.'
-              : accessPending
-                ? 'The MCP catalog remains visible while access is pending. lancee will enable service activation when the grant is approved.'
-                : 'No endpoint, token, or individual API key setup is required. Submit one request and lancee handles the secure server-to-server connection.'}
+              ? 'The protocol adapter and tool runtime ship with this Lancee deployment. Dashboard calls inherit the signed-in workspace context.'
+              : 'Restart Lancee and inspect the application logs. No external MCP service needs to be configured.'}
           </p>
         </div>
-        {connection.accessStatus === 'available' ? (
-          <button
-            className="button button--primary"
-            type="button"
-            onClick={() => void requestAccess()}
-            disabled={busy === 'request'}
-          >
-            {busy === 'request' ? (
-              <span className="spinner spinner--dark" />
-            ) : (
-              <Icon name="key" size={15} />
-            )}
-            Request bearer access
-          </button>
-        ) : (
-          <span className={`mcp-access-badge${accessApproved ? ' is-approved' : ''}`}>
-            <Icon name={accessApproved ? 'check' : 'activity'} size={13} />
-            {accessApproved ? 'Access approved' : 'Request submitted'}
-          </span>
-        )}
+        <span className={`mcp-access-badge${accessApproved ? ' is-approved' : ''}`}>
+          <Icon name={accessApproved ? 'check' : 'activity'} size={13} />
+          {accessApproved ? 'Built in' : 'Unavailable'}
+        </span>
       </section>
 
       <div className="mcp-service-toolbar">
         <div>
-          <strong>{services.length} platform services</strong>
-          <span>{toolCount} executable tools · {activeCount} activated</span>
+          <strong>{services.length} local service</strong>
+          <span>{toolCount} executable tools · {activeCount} active</span>
         </div>
         <div>
           <span className="runtime-verified">
@@ -2639,14 +2584,14 @@ function McpIntegrationPanel({
             type="button"
             onClick={() => void sync()}
             disabled={busy === 'sync' || !accessApproved}
-            title={accessApproved ? 'Refresh live MCP services' : 'Bearer access is required'}
+            title="Refresh the local Lancee tool registry"
           >
             {busy === 'sync' ? (
               <span className="spinner spinner--dark" />
             ) : (
               <Icon name="activity" size={14} />
             )}
-            Sync services
+            Refresh tools
           </button>
         </div>
       </div>
@@ -2654,10 +2599,9 @@ function McpIntegrationPanel({
       <section className="mcp-service-grid">
         {services.map((service) => {
           const result = results[service.id]
-          const builtIn = service.id === 'lancee'
           return (
             <article
-              className={`mcp-service-card${service.active ? ' is-active' : ''}${(!accessApproved && !builtIn) || service.status !== 'live' ? ' is-locked' : ''}`}
+              className={`mcp-service-card${service.active ? ' is-active' : ''}${service.status !== 'live' ? ' is-locked' : ''}`}
               key={service.id}
             >
               <div className="mcp-service-card__top">
@@ -2683,18 +2627,7 @@ function McpIntegrationPanel({
                   <h4>{service.name}</h4>
                   <code>{service.id}</code>
                 </div>
-                <button
-                  className={`service-switch${service.active ? ' is-active' : ''}`}
-                  type="button"
-                  role="switch"
-                  aria-checked={service.active}
-                  aria-label={`${service.active ? 'Deactivate' : 'Activate'} ${service.name}`}
-                  onClick={() => void toggle(service)}
-                  disabled={builtIn || busy === service.id || !accessApproved || service.status !== 'live'}
-                  title={builtIn ? 'Built-in Lancee tools are always active' : service.status !== 'live' ? 'This service must connect successfully before activation' : accessApproved ? undefined : 'Request bearer access to activate'}
-                >
-                  <span />
-                </button>
+                <span className="mcp-access-badge is-approved">Always active</span>
               </div>
               <p>{service.description}</p>
               <div className="mcp-tool-preview">
@@ -2707,8 +2640,8 @@ function McpIntegrationPanel({
               </div>
               <div className="mcp-service-card__footer">
                 <span>
-                  <Icon name={builtIn ? 'check-circle' : accessApproved ? 'key' : 'shield'} size={12} />
-                  {builtIn ? 'Built in · session approved' : accessApproved ? service.credentialMode : 'Bearer access required'}
+                  <Icon name="check-circle" size={12} />
+                  Built into this Lancee deployment
                 </span>
                 {service.active && (
                   <button
@@ -2735,11 +2668,11 @@ function McpIntegrationPanel({
       <div className="mcp-call-note">
         <Icon name="shield" size={17} />
         <div>
-          <strong>The browser never receives the bearer token</strong>
+          <strong>One trusted Lancee execution boundary</strong>
           <p>
-            Activated tools use the stable <code>POST /api/v1/tools/:tool_id/call</code>{' '}
-            route. lancee injects the workspace grant server-side, and the MCP service
-            resolves any predefined API keys inside its own vault.
+            Dashboard calls use <code>POST /api/mcp/invoke</code>; external MCP clients
+            use <code>POST /mcp</code> with an approved device token. Both paths invoke
+            the same workspace-scoped runtime.
           </p>
         </div>
       </div>
@@ -2747,23 +2680,7 @@ function McpIntegrationPanel({
       {error && <p className="form-error n8n-error">{error}</p>}
 
       <div className="mcp-panel__footer">
-        <div>
-          {accessApproved && (
-            <button
-              className="button button--danger button--small"
-              type="button"
-              onClick={() => void revokeAccess()}
-              disabled={busy === 'revoke'}
-            >
-              {busy === 'revoke' ? (
-                <span className="spinner spinner--dark" />
-              ) : (
-                <Icon name="key" size={14} />
-              )}
-              Revoke bearer access
-            </button>
-          )}
-        </div>
+        <div />
         <button className="button button--secondary" type="button" onClick={onClose}>
           Done
         </button>
@@ -2949,6 +2866,14 @@ function SettingsPage({
     status: string
     tablesCount: number
   } | null>(null)
+  const [planInfo, setPlanInfo] = useState<{
+    name: string
+    planCode: string
+    billingPeriod: string
+    status: string
+    isOnTrial: boolean
+    trialDaysLeft: number
+  } | null>(null)
 
   useEffect(() => {
     setSection(initialSection)
@@ -2973,6 +2898,19 @@ function SettingsPage({
       })
       .finally(() => setSettingsLoading(false))
     api.database.getInfo().then(setDbInfo).catch(() => undefined)
+    api.subscription
+      .get()
+      .then((state) =>
+        setPlanInfo({
+          name: state.currentPlan?.name || state.subscription.planCode,
+          planCode: state.subscription.planCode,
+          billingPeriod: state.subscription.billingPeriod,
+          status: state.subscription.status,
+          isOnTrial: state.subscription.isOnTrial,
+          trialDaysLeft: state.subscription.trialDaysLeft,
+        }),
+      )
+      .catch(() => undefined)
   }, [])
 
   const save = async (event: FormEvent<HTMLFormElement>) => {
@@ -3082,8 +3020,8 @@ function SettingsPage({
           <button type="button" onClick={() => onNavigate('team')}>
             <Icon name="user" size={16} /> Collaborators
           </button>
-          <button type="button" onClick={() => onNavigate('analytics')}>
-            <Icon name="activity" size={16} /> Plan & usage
+          <button type="button" onClick={() => onNavigate('pricing')}>
+            <Icon name="credit-card" size={16} /> Pricing &amp; plan
           </button>
           <button type="button" className={section === 'dev' ? 'is-active' : ''} onClick={() => setSection('dev')}>
             <Icon name="code" size={16} /> Dev Tools
@@ -3190,6 +3128,34 @@ function SettingsPage({
             </div>
           </form>
           )}
+
+          <section className="settings-card">
+            <div className="settings-card__heading">
+              <h3>Workspace plan</h3>
+              <p>Your current plan, billing cycle, and trial availability.</p>
+            </div>
+            <div className="setting-row">
+              <span className="setting-row__icon">
+                <Icon name="credit-card" size={18} />
+              </span>
+              <div>
+                <strong>{planInfo ? `${planInfo.name} plan` : 'Loading plan…'}</strong>
+                <p>
+                  {planInfo?.isOnTrial
+                    ? `${planInfo.trialDaysLeft} days of your Solo trial remaining`
+                    : planInfo
+                      ? `${planInfo.billingPeriod} billing`
+                      : 'Checking your current plan'}
+                </p>
+              </div>
+              <button
+                className="button button--secondary button--small"
+                onClick={() => onNavigate('pricing')}
+              >
+                {planInfo?.isOnTrial ? 'Choose a plan' : 'Manage plan'}
+              </button>
+            </div>
+          </section>
 
           {section === 'dev' && (
           <>
@@ -3409,9 +3375,11 @@ function RefundPage({ onBack }: { onBack: () => void }) {
 function LandingPage({
   onSignIn,
   onSignUp,
+  onPricing,
 }: {
   onSignIn: () => void
   onSignUp: () => void
+  onPricing: () => void
 }) {
   const landingRef = useRef<HTMLElement>(null)
   const [policyView, setPolicyView] = useState<'landing' | 'terms' | 'privacy' | 'refund'>('landing')
@@ -3537,6 +3505,9 @@ if (policyView !== 'landing') {
           <a href="#platform">What it does</a>
           <a href="#workflow">How it works</a>
           <a href="#integrations">Connections</a>
+          <a href="/pricing" onClick={(event) => { event.preventDefault(); onPricing() }}>
+            Pricing
+          </a>
           <button className="landing-nav-features" onClick={() => setFeaturesOpen(true)}>
             Features
           </button>
@@ -3646,7 +3617,7 @@ if (policyView !== 'landing') {
             </article>
           </div>
           <div className="landing-activity">
-            <span>Your studio rhythm</span>
+            <span>Your projects view</span>
             <div>
               {[32, 45, 39, 58, 53, 72, 65, 84, 76, 92, 88, 100].map(
                 (height, index) => (
@@ -5669,6 +5640,10 @@ function dashboardPath(page: Page) {
   return page === 'overview' ? '/dashboard' : `/dashboard/${page}`
 }
 
+function publicPricingPage() {
+  return window.location.pathname.replace(/\/+$/, '') === '/pricing'
+}
+
 function publicReviewRequest() {
   const match = window.location.pathname.match(/^\/review\/([^/]+)\/?$/)
   if (!match) return null
@@ -6495,30 +6470,11 @@ function WorkspaceApp() {
     setToast('n8n was disconnected')
   }
 
-  const requestMcpAccess = async () => {
-    const result = await api.mcp.requestAccess()
-    setMcpConnection(result.connection)
-    setMcpServices(result.services)
-    setToast(
-      result.connection.accessStatus === 'approved'
-        ? 'MCP bearer access approved · services are ready to activate'
-        : 'MCP bearer access request submitted for approval',
-    )
-  }
-
   const syncMcp = async () => {
     const result = await api.mcp.sync()
     setMcpConnection(result.connection)
     setMcpServices(result.services)
-    setToast('MCP capabilities synced through the DNS gateway')
-  }
-
-  const toggleMcpService = async (service: McpService) => {
-    const updated = await api.mcp.toggleService(service.id)
-    setMcpServices((current) =>
-      current.map((item) => (item.id === updated.id ? updated : item)),
-    )
-    setToast(`${updated.name} ${updated.active ? 'activated' : 'deactivated'}`)
+    setToast('Local Lancee tools refreshed')
   }
 
   const invokeMcpTool = async (
@@ -6529,13 +6485,6 @@ function WorkspaceApp() {
     const result = await api.mcp.invoke(service.id, toolId, toolArguments)
     setToast(`${result.message} · ${result.duration}ms`)
     return result
-  }
-
-  const revokeMcpAccess = async () => {
-    const result = await api.mcp.revokeAccess()
-    setMcpConnection(result.connection)
-    setMcpServices(result.services)
-    setToast('MCP bearer access was revoked; the platform feature remains available')
   }
 
   const createKey = async (name: string, permissions: ApiKeyPermission[]) => {
@@ -6567,11 +6516,26 @@ function WorkspaceApp() {
   }
 
   if (!user) {
+    if (publicPricingPage()) {
+      return (
+        <Suspense fallback={<main className="auth-boot"><span className="spinner spinner--dark" /></main>}>
+          <PricingLanding
+            onSignIn={() => navigateAuth('login')}
+            onSignUp={() => navigateAuth('register')}
+            onHome={() => navigateAuth('landing')}
+          />
+        </Suspense>
+      )
+    }
     if (authView === 'landing') {
       return (
         <LandingPage
           onSignIn={() => navigateAuth('login')}
           onSignUp={() => navigateAuth('register')}
+          onPricing={() => {
+            window.history.pushState({}, '', '/pricing')
+            setAuthView(authViewFromLocation())
+          }}
         />
       )
     }
@@ -6759,21 +6723,11 @@ function WorkspaceApp() {
             <ServicesPage
               connection={mcpConnection}
               services={mcpServices}
-              onRequestAccess={async () => {
-                const result = await api.mcp.requestAccess()
-                setMcpConnection(result.connection)
-                setMcpServices(result.services)
-                setToast('MCP service access updated.')
-              }}
               onSync={async () => {
                 const result = await api.mcp.sync()
                 setMcpConnection(result.connection)
                 setMcpServices(result.services)
-                setToast('Services synced.')
-              }}
-              onToggle={async (service) => {
-                const updated = await api.mcp.toggleService(service.id)
-                setMcpServices((current) => current.map((item) => item.id === updated.id ? updated : item))
+                setToast('Local Lancee tools refreshed.')
               }}
               onInvoke={async (service, toolId, args) => api.mcp.invoke(service.id, toolId, args)}
               onToast={setToast}
@@ -6852,6 +6806,13 @@ function WorkspaceApp() {
             onToast={setToast}
             canManage={user.role === 'owner'}
           />
+        )
+        break
+      case 'pricing':
+        page = (
+          <Suspense fallback={<EmptySkeleton />}>
+            <PricingPage onToast={setToast} />
+          </Suspense>
         )
         break
       case 'settings':
@@ -7153,19 +7114,16 @@ function WorkspaceApp() {
       )}
       {modal === 'mcp' && mcpConnection && (
         <Modal
-          title="Automation tool gateway"
-          description="Request secure access, then turn on browser automation and approved utility tools."
+          title="Lancee MCP"
+          description="Inspect the application-owned MCP route and its local workspace tools."
           onClose={() => setModal(null)}
           wide
         >
           <McpIntegrationPanel
             connection={mcpConnection}
             services={mcpServices}
-            onRequestAccess={requestMcpAccess}
             onSync={syncMcp}
-            onToggle={toggleMcpService}
             onInvoke={invokeMcpTool}
-            onRevokeAccess={revokeMcpAccess}
             onClose={() => setModal(null)}
           />
         </Modal>

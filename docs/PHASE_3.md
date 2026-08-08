@@ -123,9 +123,9 @@ selected for production payment processing.
 
 ## Services and AI boundary
 
-The authenticated **Services** page is a UI for the existing MCP gateway. It
-shows live services, lets an approved workspace activate or pause a service,
-and records tool invocations. MCP bearer credentials remain server-side.
+The authenticated **Services** page is a UI for the local Lancee MCP registry.
+It shows the always-active application-owned service and records tool
+invocations. No external MCP gateway or service activation is involved.
 
 The floating workspace assistant calls `POST /api/ai/chat`. The backend builds
 the context from workspace-scoped projects, clients, invoices, draft invoices,

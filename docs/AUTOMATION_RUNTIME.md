@@ -5,14 +5,13 @@ They are not separate mock systems.
 
 ## Live request path
 
-1. `/api/ai/chat` loads a workspace-scoped snapshot and the live MCP catalog.
+1. `/api/ai/chat` loads a workspace-scoped snapshot and the local Lancee tool catalog.
 2. The configured OpenAI-compatible/Hermes, Anthropic, or Gemini provider may
    return one native function call.
 3. The dashboard renders that call as **Approve & run**; no tool runs before the
    authenticated user approves it.
 4. `/api/mcp/invoke` routes the built-in `lancee` service to
-   `createLanceeMcpRuntime`. Optional external services still route through the
-   MCP gateway.
+   `createLanceeMcpRuntime`. It does not proxy external MCP servers.
 5. Workflow creation and schedules write to the database. Runs write to
    `automation_runs` and `automation_run_events`.
 6. Core runs use Redis when connected and fall back to the web process when it

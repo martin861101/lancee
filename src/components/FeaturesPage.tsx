@@ -365,10 +365,10 @@ const groups: FeatureGroup[] = [
       },
       {
         icon: 'layers',
-        title: 'MCP gateway & services',
+        title: 'Local Lancee MCP',
         description:
-          'A built-in MCP catalog with 17 Lancee dashboard and workflow tools plus activatable external services, all approval-gated.',
-        tags: ['Lancee tools', 'Bearer grants', 'Audited invocations'],
+          'One application-owned MCP endpoint with workspace-scoped Lancee dashboard and workflow tools, all approval-gated.',
+        tags: ['Local tools', 'Device scopes', 'Audited invocations'],
       },
       {
         icon: 'grid',

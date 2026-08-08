@@ -212,21 +212,6 @@ export const lanceeMcpToolDefinitions = [
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   },
   {
-    name: 'configure_mcp_service',
-    title: 'Configure MCP service',
-    description: 'Activate or deactivate a live MCP service already discovered by the approved workspace gateway.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        service_id: { type: 'string', minLength: 1, maxLength: 80 },
-        active: { type: 'boolean' },
-      },
-      required: ['service_id', 'active'],
-      additionalProperties: false,
-    },
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
-  },
-  {
     name: 'delete_workspace_resource',
     title: 'Delete workspace resource',
     description: 'Permanently delete a workspace automation or file. This high-risk action requires explicit approval and workspace-owner authority.',
@@ -711,7 +696,6 @@ export function createLanceeMcpRuntime({
   executeAutomationRun,
   enqueueCoreJob,
   prepareAutomationRun,
-  listMcpServices = async () => [],
 }) {
   const availableCoreTools = new Set(coreToolIds)
   let schedulerTimer = null
@@ -848,21 +832,6 @@ export function createLanceeMcpRuntime({
       details,
     })
     return { connector }
-  }
-
-  async function configureMcpService(context, args) {
-    requireOwner(context)
-    const serviceId = textArgument(args, 'service_id', { required: true, maxLength: 80 })
-    if (!/^[a-z0-9][a-z0-9._-]{0,79}$/.test(serviceId) || serviceId === 'lancee' || typeof args.active !== 'boolean') {
-      throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'Choose a configurable MCP service and active state.')
-    }
-    const access = await database.getMcpAccess(context.workspace.id)
-    if (access.status !== 'approved') throw new LanceeMcpError('MCP_ACCESS_REQUIRED', 'Approve MCP gateway access before changing services.', 409)
-    const services = await listMcpServices(context.workspace.id)
-    const service = services.find((item) => item.id === serviceId)
-    if (!service || service.status !== 'live') throw new LanceeMcpError('MCP_SERVICE_UNAVAILABLE', 'The requested MCP service is not live.', 404)
-    const state = await database.setMcpServiceState(context.workspace.id, serviceId, args.active)
-    return { service: { id: serviceId, name: service.name, active: state.active } }
   }
 
   async function deleteWorkspaceResource(context, args) {
@@ -1051,7 +1020,6 @@ export function createLanceeMcpRuntime({
     if (name === 'web_search') return searchPublicWeb(args)
     if (name === 'create_pdf') return createPdf(context, args)
     if (name === 'request_connector') return requestConnector(context, args)
-    if (name === 'configure_mcp_service') return configureMcpService(context, args)
     if (name === 'delete_workspace_resource') return deleteWorkspaceResource(context, args)
     if (name === 'create_workflow') {
       const nameValue = textArgument(args, 'name', { required: true, maxLength: 120 })

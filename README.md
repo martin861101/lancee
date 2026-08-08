@@ -66,8 +66,12 @@ the supporting automation documentation in [`automations/`](automations/).
   Drive relationships, deliverables, and authenticated project attachments.
   Selecting a project opens its full Kanban workspace with stage controls,
   persistent drag-and-drop status movement, progress, deadline, owner, files,
-  external links, Drive resources, and persisted tasks with per-task notes in
-  any project bucket.
+  external links, Drive resources, persistent task checkboxes, and per-task
+  notes in any project bucket. Project work and client feedback are separate:
+  the board stays focused on delivery stages, while **Reviews** contains durable
+  multi-bucket review packages, item-level approval states, linked client
+  comments, image previews, deadlines, and a permanent audit history. See
+  [`docs/PROJECT_REVIEW_PACKAGES.md`](docs/PROJECT_REVIEW_PACKAGES.md).
 - **Ideas** — an MIT-licensed Excalidraw workspace for freehand drawing,
   shapes, arrows, text, images, embeddable content, reusable libraries, export,
   and keyboard/touch editing. Named boards remain attached to the lancee
@@ -110,8 +114,8 @@ the supporting automation documentation in [`automations/`](automations/).
   demand.
 - **Connections** — independent backend-managed Google Drive OAuth with
   non-sensitive per-file access through Google Picker, encrypted workspace
-  Paystack credentials, signed n8n webhooks, and a separate MCP gateway limited
-  to browser automation and utility tools. The owner can also connect
+  Paystack credentials, signed n8n webhooks, and the application-owned Lancee
+  MCP tool surface. The owner can also connect
   WhatsApp with a Baileys QR scan; platform notifications are restricted to
   that verified owner number. Saved sessions restore on backend startup,
   transient socket closures reconnect automatically, and the UI exposes the
@@ -121,13 +125,8 @@ the supporting automation documentation in [`automations/`](automations/).
 - **Codex Workspace** — an embedded Codex App Server connection with native
   OpenAI device login, isolated per-user auth state, sandboxed repository work,
   and streamed task output.
-- **lancee AI for Codex** — a separate repo-local Codex plugin with a bundled
-  MCP bridge and scoped access to the workspace AI provider and automation
-  tools.
-- **MCP server development plugin** — the official Anthropic
-  `mcp-server-dev` Claude plugin is vendored at
-  [`plugins/mcp-server-dev/`](plugins/mcp-server-dev/) for building remote
-  MCP servers, MCP apps, and MCPB packages.
+- **Agent device access** — explicit device-code approval for scoped access to
+  the workspace AI provider and the local Lancee MCP endpoint.
 - **Money** — durable ZAR invoices, real Paystack hosted payment links, and
   verified, duplicate-safe webhook reconciliation.
 - **Notifications** — workspace-scoped activity with unread indicators, a
@@ -227,94 +226,43 @@ security boundaries, API, and verification workflow.
 ## Built-in MCP capability
 
 MCP is a platform feature, not a business-system connection users install.
-Every workspace can browse the permitted agent-tool catalog immediately. The
-default `MCP_ALLOWED_CATEGORIES=Browser,Utilities` boundary keeps normal
-provider connections in the application backend.
+Lancee has one MCP server: the `/mcp` route in this application. It lists and
+invokes the local Lancee tool registry directly. There is no remote MCP Grid,
+Basebox server, external MCP discovery, or separate MCP deployment.
 
-The browser never receives `MCP_API_TOKEN`. The backend boundary is configured
-to connect to:
-
-```text
-https://mcp.hygridtech.co.za
-```
-
-Bearer access uses a persisted, workspace-scoped state machine:
-
-```text
-available → pending or approved → activated services
-```
-
-If `MCP_API_TOKEN` is configured server-side, a request is approved
-automatically. Without it, the request remains pending for a future admin grant
-workflow. Bearer status and per-service activation survive process restarts in
-PostgreSQL (or the local SQLite development fallback). Catalog discovery and
-tool invocation are live server-to-server calls; bearer tokens never enter the
-browser.
 The workspace assistant uses native provider function calls to propose tools,
 but the browser still shows an explicit risk-labelled **Confirm** or **Approve
-high-risk action** control before invoking one. The 19 built-in Lancee tools
-are always available to an authenticated workspace; optional external MCP
-services still require their server-side bearer grant and per-service
-activation. Invocation resolves the catalog tool id to the live runtime at the
-server boundary.
+high-risk action** control before invoking one. The built-in Lancee tools are
+always available to an authenticated workspace and execute with that user's
+workspace context.
 
 The built-in dashboard control plane can read workspace-scoped PostgreSQL data
 without exposing raw SQL or database credentials, create clients and projects,
 change project status, create text/Markdown/JSON files, save connector requests
-into **Connections**, activate discovered MCP services, and create prompt-backed
-Core or Edge workflows. Every tool call is individually approved. Destructive
-deletion, MCP service changes, external API calls, and enabled code execution
-are additionally restricted to workspace owners.
+into **Connections**, and create prompt-backed Core or Edge workflows. Every
+tool call is individually approved. Destructive deletion, external API calls,
+and enabled code execution are additionally restricted to workspace owners.
 
 See [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) and
-[`mcp-conf/MCP.md`](mcp-conf/MCP.md).
-
-### Generated MCP Grid integration
-
-The integration plan `3527e5a9-20b6-498f-913c-3b0ba403e15e` is installed in
-[`src/integrations/mcp-grid.ts`](src/integrations/mcp-grid.ts). It exposes the
-29 selected catalog tools through `invokeMcpTool` and reads `MCP_GATEWAY_URL`
-and `MCP_API_TOKEN` only from the server-side environment. The compatible
-client is vendored at [`vendor/mcp-grid-client/`](vendor/mcp-grid-client/), so
-container builds do not depend on a sibling checkout.
-
-See [`mcp-services.md`](mcp-services.md) for the complete action and skill
-catalog enabled by this plan.
+[`docs/mcp-services.md`](docs/mcp-services.md).
 
 ### Local MCP server
 
 The same app now serves an MCP endpoint at `/mcp` on the normal application
-port (`5177` by default). It exposes the 29 selected actions as MCP tools and
-the 15 reusable workflows as MCP prompts, while using the configured MCP Grid
-backend for execution. This keeps the platform and MCP entrypoint in one
-deployable app; set `MCP_GATEWAY_URL` to the managed `/home/apps/mcp` gateway
-or another compatible gateway.
-
-Set a separate client-facing token for the endpoint:
-
-```dotenv
-MCP_SERVER_TOKEN=replace-with-a-client-token
-```
+port (`5177` by default). The implementation is split between
+[`server/lancee-mcp-protocol.mjs`](server/lancee-mcp-protocol.mjs), which owns
+MCP JSON-RPC, and [`server/lancee-mcp.mjs`](server/lancee-mcp.mjs), which owns
+the workspace-scoped tool contracts and adapters.
 
 Connect an MCP client to `https://lancee.hookitupservices.com/mcp` with
-`Authorization: Bearer $MCP_SERVER_TOKEN`. The route is served by the app on
-port `5177` behind the existing HTTPS reverse proxy. The local stdio bridge is
-also available with `pnpm mcp:server`; use `pnpm mcp:server:http` only when a
-separate port is specifically required.
+`Authorization: Bearer <lancee-device-token>`. The token must have the
+`mcp:invoke` scope and supplies the user/workspace context. The route is served
+by the app on port `5177` behind the existing HTTPS reverse proxy. Lancee no
+longer accepts `MCP_SERVER_TOKEN`, `MCP_GATEWAY_URL`, `MCP_API_TOKEN`, or
+Basebox MCP configuration.
 
-To regenerate or update this managed block, authenticate with the server-side
-token and run:
-
-```bash
-export MCP_GATEWAY_URL=https://mcp.hygridtech.co.za
-mcp-grid integrate \
-  --gateway "$MCP_GATEWAY_URL" \
-  --plan-id 3527e5a9-20b6-498f-913c-3b0ba403e15e
-```
-
-The downloaded Claude plugin can be invoked from a Claude environment with
-`/mcp-server-dev:build-mcp-server` after the project plugin directory is
-registered with that environment.
+The rollout and remaining agent-runtime phases are tracked in
+[`LANCEE_RUNTIME_MCP_INTEGRATIONS.md`](LANCEE_RUNTIME_MCP_INTEGRATIONS.md).
 
 ## Storefront preview video
 
@@ -392,29 +340,22 @@ GitHub, Slack, durable onboarding jobs, and the knowledge-base index still need
 to be implemented. Existing Drive, Paystack, n8n, MCP, AI, authentication, and
 workspace data boundaries should be reused as described in the design.
 
-## lancee AI for Codex
+## Agent device authorization
 
-The repo-local [`plugins/lancee-ai`](plugins/lancee-ai) plugin lets Codex use
-the AI provider and workspace automations configured for an approved lancee
-workspace. Its bundled MCP server exposes `connect`, `ai_status`, `complete`,
-and the 17 Lancee MCP tools documented in
-[`docs/LANCEE_MCP.md`](docs/LANCEE_MCP.md).
+Agent clients use Lancee's device-code flow to request `ai:invoke`,
+`mcp:invoke`, or both. Lancee no longer ships a second stdio MCP plugin; MCP
+clients connect directly to the application-owned `/mcp` route.
 
 The **Connections** page includes a **lancee AI for Codex** card. Open it to
-enter the eight-character code shown by the plugin, review and approve the
+enter the eight-character code shown by the client, review and approve the
 requested `ai:invoke mcp:invoke` scopes, check active device status, or
 disconnect every authorized Codex device.
 
 Authentication uses a ten-minute device code shown by Codex and an explicit
 lancee approval screen. Successful exchange issues a one-time, thirty-day
 scoped token. Device codes and tokens are hashed in the database, provider
-keys remain server-only, and the plugin stores its token only in the Codex
-plugin data directory.
-
-This source plugin does not modify a developer's personal Codex marketplace or
-global configuration. Package the complete plugin directory into the intended
-local or team marketplace. Set `LANCEE_BASE_URL` in the plugin MCP environment
-only when connecting to an origin other than the production default.
+keys remain server-only. A client must keep the returned token in its own
+protected credential store; Lancee stores only its hash.
 
 See [`docs/CODEX_AI_CONNECTOR.md`](docs/CODEX_AI_CONNECTOR.md) for endpoint,
 security, packaging, configuration, and verification details.
@@ -424,9 +365,9 @@ security, packaging, configuration, and verification details.
 The Lancee MCP bridge is the agent-facing surface for the platform itself. It
 uses the same device approval flow as the AI connector, but requires the
 separate `mcp:invoke` scope. It exposes workspace-scoped dashboard reads,
-client/project/file/connector actions, MCP service control, workflow search,
-prompt-backed creation, execution, status, logs, durable scheduling, bounded
-external API calls, and enabled Python/JavaScript execution.
+client/project/file/connector actions, workflow search, prompt-backed creation,
+execution, status, logs, durable scheduling, bounded external API calls, and
+enabled Python/JavaScript execution.
 
 The same runtime is available to the floating dashboard assistant. Asking it
 to create a workflow produces a typed approval request; approval creates and
@@ -446,28 +387,13 @@ treated as untrusted evidence and cannot authorize the PDF write. Each step can
 be denied independently, and the resulting PDF is stored as a native Files
 document.
 
-The bridge is implemented by
-[`plugins/lancee-ai/scripts/mcp-server.mjs`](plugins/lancee-ai/scripts/mcp-server.mjs)
-and routes through `/api/codex/lancee-mcp/:tool`. Workflow runs reuse the
+The bridge is implemented directly by
+[`server/lancee-mcp-protocol.mjs`](server/lancee-mcp-protocol.mjs) and
+[`server/lancee-mcp.mjs`](server/lancee-mcp.mjs). Workflow runs reuse the
 existing Core/Edge engine and Redis queue. Scheduling entries are persisted in
 the database and resumed by the server scheduler. See
 [`docs/LANCEE_MCP.md`](docs/LANCEE_MCP.md) for the complete tool contract and
 security boundaries.
-
-## Basebox MCP
-
-Basebox is integrated as an authenticated MCP Streamable HTTP server at
-`https://base-api.hygridtech.co.za/mcp`. Its live tool catalog is discovered
-through standard MCP JSON-RPC and is exposed in **Services** alongside Lancee
-tools. Basebox must be live and explicitly activated for a workspace before the
-assistant can propose one of its tools; every proposed call still requires user
-confirmation and every invocation is audited.
-
-Set `BASEBOX_MCP_ACCESS_KEY` in the server-only `.env` file, rebuild the app,
-then select **Sync services** and activate Basebox. Missing, rejected, or
-unreachable credentials are shown honestly and never replaced with fallback
-tools. See [`docs/BASEBOX_MCP.md`](docs/BASEBOX_MCP.md) for configuration,
-protocol behavior, and verification.
 
 ## n8n integration
 
@@ -572,8 +498,8 @@ in-progress, resolved, or rejected. Approval still changes the draft invoice to
 `ready_for_review`. See [`docs/ANNOTATION_REVIEW.md`](docs/ANNOTATION_REVIEW.md)
 and [`docs/PHASE_3.md`](docs/PHASE_3.md) for the routes and operational details.
 
-The **Services** page manages the always-active built-in Lancee service and
-optional external MCP services. The floating workspace assistant receives a
+The **Services** page shows the always-active built-in Lancee service. The
+floating workspace assistant receives a
 server-built, workspace-scoped data snapshot and typed tool definitions;
 provider credentials and unrestricted SQL never reach the browser. Read-only
 AI data actions include `describe_table`, `list_tables`, `list_schemas`,
@@ -756,8 +682,10 @@ fallback under `.runtime/`. Restore a custom-format backup with `pg_restore`
 only after stopping the app so it cannot write during recovery.
 
 Review sessions and annotations are persisted in PostgreSQL tables
-`review_sessions` and `review_annotations`; the same schema also works with the
-existing SQLite development fallback. See
+`review_sessions` and `review_annotations`. Multi-deliverable review rounds use
+`review_package_items`, with comments linked back to their review item and
+project bucket; the same schema also works with the existing SQLite development
+fallback. See
 [`docs/SCALABILITY_AND_POSTGRESQL.md`](docs/SCALABILITY_AND_POSTGRESQL.md) for
 connection-pool, transaction, migration, and rollout details. SQLite remains a
 durable single-process development fallback through `DATABASE_PATH`.
@@ -782,11 +710,13 @@ pnpm verify:paystack
 pnpm verify:n8n
 pnpm verify:offline
 pnpm verify:ai
+pnpm verify:mcp
 pnpm verify:codex-connector
 pnpm verify:google-drive
 pnpm verify:workspace-flows
 pnpm verify:workspace-builder
 pnpm verify:client-files
+pnpm verify:project-reviews
 pnpm verify:whatsapp
 pnpm verify:platform
 # With DATABASE_URL or PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE:
@@ -796,7 +726,7 @@ node --check server/database.mjs
 node --check server/notifications.mjs
 node --check server/paystack.mjs
 node --check server/n8n.mjs
-node --check server/mcp.mjs
+node --check server/lancee-mcp-protocol.mjs
 node --check server/lancee-mcp.mjs
 node --check public/sw.js
 npm --prefix remotion run render

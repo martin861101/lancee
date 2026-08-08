@@ -186,7 +186,7 @@ export default function WorkspaceChat() {
           </header>
           <div className="workspace-chat__messages" ref={messagesElement}>
             {messages.length === 0 && (
-              <p>Ask about any dashboard area. I can use approved MCP services, create files and records, add connector requests, and build prompt-backed workflows. Every tool action asks for confirmation first.</p>
+              <p>Ask about any dashboard area. I can use Lancee's local tools, create files and records, add connector requests, and build prompt-backed workflows. Every tool action asks for confirmation first.</p>
             )}
             {messages.map((item, index) => (
               <div className={`workspace-chat__message workspace-chat__message--${item.role}`} key={`${item.role}:${index}`}>

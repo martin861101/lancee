@@ -40,7 +40,7 @@ The current application already provides the foundation:
 | [`server/ai.mjs`](../server/ai.mjs) | Provider-neutral OpenAI-compatible, Anthropic, Gemini, and Hermes completion boundary |
 | [`server/google-drive.mjs`](../server/google-drive.mjs) | Existing OAuth and explicitly selected Drive file/folder access |
 | [`server/n8n.mjs`](../server/n8n.mjs) | Signed, bounded, durable outbound/inbound automation delivery |
-| [`server/mcp.mjs`](../server/mcp.mjs) | Server-only access to the approved Browser/Utilities tool gateway |
+| [`server/lancee-mcp-protocol.mjs`](../server/lancee-mcp-protocol.mjs) | Application-owned MCP protocol boundary for local Lancee tools |
 | [`server/notifications.mjs`](../server/notifications.mjs) | Optional SMTP notifications |
 | [`src/lib/api.ts`](../src/lib/api.ts) | Typed browser API client and idempotent mutation headers |
 | [`src/App.tsx`](../src/App.tsx) | Authenticated shell, lazy pages, workspace bootstrap, automation/run state, and current AI entry point |

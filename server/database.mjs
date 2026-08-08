@@ -178,6 +178,8 @@ function mapProjectTask(row) {
     bucketId: row.bucket_id,
     title: row.title,
     notes: row.notes,
+    completed: Boolean(row.completed_at),
+    completedAt: row.completed_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -330,9 +332,38 @@ function mapApproval(row) {
     body: row.body,
     comment: row.comment,
     expiresAt: row.expires_at,
+    dueAt: row.due_at || null,
     createdAt: row.created_at,
     respondedAt: row.responded_at,
     reviewUrl: row.review_url,
+  }
+}
+
+function mapReviewPackageItem(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    approvalId: row.approval_id,
+    projectId: row.project_id,
+    bucketId: row.bucket_id,
+    title: row.title,
+    status: row.status,
+    position: Number(row.position || 0),
+    previewFileId: row.preview_file_id || null,
+    preview: row.preview_file_id
+      ? {
+          id: row.preview_file_id,
+          name: row.preview_name,
+          mimeType: row.preview_mime_type,
+          size: Number(row.preview_size || 0),
+          imageUrl: '',
+        }
+      : null,
+    commentCount: Number(row.comment_count || 0),
+    comments: Array.isArray(row.comments) ? row.comments : [],
+    respondedAt: row.responded_at || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   }
 }
 
@@ -364,7 +395,7 @@ function mapReviewAnnotation(row) {
   }
 }
 
-function mapReview(row, annotations = []) {
+function mapReview(row, annotations = [], packageItems = []) {
   if (!row) return null
   const artwork = row.artwork_file_id
     ? {
@@ -380,6 +411,11 @@ function mapReview(row, annotations = []) {
     projectId: row.project_id,
     projectName: row.project_name,
     clientName: row.client_name,
+    clientEmail: row.client_email || '',
+    approvalId: row.approval_id,
+    title: row.title || row.project_name,
+    body: row.body || '',
+    dueAt: row.due_at || null,
     artworkId: row.artwork_file_id,
     artworkVersionId: row.artwork_file_id,
     artwork,
@@ -389,6 +425,7 @@ function mapReview(row, annotations = []) {
     submittedAt: row.submitted_at,
     closedAt: row.closed_at,
     annotations,
+    packageItems,
   }
 }
 
@@ -399,6 +436,9 @@ function mapProjectComment(row) {
     workspaceId: row.workspace_id,
     projectId: row.project_id,
     approvalId: row.approval_id,
+    reviewItemId: row.review_item_id || null,
+    bucketId: row.bucket_id || null,
+    taskId: row.task_id || null,
     authorType: row.author_type,
     authorName: row.author_name,
     body: row.body,
@@ -839,6 +879,32 @@ export async function openDatabase({
       updated_at TEXT NOT NULL
     )`,
     `ALTER TABLE workspace_settings ADD COLUMN IF NOT EXISTS storefront_enabled ${isSqlite ? 'INTEGER NOT NULL DEFAULT 0 CHECK (storefront_enabled IN (0, 1))' : 'BOOLEAN NOT NULL DEFAULT FALSE'}`,
+    `CREATE TABLE IF NOT EXISTS plans (
+      id TEXT PRIMARY KEY,
+      plan_code TEXT NOT NULL CHECK (plan_code IN ('solo', 'pro', 'studio')),
+      name TEXT NOT NULL,
+      region TEXT NOT NULL CHECK (region IN ('ZA', 'US', 'UK', 'OTHER')),
+      currency TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      monthly_price REAL NOT NULL,
+      yearly_price REAL NOT NULL,
+      per_user ${isSqlite ? 'INTEGER NOT NULL DEFAULT 0' : 'BOOLEAN NOT NULL DEFAULT FALSE'},
+      recommended ${isSqlite ? 'INTEGER NOT NULL DEFAULT 0' : 'BOOLEAN NOT NULL DEFAULT FALSE'},
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      UNIQUE (plan_code, region)
+    )`,
+    `CREATE TABLE IF NOT EXISTS subscriptions (
+      workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+      plan_code TEXT NOT NULL DEFAULT 'solo' CHECK (plan_code IN ('solo', 'pro', 'studio')),
+      billing_period TEXT NOT NULL DEFAULT 'monthly' CHECK (billing_period IN ('monthly', 'yearly')),
+      region TEXT NOT NULL DEFAULT 'ZA' CHECK (region IN ('ZA', 'US', 'UK', 'OTHER')),
+      status TEXT NOT NULL DEFAULT 'trial' CHECK (status IN ('trial', 'active', 'canceled', 'past_due')),
+      trial_started_at TEXT NOT NULL,
+      trial_ends_at TEXT NOT NULL,
+      subscribed_at TEXT,
+      updated_at TEXT NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS workspace_builder_configs (
       workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
       required_setup INTEGER NOT NULL DEFAULT 0 CHECK (required_setup IN (0, 1)),
@@ -1086,9 +1152,11 @@ export async function openDatabase({
       bucket_id TEXT NOT NULL,
       title TEXT NOT NULL,
       notes TEXT NOT NULL DEFAULT '',
+      completed_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
+    `ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS completed_at TEXT`,
     `CREATE TABLE IF NOT EXISTS job_cards (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1136,18 +1204,41 @@ export async function openDatabase({
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'commented', 'approved')),
       comment TEXT,
       expires_at TEXT NOT NULL,
+      due_at TEXT,
       created_at TEXT NOT NULL,
       responded_at TEXT
     )`,
+    `ALTER TABLE client_approvals ADD COLUMN IF NOT EXISTS due_at TEXT`,
     `CREATE TABLE IF NOT EXISTS project_comments (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       approval_id TEXT REFERENCES client_approvals(id) ON DELETE SET NULL,
+      review_item_id TEXT,
+      bucket_id TEXT,
+      task_id TEXT REFERENCES project_tasks(id) ON DELETE SET NULL,
       author_type TEXT NOT NULL CHECK (author_type IN ('workspace', 'client')),
       author_name TEXT NOT NULL,
       body TEXT NOT NULL,
       created_at TEXT NOT NULL
+    )`,
+    `ALTER TABLE project_comments ADD COLUMN IF NOT EXISTS review_item_id TEXT`,
+    `ALTER TABLE project_comments ADD COLUMN IF NOT EXISTS bucket_id TEXT`,
+    `ALTER TABLE project_comments ADD COLUMN IF NOT EXISTS task_id TEXT REFERENCES project_tasks(id) ON DELETE SET NULL`,
+    `CREATE TABLE IF NOT EXISTS review_package_items (
+      id TEXT PRIMARY KEY,
+      approval_id TEXT NOT NULL REFERENCES client_approvals(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      bucket_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'needs_changes', 'approved')),
+      position INTEGER NOT NULL DEFAULT 0,
+      preview_file_id TEXT,
+      responded_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (approval_id, bucket_id)
     )`,
     `CREATE TABLE IF NOT EXISTS workspace_notifications (
       id TEXT PRIMARY KEY,
@@ -1278,6 +1369,8 @@ export async function openDatabase({
       ON automation_schedules (status, run_at)`,
     `CREATE INDEX IF NOT EXISTS idx_project_comments_workspace_project
       ON project_comments (workspace_id, project_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_review_package_items_approval
+      ON review_package_items (approval_id, position)`,
     `CREATE INDEX IF NOT EXISTS idx_workspace_notifications_unread
       ON workspace_notifications (workspace_id, read_at, created_at)`,
     `CREATE INDEX IF NOT EXISTS idx_projects_workspace_status
@@ -1467,6 +1560,48 @@ export async function openDatabase({
     )
   }
 
+  const planSeed = [
+    { code: 'solo', name: 'Solo', region: 'ZA', currency: 'ZAR', symbol: 'R', monthly: 199.99, perUser: false, recommended: false, sort: 1 },
+    { code: 'solo', name: 'Solo', region: 'US', currency: 'USD', symbol: '$', monthly: 15, perUser: false, recommended: false, sort: 1 },
+    { code: 'solo', name: 'Solo', region: 'UK', currency: 'GBP', symbol: '£', monthly: 10, perUser: false, recommended: false, sort: 1 },
+    { code: 'solo', name: 'Solo', region: 'OTHER', currency: 'USD', symbol: '$', monthly: 15, perUser: false, recommended: false, sort: 1 },
+    { code: 'pro', name: 'Pro', region: 'ZA', currency: 'ZAR', symbol: 'R', monthly: 399.99, perUser: false, recommended: true, sort: 2 },
+    { code: 'pro', name: 'Pro', region: 'US', currency: 'USD', symbol: '$', monthly: 29, perUser: false, recommended: true, sort: 2 },
+    { code: 'pro', name: 'Pro', region: 'UK', currency: 'GBP', symbol: '£', monthly: 20, perUser: false, recommended: true, sort: 2 },
+    { code: 'pro', name: 'Pro', region: 'OTHER', currency: 'USD', symbol: '$', monthly: 29, perUser: false, recommended: true, sort: 2 },
+    { code: 'studio', name: 'Studio', region: 'ZA', currency: 'ZAR', symbol: 'R', monthly: 799.99, perUser: true, recommended: false, sort: 3 },
+    { code: 'studio', name: 'Studio', region: 'US', currency: 'USD', symbol: '$', monthly: 50, perUser: true, recommended: false, sort: 3 },
+    { code: 'studio', name: 'Studio', region: 'UK', currency: 'GBP', symbol: '£', monthly: 38, perUser: true, recommended: false, sort: 3 },
+    { code: 'studio', name: 'Studio', region: 'OTHER', currency: 'USD', symbol: '$', monthly: 50, perUser: true, recommended: false, sort: 3 },
+  ]
+  const seedTimestamp = nowIso()
+  for (const plan of planSeed) {
+    const seedId = `${plan.code}-${plan.region.toLowerCase()}`
+    const yearly = Math.round(plan.monthly * 10 * 100) / 100
+    await query(
+      `INSERT INTO plans (
+         id, plan_code, name, region, currency, symbol,
+         monthly_price, yearly_price, per_user, recommended, sort_order, created_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       ON CONFLICT (id) DO NOTHING`,
+      [seedId, plan.code, plan.name, plan.region, plan.currency, plan.symbol,
+        plan.monthly, yearly, plan.perUser ? 1 : 0, plan.recommended ? 1 : 0, plan.sort, seedTimestamp],
+    )
+  }
+  const subscriptionBackfill = await query(`SELECT id, created_at FROM workspaces`)
+  for (const workspace of subscriptionBackfill) {
+    const trialStart = workspace.created_at || nowIso()
+    const trialEnd = new Date(new Date(trialStart).getTime() + 14 * 24 * 60 * 60 * 1000).toISOString()
+    await query(
+      `INSERT INTO subscriptions (
+         workspace_id, plan_code, billing_period, region, status,
+         trial_started_at, trial_ends_at, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (workspace_id) DO NOTHING`,
+      [workspace.id, 'solo', 'monthly', 'ZA', 'trial', trialStart, trialEnd, nowIso()],
+    )
+  }
+
   if (isSqlite) {
     pgInstance.exec(`
       CREATE TRIGGER IF NOT EXISTS invoices_provider_reference_immutable
@@ -1602,7 +1737,7 @@ export async function openDatabase({
     { id: 'onedrive', connected: 0 },
     { id: 'paystack', connected: 0 },
     { id: 'n8n', connected: 0 },
-    { id: 'mcp-grid', connected: 0 },
+    { id: 'mcp-grid', connected: 1 },
     { id: 'codex-ai', connected: 0 },
     { id: 'codex-runtime', connected: 0 },
     { id: 'mail', connected: 0 },
@@ -3505,7 +3640,6 @@ export async function openDatabase({
         [selectedWorkspaceId],
       )
       const [
-        mcpAccess,
         n8nConnection,
         driveToken,
         paystackConnection,
@@ -3514,7 +3648,6 @@ export async function openDatabase({
         whatsappConnection,
         cloudLinks,
       ] = await Promise.all([
-        this.getMcpAccess(selectedWorkspaceId),
         this.getN8nConnection(selectedWorkspaceId),
         this.getGoogleDriveToken(selectedWorkspaceId),
         this.getPaymentConnection(selectedWorkspaceId, 'paystack'),
@@ -3529,7 +3662,7 @@ export async function openDatabase({
         onedrive: { name: 'Microsoft OneDrive', description: 'Choose a OneDrive folder as a private storage point for workspace files.', category: 'Storage', icon: 'onedrive', accent: '#4f8df7' },
         paystack: { name: 'Paystack', description: 'Collect region-friendly card and bank payments across African markets.', category: 'Payments', icon: 'paystack', accent: '#00c3f7' },
         n8n: { name: 'n8n', description: 'Connect repeatable workflows in either direction with signed GET and POST webhooks.', category: 'Automation', icon: 'n8n', accent: '#ea4b71' },
-        'mcp-grid': { name: 'Automation tool gateway', description: 'Browser automation and approved utility tools for agent workflows.', category: 'Automation', icon: 'mcp', accent: '#786bff' },
+        'mcp-grid': { name: 'Lancee MCP', description: 'Application-owned workspace tools exposed through the local Lancee MCP route.', category: 'Automation', icon: 'mcp', accent: '#786bff' },
         'codex-ai': { name: 'lancee AI for Codex', description: 'Let an external Codex client call this workspace’s configured AI provider.', category: 'Automation', icon: 'codex', accent: '#6c654f' },
         'codex-runtime': { name: 'Codex Workspace', description: 'Run OpenAI Codex inside lancee against the server-configured project workspace.', category: 'Automation', icon: 'codex', accent: '#171a15' },
         mail: { name: 'Mail', description: 'Read and send workspace email, then trigger native automations from recipients, subjects, and keywords.', category: 'Communication', icon: 'messages', accent: '#6854e8' },
@@ -3539,7 +3672,7 @@ export async function openDatabase({
         const meta = integrationMeta[row.integration_id]
         let connected = row.connected === 1
         if (row.integration_id === 'mcp-grid') {
-          connected = mcpAccess.status === 'approved'
+          connected = true
         } else if (row.integration_id === 'codex-ai') {
           connected = codexConnection.connected
         } else if (row.integration_id === 'n8n') {
@@ -3692,6 +3825,134 @@ export async function openDatabase({
         [settings.name || '', selectedWorkspaceId],
       )
       return await this.getWorkspaceSettings(selectedWorkspaceId)
+    },
+
+    async getPlans(selectedRegion) {
+      const rows = await query(
+        `SELECT id, plan_code, name, region, currency, symbol,
+                monthly_price, yearly_price, per_user, recommended, sort_order
+         FROM plans
+         WHERE region = $1
+         ORDER BY sort_order ASC, plan_code ASC`,
+        [selectedRegion],
+      )
+      return rows.map((row) => ({
+        id: row.id,
+        planCode: row.plan_code,
+        name: row.name,
+        region: row.region,
+        currency: row.currency,
+        symbol: row.symbol,
+        monthlyPrice: Number(row.monthly_price),
+        yearlyPrice: Number(row.yearly_price),
+        perUser: isSqlite ? Boolean(Number(row.per_user)) : Boolean(row.per_user),
+        recommended: isSqlite ? Boolean(Number(row.recommended)) : Boolean(row.recommended),
+        sortOrder: Number(row.sort_order),
+      }))
+    },
+
+    async getPlan(planCode, selectedRegion) {
+      const rows = await query(
+        `SELECT id, plan_code, name, region, currency, symbol,
+                monthly_price, yearly_price, per_user
+         FROM plans
+         WHERE plan_code = $1 AND region = $2`,
+        [planCode, selectedRegion],
+      )
+      const row = rows[0]
+      if (!row) return null
+      return {
+        id: row.id,
+        planCode: row.plan_code,
+        name: row.name,
+        region: row.region,
+        currency: row.currency,
+        symbol: row.symbol,
+        monthlyPrice: Number(row.monthly_price),
+        yearlyPrice: Number(row.yearly_price),
+        perUser: isSqlite ? Boolean(Number(row.per_user)) : Boolean(row.per_user),
+      }
+    },
+
+    async getSubscriptionRecord(selectedWorkspaceId) {
+      const rows = await query(
+        `SELECT workspace_id, plan_code, billing_period, region, status,
+                trial_started_at, trial_ends_at, subscribed_at, updated_at
+         FROM subscriptions
+         WHERE workspace_id = $1`,
+        [selectedWorkspaceId],
+      )
+      const row = rows[0]
+      const now = new Date()
+      if (!row) {
+        const started = nowIso()
+        const ends = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString()
+        return {
+          workspaceId: selectedWorkspaceId,
+          planCode: 'solo',
+          billingPeriod: 'monthly',
+          region: 'ZA',
+          status: 'trial',
+          trialStartedAt: started,
+          trialEndsAt: ends,
+          trialDays: 14,
+          trialDaysLeft: 14,
+          isOnTrial: true,
+          subscribedAt: null,
+          updatedAt: started,
+        }
+      }
+      const trialStartedAt = row.trial_started_at || nowIso()
+      const trialEndsAt = row.trial_ends_at || trialStartedAt
+      const trialEnd = new Date(trialEndsAt).getTime()
+      const trialDays = Math.max(0, Math.round((trialEnd - new Date(trialStartedAt).getTime()) / 86400000))
+      const trialDaysLeft = Math.max(0, Math.ceil((trialEnd - Date.now()) / 86400000))
+      const isOnTrial = row.status === 'trial' && trialEnd > Date.now()
+      return {
+        workspaceId: row.workspace_id,
+        planCode: row.plan_code,
+        billingPeriod: row.billing_period,
+        region: row.region,
+        status: row.status,
+        trialStartedAt,
+        trialEndsAt,
+        trialDays,
+        trialDaysLeft,
+        isOnTrial,
+        subscribedAt: row.subscribed_at,
+        updatedAt: row.updated_at,
+      }
+    },
+
+    async upsertSubscription(selectedWorkspaceId, input) {
+      const current = await this.getSubscriptionRecord(selectedWorkspaceId)
+      const now = nowIso()
+      const planCode = input.planCode || current.planCode
+      const billingPeriod = input.billingPeriod || current.billingPeriod || 'monthly'
+      const region = input.region || current.region || 'ZA'
+      const chosePlan = typeof input.planCode === 'string'
+      const status = chosePlan && current.status === 'trial' && input.planCode !== 'solo'
+        ? 'active'
+        : current.status
+      const subscribedAt = chosePlan && !current.subscribedAt
+        ? now
+        : current.subscribedAt
+      await query(
+        `INSERT INTO subscriptions (
+           workspace_id, plan_code, billing_period, region, status,
+           trial_started_at, trial_ends_at, subscribed_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (workspace_id) DO UPDATE SET
+           plan_code = EXCLUDED.plan_code,
+           billing_period = EXCLUDED.billing_period,
+           region = EXCLUDED.region,
+           status = EXCLUDED.status,
+           subscribed_at = COALESCE(EXCLUDED.subscribed_at, subscriptions.subscribed_at),
+           updated_at = EXCLUDED.updated_at`,
+        [selectedWorkspaceId, planCode, billingPeriod, region, status,
+          current.trialStartedAt, current.trialEndsAt, subscribedAt, now],
+      )
+      return await this.getSubscriptionRecord(selectedWorkspaceId)
     },
 
     async getWorkspaceBuilder(selectedWorkspaceId) {
@@ -4302,7 +4563,7 @@ export async function openDatabase({
 
     async listProjectTasks(selectedWorkspaceId, projectId) {
       const rows = await query(
-        `SELECT id, workspace_id, project_id, bucket_id, title, notes, created_at, updated_at
+        `SELECT id, workspace_id, project_id, bucket_id, title, notes, completed_at, created_at, updated_at
          FROM project_tasks
          WHERE workspace_id = $1 AND project_id = $2
          ORDER BY created_at ASC`,
@@ -4326,7 +4587,7 @@ export async function openDatabase({
         [id, workspaceId, projectId, bucketId, title, notes, timestamp, timestamp],
       )
       const rows = await query(
-        `SELECT id, workspace_id, project_id, bucket_id, title, notes, created_at, updated_at
+        `SELECT id, workspace_id, project_id, bucket_id, title, notes, completed_at, created_at, updated_at
          FROM project_tasks WHERE workspace_id = $1 AND id = $2`,
         [workspaceId, id],
       )
@@ -4341,6 +4602,7 @@ export async function openDatabase({
         ['bucketId', 'bucket_id'],
         ['title', 'title'],
         ['notes', 'notes'],
+        ['completedAt', 'completed_at'],
       ]) {
         if (Object.hasOwn(fields, field)) {
           sets.push(`${column} = $${index++}`)
@@ -4349,7 +4611,7 @@ export async function openDatabase({
       }
       if (!sets.length) {
         const rows = await query(
-          `SELECT id, workspace_id, project_id, bucket_id, title, notes, created_at, updated_at
+          `SELECT id, workspace_id, project_id, bucket_id, title, notes, completed_at, created_at, updated_at
            FROM project_tasks WHERE workspace_id = $1 AND id = $2`,
           [selectedWorkspaceId, id],
         )
@@ -4363,7 +4625,7 @@ export async function openDatabase({
         params,
       )
       const rows = await query(
-        `SELECT id, workspace_id, project_id, bucket_id, title, notes, created_at, updated_at
+        `SELECT id, workspace_id, project_id, bucket_id, title, notes, completed_at, created_at, updated_at
          FROM project_tasks WHERE workspace_id = $1 AND id = $2`,
         [selectedWorkspaceId, id],
       )
@@ -4598,6 +4860,7 @@ export async function openDatabase({
       title,
       body,
       expiresAt,
+      dueAt = null,
     }) {
       const id = `apr_${createHash('sha256')
         .update(`${workspaceId}:${projectId}:${tokenHash}`)
@@ -4607,9 +4870,9 @@ export async function openDatabase({
       await query(
         `INSERT INTO client_approvals (
            id, workspace_id, project_id, job_card_id, client_id, token_hash,
-           client_name, client_email, project_name, title, body, expires_at, created_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-        [id, workspaceId, projectId, jobCardId, clientId, tokenHash, clientName, clientEmail, projectName, title, body, expiresAt, timestamp],
+           client_name, client_email, project_name, title, body, expires_at, due_at, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [id, workspaceId, projectId, jobCardId, clientId, tokenHash, clientName, clientEmail, projectName, title, body, expiresAt, dueAt, timestamp],
       )
       return await this.getClientApproval(workspaceId, id)
     },
@@ -4632,12 +4895,67 @@ export async function openDatabase({
 
     async listProjectApprovals(selectedWorkspaceId, projectId) {
       const rows = await query(
-        `SELECT * FROM client_approvals
-         WHERE workspace_id = $1 AND project_id = $2
-         ORDER BY created_at DESC`,
+        `SELECT approvals.*, reviews.id AS review_id
+         FROM client_approvals approvals
+         LEFT JOIN review_sessions reviews ON reviews.approval_id = approvals.id
+         WHERE approvals.workspace_id = $1 AND approvals.project_id = $2
+         ORDER BY approvals.created_at DESC`,
         [selectedWorkspaceId, projectId],
       )
-      return rows.map(mapApproval)
+      const packages = []
+      for (const [index, row] of rows.entries()) {
+        packages.push({
+          ...mapApproval(row),
+          reviewId: row.review_id || null,
+          packageNumber: rows.length - index,
+          items: await this.listReviewPackageItems(row.id),
+        })
+      }
+      return packages
+    },
+
+    async createReviewPackageItems({ workspaceId, projectId, approvalId, items }) {
+      const timestamp = nowIso()
+      for (const [position, item] of items.entries()) {
+        const id = `rvi_${createHash('sha256')
+          .update(`${approvalId}:${item.bucketId}`)
+          .digest('hex')
+          .slice(0, 20)}`
+        await query(
+          `INSERT INTO review_package_items (
+             id, approval_id, workspace_id, project_id, bucket_id, title,
+             position, preview_file_id, created_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [id, approvalId, workspaceId, projectId, item.bucketId, item.title,
+            position, item.previewFileId || null, timestamp, timestamp],
+        )
+      }
+      return await this.listReviewPackageItems(approvalId)
+    },
+
+    async listReviewPackageItems(approvalId) {
+      const rows = await query(
+        `SELECT items.*, files.name AS preview_name, files.mime_type AS preview_mime_type,
+                files.size AS preview_size,
+                (SELECT COUNT(*) FROM project_comments comments
+                 WHERE comments.review_item_id = items.id) AS comment_count
+         FROM review_package_items items
+         LEFT JOIN project_files files ON files.id = items.preview_file_id
+         WHERE items.approval_id = $1
+         ORDER BY items.position ASC, items.created_at ASC`,
+        [approvalId],
+      )
+      const items = []
+      for (const row of rows) {
+        const comments = await query(
+          `SELECT * FROM project_comments WHERE review_item_id = $1 ORDER BY created_at ASC`,
+          [row.id],
+        )
+        const mapped = mapReviewPackageItem(row)
+        mapped.comments = comments.map(mapProjectComment)
+        items.push(mapped)
+      }
+      return items
     },
 
     async createReviewSession({ approvalId, workspaceId, projectId, artworkFileId = null, tokenHash, expiresAt }) {
@@ -4659,6 +4977,7 @@ export async function openDatabase({
     async getReviewSession(selectedWorkspaceId, reviewId) {
       const rows = await query(
         `SELECT reviews.*, approvals.project_name, approvals.client_name,
+                approvals.client_email, approvals.title, approvals.body, approvals.due_at,
                 files.name AS artwork_name, files.mime_type AS artwork_mime_type,
                 files.size AS artwork_size
          FROM review_sessions reviews
@@ -4668,12 +4987,17 @@ export async function openDatabase({
         [selectedWorkspaceId, reviewId],
       )
       const row = rows[0]
-      return mapReview(row, row ? await this.listReviewAnnotations(row.id) : [])
+      return mapReview(
+        row,
+        row ? await this.listReviewAnnotations(row.id) : [],
+        row ? await this.listReviewPackageItems(row.approval_id) : [],
+      )
     },
 
     async getLatestReviewForProject(selectedWorkspaceId, projectId) {
       const rows = await query(
         `SELECT reviews.*, approvals.project_name, approvals.client_name,
+                approvals.client_email, approvals.title, approvals.body, approvals.due_at,
                 files.name AS artwork_name, files.mime_type AS artwork_mime_type,
                 files.size AS artwork_size
          FROM review_sessions reviews
@@ -4684,12 +5008,17 @@ export async function openDatabase({
         [selectedWorkspaceId, projectId],
       )
       const row = rows[0]
-      return mapReview(row, row ? await this.listReviewAnnotations(row.id) : [])
+      return mapReview(
+        row,
+        row ? await this.listReviewAnnotations(row.id) : [],
+        row ? await this.listReviewPackageItems(row.approval_id) : [],
+      )
     },
 
     async getPublicReview(reviewId, tokenHash) {
       const rows = await query(
         `SELECT reviews.*, approvals.project_name, approvals.client_name,
+                approvals.client_email, approvals.title, approvals.body, approvals.due_at,
                 files.name AS artwork_name, files.mime_type AS artwork_mime_type,
                 files.size AS artwork_size
          FROM review_sessions reviews
@@ -4700,7 +5029,51 @@ export async function openDatabase({
       )
       const row = rows[0]
       if (!row || Date.parse(row.expires_at) <= Date.now()) return null
-      return mapReview(row, await this.listReviewAnnotations(row.id))
+      return mapReview(
+        row,
+        await this.listReviewAnnotations(row.id),
+        await this.listReviewPackageItems(row.approval_id),
+      )
+    },
+
+    async respondToReviewPackageItem({ reviewId, tokenHash, itemId, status, comment = '' }) {
+      const rows = await query(
+        `SELECT reviews.id AS review_id, reviews.status AS review_status,
+                reviews.expires_at, approvals.id AS approval_id,
+                approvals.workspace_id, approvals.project_id, approvals.client_name,
+                items.id AS item_id, items.bucket_id
+         FROM review_sessions reviews
+         JOIN client_approvals approvals ON approvals.id = reviews.approval_id
+         JOIN review_package_items items ON items.approval_id = approvals.id
+         WHERE reviews.id = $1 AND reviews.client_token_hash = $2 AND items.id = $3`,
+        [reviewId, tokenHash, itemId],
+      )
+      const row = rows[0]
+      if (!row || Date.parse(row.expires_at) <= Date.now()) return null
+      if (row.review_status !== 'open') return { readOnly: true }
+      const timestamp = nowIso()
+      await query(
+        `UPDATE review_package_items
+         SET status = $1, responded_at = $2, updated_at = $2
+         WHERE id = $3 AND approval_id = $4`,
+        [status, timestamp, itemId, row.approval_id],
+      )
+      if (comment) {
+        const commentId = `cmt_${createHash('sha256')
+          .update(`${itemId}:${timestamp}:${comment}`)
+          .digest('hex')
+          .slice(0, 16)}`
+        await query(
+          `INSERT INTO project_comments (
+             id, workspace_id, project_id, approval_id, review_item_id,
+             bucket_id, author_type, author_name, body, created_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, 'client', $7, $8, $9)`,
+          [commentId, row.workspace_id, row.project_id, row.approval_id, itemId,
+            row.bucket_id, row.client_name, comment, timestamp],
+        )
+      }
+      return (await this.listReviewPackageItems(row.approval_id))
+        .find((item) => item.id === itemId) || null
     },
 
     async listReviewAnnotations(reviewId) {
@@ -4761,6 +5134,7 @@ export async function openDatabase({
     async submitReviewSession(reviewId, tokenHash) {
       const rows = await query(
         `SELECT reviews.*, approvals.project_name, approvals.client_name,
+                approvals.client_email, approvals.title, approvals.body, approvals.due_at,
                 approvals.workspace_id AS approval_workspace_id,
                 approvals.job_card_id, approvals.status AS approval_status,
                 files.name AS artwork_name, files.mime_type AS artwork_mime_type,
@@ -4774,36 +5148,63 @@ export async function openDatabase({
       const review = rows[0]
       if (!review || Date.parse(review.expires_at) <= Date.now()) return null
       if (review.status === 'closed' || review.status === 'submitted') {
-        return mapReview(review, await this.listReviewAnnotations(reviewId))
+        return mapReview(
+          review,
+          await this.listReviewAnnotations(reviewId),
+          await this.listReviewPackageItems(review.approval_id),
+        )
       }
       const annotations = await this.listReviewAnnotations(reviewId)
       if (annotations.some((annotation) => !annotation.comment.trim())) {
-        return { missingComment: true, review: mapReview(review, annotations) }
+        return {
+          missingComment: true,
+          review: mapReview(
+            review,
+            annotations,
+            await this.listReviewPackageItems(review.approval_id),
+          ),
+        }
       }
+      const packageItems = await this.listReviewPackageItems(review.approval_id)
+      if (packageItems.some((item) => item.status === 'waiting')) {
+        return { incompleteItems: true, review: mapReview(review, annotations, packageItems) }
+      }
+      const allApproved = packageItems.length > 0 && packageItems.every((item) => item.status === 'approved')
       const timestamp = nowIso()
       await query(
         `UPDATE review_sessions SET status = 'submitted', submitted_at = $1 WHERE id = $2`,
         [timestamp, reviewId],
       )
       await query(
-        `UPDATE client_approvals SET status = CASE WHEN status = 'pending' THEN 'commented' ELSE status END,
-                responded_at = COALESCE(responded_at, $1)
-         WHERE id = $2`,
-        [timestamp, review.approval_id],
+        `UPDATE client_approvals SET status = $1,
+                responded_at = COALESCE(responded_at, $2)
+         WHERE id = $3`,
+        [allApproved ? 'approved' : 'commented', timestamp, review.approval_id],
       )
       await query(
         `UPDATE job_cards SET status = 'client_review', updated_at = $1 WHERE id = $2 AND workspace_id = $3`,
         [timestamp, review.job_card_id, review.approval_workspace_id],
       )
       await query(
-        `UPDATE projects SET status = 'In review', updated_at = $1 WHERE id = $2 AND workspace_id = $3`,
-        [timestamp, review.project_id, review.approval_workspace_id],
+        `UPDATE projects SET status = $1, updated_at = $2 WHERE id = $3 AND workspace_id = $4`,
+        [allApproved ? 'Ready' : 'In review', timestamp, review.project_id, review.approval_workspace_id],
       )
+      if (allApproved) {
+        await query(
+          `UPDATE job_cards SET status = 'approved', updated_at = $1 WHERE id = $2 AND workspace_id = $3`,
+          [timestamp, review.job_card_id, review.approval_workspace_id],
+        )
+        await query(
+          `UPDATE draft_invoices SET status = 'ready_for_review', updated_at = $1
+           WHERE workspace_id = $2 AND project_id = $3`,
+          [timestamp, review.approval_workspace_id, review.project_id],
+        )
+      }
       await this.createWorkspaceNotification({
         workspaceId: review.approval_workspace_id,
-        kind: 'approval.annotation_submitted',
-        title: 'Client submitted artwork annotations',
-        body: `${review.client_name} submitted feedback on ${review.project_name}.`,
+        kind: allApproved ? 'approval.approved' : 'approval.feedback_submitted',
+        title: allApproved ? 'Client approved a review package' : 'Client submitted review feedback',
+        body: `${review.client_name} ${allApproved ? 'approved' : 'submitted feedback on'} ${review.project_name}.`,
         entityType: 'project',
         entityId: review.project_id,
       })
@@ -4830,6 +5231,14 @@ export async function openDatabase({
       if (approval.status === 'approved') return mapApproval(approval)
       const timestamp = nowIso()
       const status = response === 'approved' ? 'approved' : 'commented'
+      if (response === 'approved') {
+        await query(
+          `UPDATE review_package_items
+           SET status = 'approved', responded_at = COALESCE(responded_at, $1), updated_at = $1
+           WHERE approval_id = $2`,
+          [timestamp, approval.id],
+        )
+      }
       await query(
         `UPDATE client_approvals SET status = $1, comment = $2, responded_at = $3
          WHERE token_hash = $4`,

@@ -152,7 +152,8 @@ a:focus-visible {
   display: flex;
   width: var(--sidebar-width);
   flex-direction: column;
-  padding: 20px 14px 14px;
+  padding: max(20px, env(safe-area-inset-top, 0px)) 14px
+    calc(14px + env(safe-area-inset-bottom, 0px)) max(14px, env(safe-area-inset-left, 0px));
   color: #e8ebe3;
   background:
     radial-gradient(circle at 40% -5%, rgba(104, 84, 232, 0.15), transparent 15rem),
@@ -260,7 +261,13 @@ a:focus-visible {
 }
 
 .sidebar-nav {
+  flex: 1 1 auto;
+  min-height: 0;
   padding-top: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
 }
 
 .nav-group {
@@ -7376,6 +7383,7 @@ kbd {
   }
 
   .sidebar {
+    z-index: 110;
     width: min(278px, 86vw);
     box-shadow: 20px 0 60px rgba(13, 16, 11, 0.25);
     transform: translateX(-105%);
@@ -7398,7 +7406,7 @@ kbd {
 
   .sidebar-scrim {
     position: fixed;
-    z-index: 45;
+    z-index: 105;
     inset: 0;
     background: rgba(19, 22, 17, 0.42);
     backdrop-filter: blur(2px);
@@ -7646,6 +7654,8 @@ kbd {
   .modal--wide {
     width: 100%;
     max-height: 94vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     border-radius: 17px 17px 0 0;
   }
 

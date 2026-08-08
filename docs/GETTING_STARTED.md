@@ -2,7 +2,7 @@
 
 This guide takes a new lancee installation from a clean checkout to a verified
 local or production deployment. It also covers the first workspace sign-in,
-SMTP notifications, the n8n webhook bridge, the built-in MCP Service Grid, PWA
+SMTP notifications, the n8n webhook bridge, the built-in Lancee MCP, PWA
 installation, and the bounded offline Idea-note workflow.
 
 Production platform: [https://lancee.hookitupservices.com](https://lancee.hookitupservices.com)
@@ -307,41 +307,34 @@ and consume each nonce once. Attempts and retries are durable. Verified inbound
 events are recorded but are not yet dispatched into a persisted automation
 engine. See [`N8N.md`](N8N.md).
 
-## Enable the built-in MCP Service Grid
+## Use the built-in Lancee MCP
 
 MCP is included with every lancee workspace. A user does not configure a server
 URL, bearer token, or individual service API keys in the browser.
 
-The server-side DNS gateway is:
+The application serves the only MCP endpoint on its normal origin:
 
-```dotenv
-MCP_GATEWAY_URL=https://mcp.hygridtech.co.za
-MCP_API_TOKEN=
+```text
+https://lancee.hookitupservices.com/mcp
 ```
 
-Choose the access mode:
+No MCP-specific environment variables are required. To connect an agent client:
 
-- Leave `MCP_API_TOKEN` empty to test the manual approval state. A request
-  remains **Pending**.
-- Set a valid gateway bearer token to use automatic approval. A new request is
-  marked **Approved**.
+1. Request a Lancee device code with the `mcp:invoke` scope.
+2. Sign in to Lancee and approve the displayed code and scope.
+3. Exchange the device code for the one-time displayed token.
+4. Connect to `POST /mcp` with `Authorization: Bearer lnc_codex_...`.
 
-After changing `.env`, restart lancee. Then:
+For the dashboard path:
 
 1. Sign in and open **Connections**.
-2. Open **MCP Service Grid**.
-3. Select **Request bearer access**.
-4. After approval, select **Sync capabilities**.
-5. Activate only the services an agent should use.
-6. Use **Test tool** to review an invocation result.
+2. Open **Lancee MCP**.
+3. Review the always-active local tool catalog.
+4. Use **Test tool** to review an invocation result.
 
-The bearer token is read only by the backend and is never returned to the
-browser. Predefined downstream API keys belong in the MCP server's vault, not
-in lancee or the user interface.
-
-Bearer request, revoke, service activation, live catalog discovery, and tool
-calls use the real lancee backend and persist per workspace. See
-[`mcp-conf/MCP.md`](../mcp-conf/MCP.md) for the target MCP contract and
+There is no external MCP gateway, Basebox MCP connection, or service activation
+state. Provider keys belong in Lancee's application vault and are never MCP
+tool arguments. See [`LANCEE_MCP.md`](LANCEE_MCP.md) for the protocol and
 [`DURABLE_FOUNDATION.md`](DURABLE_FOUNDATION.md) for local persistence.
 
 ## Production deployment
@@ -530,8 +523,6 @@ automation secrets should remain server-side.
 | `SMTP_FROM_EMAIL` | When SMTP is enabled | Envelope sender address |
 | `SMTP_REPLY_TO` | No | Optional reply address |
 | `SMTP_TEST_TO` | No | Test recipient; defaults to `ADMIN_EMAIL` |
-| `MCP_GATEWAY_URL` | Recommended | DNS URL of the managed MCP gateway |
-| `MCP_API_TOKEN` | For auto-approval | Server-only MCP bearer token |
 | `N8N_BASE_URL` | Recommended | DNS URL of the managed n8n instance |
 | `N8N_SIGNING_SECRET` | Optional | Server-side bootstrap signing secret |
 | `N8N_TIMEOUT_MS` | Recommended | Outbound timeout clamped to 250–30,000 ms |
@@ -551,7 +542,7 @@ automation secrets should remain server-side.
 | Login succeeds but the cookie is not retained locally | `APP_ENV` | Use `APP_ENV=development` for local HTTP |
 | SMTP test says it is not configured | SMTP status and `.env` | Enable SMTP and provide host, port, and from address; restart |
 | SMTP provider rejects the message | PM2 logs and provider policy | Verify credentials, TLS mode, allowed sender, and relay permissions |
-| MCP request stays pending | `MCP_API_TOKEN` | This is expected in manual mode; configure a valid server token for automatic approval |
+| MCP returns `401` | Device token and scope | Approve a current device code, exchange it once, and use a non-revoked token with `mcp:invoke` |
 | Durable state is missing after restart | PostgreSQL connection values or local `DATABASE_PATH` | Confirm every process uses the same database and that the persistent volume/cluster is healthy |
 | Mutation returns `400` | `Idempotency-Key` header | Supply a stable 8–128 character key and reuse it only for the same logical request |
 | Mutation returns `409` | Reused idempotency key | Use the original payload or issue a new key for a new mutation |
@@ -583,7 +574,7 @@ automation secrets should remain server-side.
 | [`server/index.mjs`](../server/index.mjs) | Express, authentication, sessions, MCP, API keys, and routing |
 | [`server/database.mjs`](../server/database.mjs) | PostgreSQL pool/transactions, SQLite fallback, and repositories |
 | [`server/ai.mjs`](../server/ai.mjs) | OpenAI, Anthropic, and Gemini transports |
-| [`server/mcp.mjs`](../server/mcp.mjs) | Live MCP capability and invocation transport |
+| [`server/lancee-mcp-protocol.mjs`](../server/lancee-mcp-protocol.mjs) | Local MCP JSON-RPC and invocation transport |
 | [`server/paystack.mjs`](../server/paystack.mjs) | Paystack authentication, initialization, timeout, and signature verification |
 | [`server/n8n.mjs`](../server/n8n.mjs) | URL policy, encryption, canonical signatures, DNS checks, and outbound delivery |
 | [`server/notifications.mjs`](../server/notifications.mjs) | SMTP transport and notification delivery |

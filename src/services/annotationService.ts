@@ -16,6 +16,11 @@ type AnnotationPayload = {
   error?: string
 }
 
+type ReviewItemPayload = {
+  item?: Review['packageItems'][number]
+  error?: string
+}
+
 async function readPayload<T>(response: Response): Promise<T> {
   const payload = (await response.json().catch(() => ({}))) as T & { error?: string }
   if (!response.ok) {
@@ -137,6 +142,20 @@ export const annotationService = {
     }, '/approve')
     if (!payload.review) throw new Error('The work could not be approved.')
     return payload.review
+  },
+
+  async respondToItem(
+    reviewId: string,
+    token: string,
+    itemId: string,
+    input: { status: 'approved' | 'needs_changes'; comment?: string },
+  ) {
+    const payload = await publicRequest<ReviewItemPayload>(reviewId, token, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }, `/items/${encodeURIComponent(itemId)}/respond`)
+    if (!payload.item) throw new Error('The review response could not be saved.')
+    return payload.item
   },
 
   async loadDesignerReview(projectId: string) {
