@@ -110,26 +110,6 @@ try {
   application = await startApplication()
   let cookie = await login(application.origin)
 
-  const missingIdempotency = await sessionRequest(
-    application.origin,
-    cookie,
-    '/api/mcp/access-request',
-    { method: 'POST' },
-  )
-  assert.equal(missingIdempotency.status, 400)
-
-  const accessRequest = await sessionRequest(
-    application.origin,
-    cookie,
-    '/api/mcp/access-request',
-    {
-      method: 'POST',
-      headers: { 'Idempotency-Key': 'mcp-access-request-0001' },
-    },
-  )
-  assert.equal(accessRequest.status, 200)
-  assert.equal((await accessRequest.json()).status, 'approved')
-
   const serviceList = await sessionRequest(
     application.origin,
     cookie,
@@ -144,21 +124,6 @@ try {
   const lanceeService = services.find((service) => service.id === 'lancee')
   assert.equal(lanceeService.active, true)
   assert(lanceeService.tools.some((tool) => tool.id === 'create_workflow'))
-  const serviceMutation = await sessionRequest(
-    application.origin,
-    cookie,
-    '/api/mcp/services/browser-worker',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Idempotency-Key': 'mcp-service-browser-0001',
-      },
-      body: JSON.stringify({ active: true }),
-    },
-  )
-  assert.equal(serviceMutation.status, 409)
-
   const invocation = await sessionRequest(
     application.origin,
     cookie,

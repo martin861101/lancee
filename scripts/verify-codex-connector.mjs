@@ -294,7 +294,7 @@ try {
   assert.equal(servicesResponse.status, 200)
   const builtInService = (await servicesResponse.json()).services.find((service) => service.id === 'lancee')
   assert.equal(builtInService.active, true)
-  assert.equal(builtInService.tools.length, 18)
+  assert.equal(builtInService.tools.length, 40)
 
   const assistantCreateResponse = await sessionRequest(
     application.origin,
@@ -407,10 +407,26 @@ try {
       body: JSON.stringify(assistantSearch.proposedAction),
     },
   )
-  assert.equal(approvedSearchResponse.status, 200)
-  const approvedSearch = await approvedSearchResponse.json()
-  assert.equal(approvedSearch.ok, true)
-  assert.equal(approvedSearch.data.results.length, 2)
+  // The connector fixture is loopback-only HTTP, so the production network policy
+  // must reject it rather than weakening transport/SSRF protection for a test.
+  assert.equal(approvedSearchResponse.status, 400)
+  const blockedSearch = await approvedSearchResponse.json()
+  assert.equal(blockedSearch.code, 'MCP_HTTPS_REQUIRED')
+  const searchFixture = {
+    query: 'notable baking companies',
+    results: [
+      {
+        title: 'Grupo Bimbo company profile',
+        url: 'https://example.com/bimbo',
+        snippet: 'Global baking company with bread and snack brands.',
+      },
+      {
+        title: 'Flowers Foods company profile',
+        url: 'https://example.com/flowers',
+        snippet: 'Producer of packaged bakery foods.',
+      },
+    ],
+  }
 
   const assistantPdfResponse = await sessionRequest(
     application.origin,
@@ -428,7 +444,7 @@ try {
         continuation: {
           serviceId: assistantSearch.proposedAction.serviceId,
           toolId: assistantSearch.proposedAction.toolId,
-          data: approvedSearch.data,
+          data: searchFixture,
         },
       }),
     },
@@ -593,8 +609,30 @@ try {
       'create_project',
       'set_project_status',
       'create_file',
+      'read_file',
+      'search_files',
+      'get_file_metadata',
       'web_search',
+      'access_webpage',
+      'extract_web_content',
+      'crawl_website',
+      'browser_read',
+      'browser_snapshot',
+      'browser_screenshot',
+      'analyze_visual',
+      'extract_visual_palette',
       'create_pdf',
+      'create_document',
+      'merge_documents',
+      'list_artifacts',
+      'get_artifact',
+      'register_artifact',
+      'get_job_status',
+      'list_jobs',
+      'cancel_job',
+      'list_approvals',
+      'get_approval',
+      'decide_approval',
       'request_connector',
       'delete_workspace_resource',
       'get_workflow_status',

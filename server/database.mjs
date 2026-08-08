@@ -5,7 +5,6 @@ import { dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import pg from 'pg'
 
-const ACTIVE_MCP_STATUSES = new Set(['available', 'pending', 'approved'])
 const SENSITIVE_EVENT_KEYS = new Set([
   'access_token',
   'accesstoken',
@@ -61,6 +60,25 @@ function sanitizeStoredEvent(value) {
       .filter(([key]) => !SENSITIVE_EVENT_KEYS.has(key.toLowerCase()))
       .map(([key, child]) => [key, sanitizeStoredEvent(child)]),
   )
+}
+
+function stableJson(value) {
+  const normalize = (item) => {
+    if (Array.isArray(item)) return item.map(normalize)
+    if (!item || typeof item !== 'object') return item
+    return Object.fromEntries(
+      Object.keys(item)
+        .sort()
+        .map((key) => [key, normalize(item[key])]),
+    )
+  }
+  return JSON.stringify(normalize(sanitizeStoredEvent(value)))
+}
+
+function codedError(code, message) {
+  const error = new Error(message)
+  error.code = code
+  return error
 }
 
 function mapContext(row) {
@@ -290,6 +308,173 @@ function mapAutomationSchedule(row) {
     lastError: row.last_error,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  }
+}
+
+function mapArtifact(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    createdBy: row.created_by,
+    runId: row.run_id,
+    kind: row.kind,
+    mimeType: row.mime_type,
+    name: row.name,
+    storageDocumentId: row.storage_document_id,
+    size: Number(row.size || 0),
+    sha256: row.content_sha256,
+    storageProvider: row.storage_provider,
+    storageKey: row.storage_key,
+    externalUrl: row.external_url,
+    source: row.source,
+    metadata: parseJsonObject(row.metadata_json, {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    expiresAt: row.expires_at,
+    deletedAt: row.deleted_at,
+  }
+}
+
+function mapAgentThread(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    userId: row.user_id,
+    title: row.title,
+    provider: row.provider,
+    externalThreadId: row.external_thread_id,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function mapAgentRun(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    userId: row.user_id,
+    threadId: row.thread_id,
+    objective: row.objective,
+    status: row.status,
+    model: row.model,
+    plan: parseJsonObject(row.plan_json, []),
+    results: parseJsonObject(row.results_json, []),
+    pendingAction: parseJsonObject(row.pending_action_json, null),
+    finalOutput: row.final_output,
+    budget: parseJsonObject(row.budget_json, {}),
+    usage: parseJsonObject(row.usage_json, {}),
+    iterations: Number(row.iterations || 0),
+    toolCalls: Number(row.tool_calls || 0),
+    stepSequence: Number(row.step_sequence || 0),
+    eventSequence: Number(row.event_sequence || 0),
+    errorCode: row.error_code,
+    errorMessage: row.error_message,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+  }
+}
+
+function mapAgentStep(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    runId: row.run_id,
+    sequence: Number(row.sequence),
+    toolId: row.tool_id,
+    arguments: parseJsonObject(row.arguments_json, {}),
+    argumentsHash: row.arguments_hash,
+    riskLevel: row.risk_level,
+    status: row.status,
+    result: parseJsonObject(row.result_json, null),
+    errorCode: row.error_code,
+    errorMessage: row.error_message,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function mapAgentApproval(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    runId: row.run_id,
+    stepId: row.step_id,
+    toolId: row.tool_id,
+    argumentsHash: row.arguments_hash,
+    riskLevel: row.risk_level,
+    status: row.status,
+    requestedAt: row.requested_at,
+    expiresAt: row.expires_at,
+    decidedBy: row.decided_by,
+    decidedAt: row.decided_at,
+    consumedAt: row.consumed_at,
+    reason: row.reason,
+  }
+}
+
+function mapAgentRunEvent(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    runId: row.run_id,
+    sequence: Number(row.sequence),
+    level: row.level,
+    eventType: row.event_type,
+    message: row.message,
+    data: parseJsonObject(row.data_json, null),
+    createdAt: row.created_at,
+  }
+}
+
+function mapExecutionJob(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    requestedBy: row.requested_by,
+    agentRunId: row.agent_run_id,
+    kind: row.kind,
+    status: row.status,
+    input: parseJsonObject(row.input_json, {}),
+    output: parseJsonObject(row.output_json, null),
+    errorCode: row.error_code,
+    errorMessage: row.error_message,
+    priority: Number(row.priority || 0),
+    attemptCount: Number(row.attempt_count || 0),
+    maxAttempts: Number(row.max_attempts || 1),
+    availableAt: row.available_at,
+    leaseOwner: row.lease_owner,
+    leaseExpiresAt: row.lease_expires_at,
+    heartbeatAt: row.heartbeat_at,
+    idempotencyKey: row.idempotency_key,
+    inputHash: row.input_hash,
+    eventSequence: Number(row.event_sequence || 0),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+  }
+}
+
+function mapExecutionJobEvent(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    jobId: row.job_id,
+    sequence: Number(row.sequence),
+    level: row.level,
+    eventType: row.event_type,
+    message: row.message,
+    data: parseJsonObject(row.data_json, null),
+    createdAt: row.created_at,
   }
 }
 
@@ -543,8 +728,14 @@ export async function openDatabase({
   }
 
   if (isInMemory) {
-    const { newDb } = await import('pg-mem')
+    const { DataType, newDb } = await import('pg-mem')
     const memDb = newDb()
+    memDb.public.registerFunction({
+      name: 'trim',
+      args: [DataType.text],
+      returns: DataType.text,
+      implementation: (value) => String(value).trim(),
+    })
     pgInstance = memDb
 
     executeSync = (sql, params = []) => {
@@ -557,7 +748,11 @@ export async function openDatabase({
       })
 
       const cleanSql = replacedSql.trim()
-      if (cleanSql.toUpperCase().startsWith('SELECT') || cleanSql.toUpperCase().startsWith('WITH')) {
+      if (
+        cleanSql.toUpperCase().startsWith('SELECT') ||
+        cleanSql.toUpperCase().startsWith('WITH') ||
+        /\bRETURNING\b/i.test(cleanSql)
+      ) {
         return memDb.public.many(cleanSql)
       } else {
         memDb.public.none(cleanSql)
@@ -647,14 +842,6 @@ export async function openDatabase({
       updated_at TEXT NOT NULL,
       UNIQUE (workspace_id, email)
     )`,
-    `CREATE TABLE IF NOT EXISTS mcp_access (
-      workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
-      status TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'pending', 'approved')),
-      requested_at TEXT,
-      approved_at TEXT,
-      revoked_at TEXT,
-      updated_at TEXT NOT NULL
-    )`,
     `CREATE TABLE IF NOT EXISTS mcp_invocations (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -663,13 +850,6 @@ export async function openDatabase({
       duration INTEGER NOT NULL DEFAULT 0,
       message TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL
-    )`,
-    `CREATE TABLE IF NOT EXISTS mcp_service_state (
-      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-      service_id TEXT NOT NULL,
-      active INTEGER NOT NULL DEFAULT 0 CHECK (active IN (0, 1)),
-      updated_at TEXT NOT NULL,
-      PRIMARY KEY (workspace_id, service_id)
     )`,
     `CREATE TABLE IF NOT EXISTS api_keys (
       id TEXT PRIMARY KEY,
@@ -1009,6 +1189,137 @@ export async function openDatabase({
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS agent_threads (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      title TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'lancee',
+      external_thread_id TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, user_id, provider, external_thread_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS agent_runs (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      thread_id TEXT NOT NULL REFERENCES agent_threads(id) ON DELETE CASCADE,
+      objective TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'planned'
+        CHECK (status IN ('planned', 'queued', 'running', 'waiting_approval', 'completed', 'failed', 'cancelled', 'budget_exceeded')),
+      model TEXT,
+      plan_json TEXT NOT NULL DEFAULT '[]',
+      results_json TEXT NOT NULL DEFAULT '[]',
+      pending_action_json TEXT,
+      final_output TEXT,
+      budget_json TEXT NOT NULL DEFAULT '{}',
+      usage_json TEXT NOT NULL DEFAULT '{}',
+      iterations INTEGER NOT NULL DEFAULT 0,
+      tool_calls INTEGER NOT NULL DEFAULT 0,
+      step_sequence INTEGER NOT NULL DEFAULT 0,
+      event_sequence INTEGER NOT NULL DEFAULT 0,
+      error_code TEXT,
+      error_message TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      started_at TEXT,
+      completed_at TEXT
+    )`,
+    `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS step_sequence INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS event_sequence INTEGER NOT NULL DEFAULT 0`,
+    `CREATE TABLE IF NOT EXISTS agent_steps (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+      sequence INTEGER NOT NULL,
+      tool_id TEXT NOT NULL,
+      arguments_json TEXT NOT NULL DEFAULT '{}',
+      arguments_hash TEXT NOT NULL,
+      risk_level TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'waiting_approval', 'running', 'completed', 'failed', 'denied', 'cancelled')),
+      result_json TEXT,
+      error_code TEXT,
+      error_message TEXT,
+      started_at TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (run_id, sequence)
+    )`,
+    `CREATE TABLE IF NOT EXISTS agent_approvals (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+      step_id TEXT NOT NULL REFERENCES agent_steps(id) ON DELETE CASCADE,
+      tool_id TEXT NOT NULL,
+      arguments_hash TEXT NOT NULL,
+      risk_level TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'approved', 'denied', 'consumed', 'expired')),
+      requested_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      decided_by TEXT REFERENCES users(id),
+      decided_at TEXT,
+      consumed_at TEXT,
+      reason TEXT,
+      UNIQUE (step_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS agent_run_events (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+      sequence INTEGER NOT NULL,
+      level TEXT NOT NULL DEFAULT 'info' CHECK (level IN ('info', 'warning', 'error')),
+      event_type TEXT NOT NULL,
+      message TEXT NOT NULL,
+      data_json TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE (run_id, sequence)
+    )`,
+    `CREATE TABLE IF NOT EXISTS execution_jobs (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      requested_by TEXT NOT NULL REFERENCES users(id),
+      agent_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
+      input_json TEXT NOT NULL DEFAULT '{}',
+      output_json TEXT,
+      error_code TEXT,
+      error_message TEXT,
+      priority INTEGER NOT NULL DEFAULT 0,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 3,
+      available_at TEXT NOT NULL,
+      lease_owner TEXT,
+      lease_expires_at TEXT,
+      heartbeat_at TEXT,
+      idempotency_key TEXT,
+      input_hash TEXT NOT NULL DEFAULT '',
+      event_sequence INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      started_at TEXT,
+      completed_at TEXT,
+      UNIQUE (workspace_id, kind, idempotency_key)
+    )`,
+    `ALTER TABLE execution_jobs ADD COLUMN IF NOT EXISTS input_hash TEXT NOT NULL DEFAULT ''`,
+    `CREATE TABLE IF NOT EXISTS execution_job_events (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      job_id TEXT NOT NULL REFERENCES execution_jobs(id) ON DELETE CASCADE,
+      sequence INTEGER NOT NULL,
+      level TEXT NOT NULL DEFAULT 'info' CHECK (level IN ('info', 'warning', 'error')),
+      event_type TEXT NOT NULL,
+      message TEXT NOT NULL,
+      data_json TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE (job_id, sequence)
+    )`,
     `CREATE TABLE IF NOT EXISTS automations (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1032,7 +1343,8 @@ export async function openDatabase({
     `ALTER TABLE automations ADD COLUMN IF NOT EXISTS execution TEXT NOT NULL DEFAULT 'core'`,
     `UPDATE automations
      SET tools_json = '["workspace.summary"]'
-     WHERE execution = 'core' AND (tools_json IS NULL OR TRIM(tools_json) = '[]')`,
+     WHERE execution = 'core'
+       AND (tools_json IS NULL OR tools_json = '' OR tools_json = '[]')`,
     `CREATE TABLE IF NOT EXISTS automation_runs (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1341,6 +1653,36 @@ export async function openDatabase({
       updated_at TEXT NOT NULL
     )`,
     `ALTER TABLE workspace_documents ADD COLUMN IF NOT EXISTS storage_point_id TEXT`,
+    `CREATE TABLE IF NOT EXISTS artifacts (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      created_by TEXT NOT NULL REFERENCES users(id),
+      run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+      kind TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      name TEXT NOT NULL,
+      storage_document_id TEXT REFERENCES workspace_documents(id) ON DELETE SET NULL,
+      size INTEGER NOT NULL DEFAULT 0,
+      content_sha256 TEXT,
+      storage_provider TEXT NOT NULL DEFAULT 'workspace_document',
+      storage_key TEXT,
+      external_url TEXT,
+      source TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      expires_at TEXT,
+      deleted_at TEXT
+    )`,
+    `CREATE TABLE IF NOT EXISTS artifact_links (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+      subject_type TEXT NOT NULL,
+      subject_id TEXT NOT NULL,
+      relation TEXT NOT NULL DEFAULT 'output',
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, artifact_id, subject_type, subject_id, relation)
+    )`,
     `CREATE TABLE IF NOT EXISTS workspace_cloud_links (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1363,6 +1705,26 @@ export async function openDatabase({
     )`,
     `CREATE INDEX IF NOT EXISTS idx_automation_runs_workspace_started
       ON automation_runs (workspace_id, started_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_agent_runs_workspace_created
+      ON agent_runs (workspace_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_agent_threads_workspace_updated
+      ON agent_threads (workspace_id, user_id, updated_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_agent_steps_run_sequence
+      ON agent_steps (run_id, sequence)`,
+    `CREATE INDEX IF NOT EXISTS idx_agent_approvals_pending
+      ON agent_approvals (workspace_id, status, expires_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_events_run_sequence
+      ON agent_run_events (run_id, sequence)`,
+    `CREATE INDEX IF NOT EXISTS idx_execution_jobs_due
+      ON execution_jobs (status, available_at, priority, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_execution_jobs_workspace_created
+      ON execution_jobs (workspace_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_execution_job_events_sequence
+      ON execution_job_events (job_id, sequence)`,
+    `CREATE INDEX IF NOT EXISTS idx_artifacts_workspace_created
+      ON artifacts (workspace_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_artifact_links_subject
+      ON artifact_links (workspace_id, subject_type, subject_id)`,
     `CREATE INDEX IF NOT EXISTS idx_automation_run_events_run_sequence
       ON automation_run_events (run_id, sequence)`,
     `CREATE INDEX IF NOT EXISTS idx_automation_schedules_due
@@ -1419,6 +1781,11 @@ export async function openDatabase({
       }
     }
   }
+
+  // Phase 1 retired remote MCP access and per-service activation. Drop their
+  // obsolete state after the active schema is ready; invocation audit remains.
+  await query('DROP TABLE IF EXISTS mcp_service_state')
+  await query('DROP TABLE IF EXISTS mcp_access')
 
   if (!isInMemory && !isSqlite) {
     await query(
@@ -1529,6 +1896,19 @@ export async function openDatabase({
     `INSERT INTO workspace_integrations (
        workspace_id, integration_id, connected, updated_at
      )
+     SELECT id, 'lancee-mcp', 1, $1 FROM workspaces WHERE 1 = 1
+     ON CONFLICT (workspace_id, integration_id) DO UPDATE SET
+       connected = 1,
+       updated_at = EXCLUDED.updated_at`,
+    [nowIso()],
+  )
+  await query(
+    `DELETE FROM workspace_integrations WHERE integration_id = 'mcp-grid'`,
+  )
+  await query(
+    `INSERT INTO workspace_integrations (
+       workspace_id, integration_id, connected, updated_at
+     )
      SELECT id, 'whatsapp', 0, $1 FROM workspaces WHERE 1 = 1
      ON CONFLICT (workspace_id, integration_id) DO NOTHING`,
     [nowIso()],
@@ -1585,7 +1965,13 @@ export async function openDatabase({
        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (id) DO NOTHING`,
       [seedId, plan.code, plan.name, plan.region, plan.currency, plan.symbol,
-        plan.monthly, yearly, plan.perUser ? 1 : 0, plan.recommended ? 1 : 0, plan.sort, seedTimestamp],
+        plan.monthly,
+        yearly,
+        isSqlite ? (plan.perUser ? 1 : 0) : plan.perUser,
+        isSqlite ? (plan.recommended ? 1 : 0) : plan.recommended,
+        plan.sort,
+        seedTimestamp,
+      ],
     )
   }
   const subscriptionBackfill = await query(`SELECT id, created_at FROM workspaces`)
@@ -1724,20 +2110,13 @@ export async function openDatabase({
     [workspaceId, adminUserId, createdAt],
   )
 
-  await query(
-    `INSERT INTO mcp_access (workspace_id, status, updated_at)
-     VALUES ($1, 'available', $2)
-     ON CONFLICT(workspace_id) DO NOTHING`,
-    [workspaceId, createdAt],
-  )
-
   const defaultIntegrations = [
     { id: 'drive', connected: 0 },
     { id: 'dropbox', connected: 0 },
     { id: 'onedrive', connected: 0 },
     { id: 'paystack', connected: 0 },
     { id: 'n8n', connected: 0 },
-    { id: 'mcp-grid', connected: 1 },
+    { id: 'lancee-mcp', connected: 1 },
     { id: 'codex-ai', connected: 0 },
     { id: 'codex-runtime', connected: 0 },
     { id: 'mail', connected: 0 },
@@ -1867,6 +2246,30 @@ export async function openDatabase({
       [id, selectedWorkspaceId, normalizedName, normalizedEmail, timestamp, timestamp],
     )
     return await getClientById(selectedWorkspaceId, id)
+  }
+
+  const artifactSubjectTables = new Map([
+    ['agent_run', 'agent_runs'],
+    ['agent_step', 'agent_steps'],
+    ['agent_thread', 'agent_threads'],
+    ['automation', 'automations'],
+    ['automation_run', 'automation_runs'],
+    ['client', 'clients'],
+    ['execution_job', 'execution_jobs'],
+    ['project', 'projects'],
+    ['project_file', 'project_files'],
+    ['workspace_document', 'workspace_documents'],
+  ])
+
+  async function artifactSubjectExists(selectedWorkspaceId, subjectType, subjectId) {
+    if (subjectType === 'workspace') return subjectId === selectedWorkspaceId
+    const table = artifactSubjectTables.get(subjectType)
+    if (!table) return false
+    const rows = await query(
+      `SELECT id FROM ${table} WHERE workspace_id = $1 AND id = $2`,
+      [selectedWorkspaceId, subjectId],
+    )
+    return rows.length > 0
   }
 
   return {
@@ -2053,46 +2456,6 @@ export async function openDatabase({
       return mapContext(rows[0])
     },
 
-    async getMcpAccess(selectedWorkspaceId) {
-      const rows = await query(
-        `SELECT status, requested_at, approved_at, revoked_at, updated_at
-         FROM mcp_access
-         WHERE workspace_id = $1`,
-        [selectedWorkspaceId],
-      )
-      const row = rows[0]
-      if (!row || !ACTIVE_MCP_STATUSES.has(row.status)) {
-        throw new Error('Workspace MCP access state is unavailable.')
-      }
-      return {
-        status: row.status,
-        requestedAt: row.requested_at,
-        approvedAt: row.approved_at,
-        revokedAt: row.revoked_at,
-        updatedAt: row.updated_at,
-      }
-    },
-
-    async setMcpAccess(selectedWorkspaceId, status, timestamp = nowIso()) {
-      if (!ACTIVE_MCP_STATUSES.has(status)) {
-        throw new Error('Invalid MCP access state.')
-      }
-      const requestedAt = status === 'available' ? null : timestamp
-      const approvedAt = status === 'approved' ? timestamp : null
-      const revokedAt = status === 'available' ? timestamp : null
-      await query(
-        `UPDATE mcp_access SET
-           status = $1,
-           requested_at = $2,
-           approved_at = $3,
-           revoked_at = $4,
-           updated_at = $5
-         WHERE workspace_id = $6`,
-        [status, requestedAt, approvedAt, revokedAt, timestamp, selectedWorkspaceId],
-      )
-      return await this.getMcpAccess(selectedWorkspaceId)
-    },
-
     async listMcpInvocations(selectedWorkspaceId) {
       const rows = await query(
         `SELECT id, service_id, tool_id, duration, message, created_at
@@ -2114,7 +2477,7 @@ export async function openDatabase({
 
     async recordMcpInvocation({ selectedWorkspaceId, serviceId, toolId, duration, message }) {
       const id = `inv_${createHash('sha256')
-        .update(`${selectedWorkspaceId}:${serviceId}:${toolId}:${nowIso()}`)
+        .update(`${selectedWorkspaceId}:${serviceId}:${toolId}:${nowIso()}:${randomUUID()}`)
         .digest('hex')
         .slice(0, 16)}`
       const createdAt = nowIso()
@@ -2124,29 +2487,6 @@ export async function openDatabase({
         [id, selectedWorkspaceId, serviceId, toolId, duration, message, createdAt],
       )
       return { id, serviceId, toolId, duration, message, createdAt }
-    },
-
-    async getMcpServices(selectedWorkspaceId) {
-      const rows = await query(
-        `SELECT service_id, active, updated_at
-         FROM mcp_service_state
-         WHERE workspace_id = $1`,
-        [selectedWorkspaceId],
-      )
-      return new Map(rows.map((row) => [row.service_id, row.active === 1]))
-    },
-
-    async setMcpServiceState(selectedWorkspaceId, serviceId, active, timestamp = nowIso()) {
-      const activeInt = active ? 1 : 0
-      await query(
-        `INSERT INTO mcp_service_state (workspace_id, service_id, active, updated_at)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (workspace_id, service_id) DO UPDATE SET
-           active = EXCLUDED.active,
-           updated_at = EXCLUDED.updated_at`,
-        [selectedWorkspaceId, serviceId, activeInt, timestamp],
-      )
-      return { serviceId, active, updatedAt: timestamp }
     },
 
     async createApiKey({ workspaceId, selectedWorkspaceId, createdBy, name, maskedPrefix, secretHash, permissions, id: providedId, createdAt: providedAt }) {
@@ -2977,6 +3317,1483 @@ export async function openDatabase({
       await query(`DELETE FROM idempotency_requests WHERE expires_at <= $1`, [nowIso()])
     },
 
+    async createAgentThread({
+      workspaceId,
+      userId,
+      title = '',
+      provider = 'lancee',
+      externalThreadId = null,
+      id: providedId,
+    }) {
+      const membership = await query(
+        `SELECT 1 FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`,
+        [workspaceId, userId],
+      )
+      if (!membership.length) {
+        throw codedError('AGENT_WORKSPACE_ACCESS_DENIED', 'The agent user does not belong to this workspace.')
+      }
+      if (externalThreadId) {
+        const existing = await this.getAgentThreadByExternalId(
+          workspaceId,
+          userId,
+          provider,
+          externalThreadId,
+        )
+        if (existing) return existing
+      }
+      const timestamp = nowIso()
+      const id = providedId || stableId(
+        'athr',
+        `${workspaceId}:${userId}:${provider}:${externalThreadId || randomUUID()}`,
+      )
+      await query(
+        `INSERT INTO agent_threads (
+           id, workspace_id, user_id, title, provider, external_thread_id,
+           status, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8)`,
+        [
+          id,
+          workspaceId,
+          userId,
+          String(title || '').slice(0, 240),
+          String(provider || 'lancee').slice(0, 80),
+          externalThreadId ? String(externalThreadId).slice(0, 500) : null,
+          timestamp,
+          timestamp,
+        ],
+      )
+      return await this.getAgentThread(workspaceId, id, userId)
+    },
+
+    async getAgentThread(selectedWorkspaceId, id, userId = null) {
+      const params = [selectedWorkspaceId, id]
+      const userFilter = userId ? ` AND user_id = $3` : ''
+      if (userId) params.push(userId)
+      const rows = await query(
+        `SELECT * FROM agent_threads
+         WHERE workspace_id = $1 AND id = $2${userFilter}`,
+        params,
+      )
+      return mapAgentThread(rows[0])
+    },
+
+    async getAgentThreadByExternalId(selectedWorkspaceId, userId, provider, externalThreadId) {
+      const rows = await query(
+        `SELECT * FROM agent_threads
+         WHERE workspace_id = $1 AND user_id = $2
+           AND provider = $3 AND external_thread_id = $4`,
+        [selectedWorkspaceId, userId, provider, externalThreadId],
+      )
+      return mapAgentThread(rows[0])
+    },
+
+    async listAgentThreads(selectedWorkspaceId, userId, { status = null, limit = 100 } = {}) {
+      const params = [selectedWorkspaceId, userId]
+      const filters = ['workspace_id = $1', 'user_id = $2']
+      if (status) {
+        params.push(status)
+        filters.push(`status = $${params.length}`)
+      }
+      params.push(Math.min(200, Math.max(1, Number(limit) || 100)))
+      const rows = await query(
+        `SELECT * FROM agent_threads
+         WHERE ${filters.join(' AND ')}
+         ORDER BY updated_at DESC
+         LIMIT $${params.length}`,
+        params,
+      )
+      return rows.map(mapAgentThread)
+    },
+
+    async archiveAgentThread(selectedWorkspaceId, id, userId) {
+      const rows = await query(
+        `UPDATE agent_threads
+         SET status = 'archived', updated_at = $1
+         WHERE workspace_id = $2 AND id = $3 AND user_id = $4
+         RETURNING *`,
+        [nowIso(), selectedWorkspaceId, id, userId],
+      )
+      return mapAgentThread(rows[0])
+    },
+
+    async createAgentRun({
+      workspaceId,
+      userId,
+      threadId,
+      objective,
+      status = 'planned',
+      model = null,
+      plan = [],
+      budget = {},
+      id: providedId,
+    }) {
+      const allowedStatuses = new Set(['planned', 'queued', 'running'])
+      if (!allowedStatuses.has(status)) {
+        throw codedError('AGENT_RUN_INVALID_STATUS', 'A new agent run must be planned, queued, or running.')
+      }
+      const thread = await this.getAgentThread(workspaceId, threadId, userId)
+      if (!thread || thread.status !== 'active') {
+        throw codedError('AGENT_THREAD_NOT_FOUND', 'The active agent thread was not found in this workspace.')
+      }
+      const timestamp = nowIso()
+      const id = providedId || stableId(
+        'arun',
+        `${workspaceId}:${threadId}:${userId}:${randomUUID()}`,
+      )
+      await query(
+        `INSERT INTO agent_runs (
+           id, workspace_id, user_id, thread_id, objective, status, model,
+           plan_json, budget_json, created_at, updated_at, started_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          id,
+          workspaceId,
+          userId,
+          threadId,
+          String(objective || '').slice(0, 20_000),
+          status,
+          model ? String(model).slice(0, 160) : null,
+          stableJson(plan || []),
+          stableJson(budget || {}),
+          timestamp,
+          timestamp,
+          status === 'running' ? timestamp : null,
+        ],
+      )
+      await query(
+        `UPDATE agent_threads SET updated_at = $1
+         WHERE workspace_id = $2 AND id = $3 AND user_id = $4`,
+        [timestamp, workspaceId, threadId, userId],
+      )
+      return await this.getAgentRun(workspaceId, id, userId)
+    },
+
+    async getAgentRun(selectedWorkspaceId, id, userId = null) {
+      const params = [selectedWorkspaceId, id]
+      const userFilter = userId ? ` AND user_id = $3` : ''
+      if (userId) params.push(userId)
+      const rows = await query(
+        `SELECT * FROM agent_runs
+         WHERE workspace_id = $1 AND id = $2${userFilter}`,
+        params,
+      )
+      return mapAgentRun(rows[0])
+    },
+
+    async listAgentRuns(selectedWorkspaceId, {
+      userId = null,
+      threadId = null,
+      status = null,
+      limit = 100,
+    } = {}) {
+      const params = [selectedWorkspaceId]
+      const filters = ['workspace_id = $1']
+      for (const [column, value] of [
+        ['user_id', userId],
+        ['thread_id', threadId],
+        ['status', status],
+      ]) {
+        if (value) {
+          params.push(value)
+          filters.push(`${column} = $${params.length}`)
+        }
+      }
+      params.push(Math.min(200, Math.max(1, Number(limit) || 100)))
+      const rows = await query(
+        `SELECT * FROM agent_runs
+         WHERE ${filters.join(' AND ')}
+         ORDER BY created_at DESC
+         LIMIT $${params.length}`,
+        params,
+      )
+      return rows.map(mapAgentRun)
+    },
+
+    async updateAgentRun(selectedWorkspaceId, id, fields = {}, expectedStatuses = null) {
+      const allowedStatuses = new Set([
+        'planned',
+        'queued',
+        'running',
+        'waiting_approval',
+        'completed',
+        'failed',
+        'cancelled',
+        'budget_exceeded',
+      ])
+      if (fields.status !== undefined && !allowedStatuses.has(fields.status)) {
+        throw codedError('AGENT_RUN_INVALID_STATUS', 'The requested agent run status is invalid.')
+      }
+      const assignments = []
+      const params = []
+      const set = (column, value) => {
+        params.push(value)
+        assignments.push(`${column} = $${params.length}`)
+      }
+      if (fields.status !== undefined) set('status', fields.status)
+      if (fields.model !== undefined) set('model', fields.model ? String(fields.model).slice(0, 160) : null)
+      if (fields.plan !== undefined) set('plan_json', stableJson(fields.plan || []))
+      if (fields.results !== undefined) set('results_json', stableJson(fields.results || []))
+      if (fields.pendingAction !== undefined) {
+        set('pending_action_json', fields.pendingAction === null ? null : stableJson(fields.pendingAction))
+      }
+      if (fields.finalOutput !== undefined) set('final_output', fields.finalOutput === null ? null : String(fields.finalOutput))
+      if (fields.budget !== undefined) set('budget_json', stableJson(fields.budget || {}))
+      if (fields.usage !== undefined) set('usage_json', stableJson(fields.usage || {}))
+      if (fields.iterations !== undefined) set('iterations', Math.max(0, Number(fields.iterations) || 0))
+      if (fields.toolCalls !== undefined) set('tool_calls', Math.max(0, Number(fields.toolCalls) || 0))
+      if (fields.errorCode !== undefined) set('error_code', fields.errorCode ? String(fields.errorCode).slice(0, 160) : null)
+      if (fields.errorMessage !== undefined) set('error_message', fields.errorMessage ? String(fields.errorMessage).slice(0, 2_000) : null)
+      const timestamp = nowIso()
+      if (fields.status === 'running') {
+        params.push(timestamp)
+        assignments.push(`started_at = COALESCE(started_at, $${params.length})`)
+      }
+      if (['completed', 'failed', 'cancelled', 'budget_exceeded'].includes(fields.status)) {
+        set('completed_at', timestamp)
+      }
+      set('updated_at', timestamp)
+      if (assignments.length === 1) return await this.getAgentRun(selectedWorkspaceId, id)
+
+      params.push(selectedWorkspaceId, id)
+      const filters = [
+        `workspace_id = $${params.length - 1}`,
+        `id = $${params.length}`,
+      ]
+      const expected = Array.isArray(expectedStatuses)
+        ? expectedStatuses
+        : expectedStatuses
+          ? [expectedStatuses]
+          : []
+      if (expected.length) {
+        const placeholders = expected.map((value) => {
+          params.push(value)
+          return `$${params.length}`
+        })
+        filters.push(`status IN (${placeholders.join(', ')})`)
+      }
+      const rows = await query(
+        `UPDATE agent_runs
+         SET ${assignments.join(', ')}
+         WHERE ${filters.join(' AND ')}
+         RETURNING *`,
+        params,
+      )
+      return mapAgentRun(rows[0])
+    },
+
+    async transitionAgentRun({ selectedWorkspaceId, workspaceId, id, fromStatuses, status, ...fields }) {
+      return await this.updateAgentRun(
+        selectedWorkspaceId || workspaceId,
+        id,
+        { ...fields, status },
+        fromStatuses,
+      )
+    },
+
+    async appendAgentRunEvent({
+      workspaceId,
+      runId,
+      level = 'info',
+      eventType,
+      message = '',
+      data = null,
+    }) {
+      const sequenceRows = await query(
+        `UPDATE agent_runs
+         SET event_sequence = event_sequence + 1
+         WHERE workspace_id = $1 AND id = $2
+         RETURNING event_sequence`,
+        [workspaceId, runId],
+      )
+      if (!sequenceRows.length) return null
+      const sequence = Number(sequenceRows[0].event_sequence)
+      const createdAt = nowIso()
+      const id = stableId('arevt', `${workspaceId}:${runId}:${sequence}`)
+      await query(
+        `INSERT INTO agent_run_events (
+           id, workspace_id, run_id, sequence, level, event_type, message,
+           data_json, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          id,
+          workspaceId,
+          runId,
+          sequence,
+          ['info', 'warning', 'error'].includes(level) ? level : 'info',
+          String(eventType || 'log').slice(0, 120),
+          String(message || '').slice(0, 2_000),
+          data === null || data === undefined ? null : stableJson(data),
+          createdAt,
+        ],
+      )
+      return mapAgentRunEvent({
+        id,
+        run_id: runId,
+        sequence,
+        level: ['info', 'warning', 'error'].includes(level) ? level : 'info',
+        event_type: String(eventType || 'log').slice(0, 120),
+        message: String(message || '').slice(0, 2_000),
+        data_json: data === null || data === undefined ? null : stableJson(data),
+        created_at: createdAt,
+      })
+    },
+
+    async listAgentRunEvents(selectedWorkspaceId, runId, { after = 0, limit = 500 } = {}) {
+      const rows = await query(
+        `SELECT * FROM agent_run_events
+         WHERE workspace_id = $1 AND run_id = $2 AND sequence > $3
+         ORDER BY sequence ASC
+         LIMIT $4`,
+        [
+          selectedWorkspaceId,
+          runId,
+          Math.max(0, Number(after) || 0),
+          Math.min(1_000, Math.max(1, Number(limit) || 500)),
+        ],
+      )
+      return rows.map(mapAgentRunEvent)
+    },
+
+    async createAgentStep({
+      workspaceId,
+      runId,
+      toolId,
+      arguments: stepArguments = {},
+      argumentsHash = null,
+      riskLevel = 'read',
+      status = 'pending',
+      sequence: requestedSequence = null,
+      id: providedId,
+    }) {
+      let sequence
+      if (requestedSequence === null || requestedSequence === undefined) {
+        const sequenceRows = await query(
+          `UPDATE agent_runs
+           SET step_sequence = step_sequence + 1, updated_at = $1
+           WHERE workspace_id = $2 AND id = $3
+           RETURNING step_sequence`,
+          [nowIso(), workspaceId, runId],
+        )
+        if (!sequenceRows.length) return null
+        sequence = Number(sequenceRows[0].step_sequence)
+      } else {
+        sequence = Math.max(1, Number(requestedSequence) || 1)
+        const sequenceRows = await query(
+          `UPDATE agent_runs
+           SET step_sequence = CASE WHEN step_sequence < $1 THEN $1 ELSE step_sequence END,
+               updated_at = $2
+           WHERE workspace_id = $3 AND id = $4
+           RETURNING id`,
+          [sequence, nowIso(), workspaceId, runId],
+        )
+        if (!sequenceRows.length) return null
+      }
+      const argumentsJson = stableJson(stepArguments || {})
+      const resolvedArgumentsHash = argumentsHash || createHash('sha256').update(argumentsJson).digest('hex')
+      const timestamp = nowIso()
+      const id = providedId || stableId('astep', `${workspaceId}:${runId}:${sequence}`)
+      await query(
+        `INSERT INTO agent_steps (
+           id, workspace_id, run_id, sequence, tool_id, arguments_json,
+           arguments_hash, risk_level, status, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [
+          id,
+          workspaceId,
+          runId,
+          sequence,
+          String(toolId || '').slice(0, 200),
+          argumentsJson,
+          String(resolvedArgumentsHash).slice(0, 128),
+          String(riskLevel || 'read').slice(0, 80),
+          status,
+          timestamp,
+          timestamp,
+        ],
+      )
+      return await this.getAgentStep(workspaceId, id)
+    },
+
+    async getAgentStep(selectedWorkspaceId, id) {
+      const rows = await query(
+        `SELECT * FROM agent_steps WHERE workspace_id = $1 AND id = $2`,
+        [selectedWorkspaceId, id],
+      )
+      return mapAgentStep(rows[0])
+    },
+
+    async listAgentSteps(selectedWorkspaceId, runId) {
+      const rows = await query(
+        `SELECT * FROM agent_steps
+         WHERE workspace_id = $1 AND run_id = $2
+         ORDER BY sequence ASC`,
+        [selectedWorkspaceId, runId],
+      )
+      return rows.map(mapAgentStep)
+    },
+
+    async updateAgentStep(selectedWorkspaceId, id, fields = {}, expectedStatuses = null) {
+      const allowedStatuses = new Set([
+        'pending',
+        'waiting_approval',
+        'running',
+        'completed',
+        'failed',
+        'denied',
+        'cancelled',
+      ])
+      if (fields.status !== undefined && !allowedStatuses.has(fields.status)) {
+        throw codedError('AGENT_STEP_INVALID_STATUS', 'The requested agent step status is invalid.')
+      }
+      const assignments = []
+      const params = []
+      const set = (column, value) => {
+        params.push(value)
+        assignments.push(`${column} = $${params.length}`)
+      }
+      if (fields.status !== undefined) set('status', fields.status)
+      if (fields.result !== undefined) set('result_json', fields.result === null ? null : stableJson(fields.result))
+      if (fields.errorCode !== undefined) set('error_code', fields.errorCode ? String(fields.errorCode).slice(0, 160) : null)
+      if (fields.errorMessage !== undefined) set('error_message', fields.errorMessage ? String(fields.errorMessage).slice(0, 2_000) : null)
+      const timestamp = nowIso()
+      if (fields.status === 'running') {
+        params.push(timestamp)
+        assignments.push(`started_at = COALESCE(started_at, $${params.length})`)
+      }
+      if (['completed', 'failed', 'denied', 'cancelled'].includes(fields.status)) set('completed_at', timestamp)
+      set('updated_at', timestamp)
+      if (assignments.length === 1) return await this.getAgentStep(selectedWorkspaceId, id)
+      params.push(selectedWorkspaceId, id)
+      const filters = [
+        `workspace_id = $${params.length - 1}`,
+        `id = $${params.length}`,
+      ]
+      const expected = Array.isArray(expectedStatuses)
+        ? expectedStatuses
+        : expectedStatuses
+          ? [expectedStatuses]
+          : []
+      if (expected.length) {
+        const placeholders = expected.map((value) => {
+          params.push(value)
+          return `$${params.length}`
+        })
+        filters.push(`status IN (${placeholders.join(', ')})`)
+      }
+      const rows = await query(
+        `UPDATE agent_steps SET ${assignments.join(', ')}
+         WHERE ${filters.join(' AND ')}
+         RETURNING *`,
+        params,
+      )
+      return mapAgentStep(rows[0])
+    },
+
+    async requestAgentApproval({
+      workspaceId,
+      runId,
+      stepId,
+      toolId,
+      argumentsHash,
+      riskLevel,
+      expiresAt,
+      id: providedId,
+    }) {
+      const stepRows = await query(
+        `SELECT * FROM agent_steps
+         WHERE workspace_id = $1 AND run_id = $2 AND id = $3`,
+        [workspaceId, runId, stepId],
+      )
+      const step = stepRows[0]
+      if (!step) return null
+      if (step.tool_id !== toolId || step.arguments_hash !== argumentsHash) {
+        throw codedError('AGENT_APPROVAL_ARGUMENT_MISMATCH', 'The approval does not match the persisted agent step.')
+      }
+      const existingRows = await query(
+        `SELECT * FROM agent_approvals
+         WHERE workspace_id = $1 AND step_id = $2`,
+        [workspaceId, stepId],
+      )
+      if (existingRows[0]) return mapAgentApproval(existingRows[0])
+      const requestedAt = nowIso()
+      const id = providedId || stableId('aapr', `${workspaceId}:${runId}:${stepId}`)
+      const insertedRows = await query(
+        `INSERT INTO agent_approvals (
+           id, workspace_id, run_id, step_id, tool_id, arguments_hash,
+           risk_level, status, requested_at, expires_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9)
+         ON CONFLICT (step_id) DO NOTHING
+         RETURNING *`,
+        [id, workspaceId, runId, stepId, toolId, argumentsHash, riskLevel, requestedAt, expiresAt],
+      )
+      if (!insertedRows.length) {
+        const racedRows = await query(
+          `SELECT * FROM agent_approvals
+           WHERE workspace_id = $1 AND step_id = $2`,
+          [workspaceId, stepId],
+        )
+        return mapAgentApproval(racedRows[0])
+      }
+      await this.updateAgentStep(workspaceId, stepId, { status: 'waiting_approval' }, ['pending'])
+      return mapAgentApproval(insertedRows[0])
+    },
+
+    async createAgentApproval(input) {
+      return await this.requestAgentApproval(input)
+    },
+
+    async getAgentApproval(selectedWorkspaceId, id) {
+      const rows = await query(
+        `SELECT * FROM agent_approvals WHERE workspace_id = $1 AND id = $2`,
+        [selectedWorkspaceId, id],
+      )
+      return mapAgentApproval(rows[0])
+    },
+
+    async listAgentApprovals(selectedWorkspaceId, {
+      runId = null,
+      status = null,
+      limit = 100,
+    } = {}) {
+      const params = [selectedWorkspaceId]
+      const filters = ['workspace_id = $1']
+      if (runId) {
+        params.push(runId)
+        filters.push(`run_id = $${params.length}`)
+      }
+      if (status) {
+        params.push(status)
+        filters.push(`status = $${params.length}`)
+      }
+      params.push(Math.min(200, Math.max(1, Number(limit) || 100)))
+      const rows = await query(
+        `SELECT * FROM agent_approvals
+         WHERE ${filters.join(' AND ')}
+         ORDER BY requested_at DESC
+         LIMIT $${params.length}`,
+        params,
+      )
+      return rows.map(mapAgentApproval)
+    },
+
+    async decideAgentApproval({
+      selectedWorkspaceId,
+      workspaceId,
+      id,
+      decidedBy,
+      decision,
+      reason = '',
+      now = nowIso(),
+    }) {
+      const resolvedWorkspaceId = selectedWorkspaceId || workspaceId
+      if (!['approved', 'denied'].includes(decision)) {
+        throw codedError('AGENT_APPROVAL_INVALID_DECISION', 'An approval decision must be approved or denied.')
+      }
+      const membership = await query(
+        `SELECT 1 FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`,
+        [resolvedWorkspaceId, decidedBy],
+      )
+      if (!membership.length) return null
+      await query(
+        `UPDATE agent_approvals
+         SET status = 'expired'
+         WHERE workspace_id = $1 AND id = $2
+           AND status = 'pending' AND expires_at <= $3`,
+        [resolvedWorkspaceId, id, now],
+      )
+      const rows = await query(
+        `UPDATE agent_approvals
+         SET status = $1, decided_by = $2, decided_at = $3, reason = $4
+         WHERE workspace_id = $5 AND id = $6
+           AND status = 'pending' AND expires_at > $3
+         RETURNING *`,
+        [
+          decision,
+          decidedBy,
+          now,
+          String(reason || '').slice(0, 1_000),
+          resolvedWorkspaceId,
+          id,
+        ],
+      )
+      return mapAgentApproval(rows[0])
+    },
+
+    async consumeAgentApproval({
+      selectedWorkspaceId,
+      workspaceId,
+      id,
+      toolId,
+      argumentsHash,
+      now = nowIso(),
+    }) {
+      const resolvedWorkspaceId = selectedWorkspaceId || workspaceId
+      await query(
+        `UPDATE agent_approvals
+         SET status = 'expired'
+         WHERE workspace_id = $1 AND id = $2
+           AND status = 'approved' AND expires_at <= $3`,
+        [resolvedWorkspaceId, id, now],
+      )
+      const rows = await query(
+        `UPDATE agent_approvals
+         SET status = 'consumed', consumed_at = $1
+         WHERE workspace_id = $2 AND id = $3
+           AND status = 'approved' AND consumed_at IS NULL
+           AND expires_at > $1 AND tool_id = $4 AND arguments_hash = $5
+         RETURNING *`,
+        [now, resolvedWorkspaceId, id, toolId, argumentsHash],
+      )
+      return mapAgentApproval(rows[0])
+    },
+
+    async expireAgentApprovals(selectedWorkspaceId, cutoff = nowIso()) {
+      const rows = await query(
+        `UPDATE agent_approvals
+         SET status = 'expired'
+         WHERE workspace_id = $1
+           AND status IN ('pending', 'approved')
+           AND expires_at <= $2
+         RETURNING id`,
+        [selectedWorkspaceId, cutoff],
+      )
+      return rows.length
+    },
+
+    async enqueueExecutionJob({
+      workspaceId,
+      requestedBy,
+      kind,
+      input = {},
+      agentRunId = null,
+      priority = 0,
+      maxAttempts = 3,
+      availableAt = nowIso(),
+      idempotencyKey = null,
+      id: providedId,
+    }) {
+      const membership = await query(
+        `SELECT 1 FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`,
+        [workspaceId, requestedBy],
+      )
+      if (!membership.length) {
+        throw codedError('JOB_WORKSPACE_ACCESS_DENIED', 'The job requester does not belong to this workspace.')
+      }
+      if (agentRunId) {
+        const run = await this.getAgentRun(workspaceId, agentRunId, requestedBy)
+        if (!run) throw codedError('JOB_AGENT_RUN_NOT_FOUND', 'The referenced agent run was not found.')
+      }
+      const normalizedKind = String(kind || '').trim().slice(0, 120)
+      if (!normalizedKind) throw codedError('JOB_KIND_REQUIRED', 'An execution job kind is required.')
+      const inputJson = stableJson(input || {})
+      const inputHash = createHash('sha256').update(inputJson).digest('hex')
+      const normalizedIdempotencyKey = idempotencyKey
+        ? String(idempotencyKey).trim().slice(0, 200)
+        : null
+      if (normalizedIdempotencyKey) {
+        const existingRows = await query(
+          `SELECT * FROM execution_jobs
+           WHERE workspace_id = $1 AND kind = $2 AND idempotency_key = $3`,
+          [workspaceId, normalizedKind, normalizedIdempotencyKey],
+        )
+        if (existingRows[0]) {
+          const existing = mapExecutionJob(existingRows[0])
+          if (existing.inputHash !== inputHash) {
+            throw codedError(
+              'JOB_IDEMPOTENCY_CONFLICT',
+              'This execution job idempotency key was already used with different input.',
+            )
+          }
+          return existing
+        }
+      }
+      const depthRows = await query(
+        `SELECT COUNT(*) AS count FROM execution_jobs
+         WHERE workspace_id = $1 AND status IN ('queued', 'running')`,
+        [workspaceId],
+      )
+      if (Number(depthRows[0]?.count || 0) >= 1_000) {
+        throw codedError('JOB_QUEUE_FULL', 'The workspace execution queue has reached its 1,000-job limit.')
+      }
+      const timestamp = nowIso()
+      const id = providedId || stableId(
+        'xjob',
+        `${workspaceId}:${normalizedKind}:${normalizedIdempotencyKey || randomUUID()}`,
+      )
+      const rows = await query(
+        `INSERT INTO execution_jobs (
+           id, workspace_id, requested_by, agent_run_id, kind, status,
+           input_json, input_hash, priority, max_attempts, available_at,
+           idempotency_key, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, 'queued', $6, $7, $8, $9, $10, $11, $12, $13)
+         ON CONFLICT (workspace_id, kind, idempotency_key) DO NOTHING
+         RETURNING *`,
+        [
+          id,
+          workspaceId,
+          requestedBy,
+          agentRunId,
+          normalizedKind,
+          inputJson,
+          inputHash,
+          Math.max(-1_000, Math.min(1_000, Number(priority) || 0)),
+          Math.max(1, Math.min(100, Number(maxAttempts) || 3)),
+          availableAt,
+          normalizedIdempotencyKey,
+          timestamp,
+          timestamp,
+        ],
+      )
+      if (rows[0]) return mapExecutionJob(rows[0])
+      const existingRows = await query(
+        `SELECT * FROM execution_jobs
+         WHERE workspace_id = $1 AND kind = $2 AND idempotency_key = $3`,
+        [workspaceId, normalizedKind, normalizedIdempotencyKey],
+      )
+      const existing = mapExecutionJob(existingRows[0])
+      if (!existing || existing.inputHash !== inputHash) {
+        throw codedError('JOB_IDEMPOTENCY_CONFLICT', 'The execution job could not be enqueued idempotently.')
+      }
+      return existing
+    },
+
+    async enqueueJob(input) {
+      return await this.enqueueExecutionJob(input)
+    },
+
+    async getExecutionJob(selectedWorkspaceId, id) {
+      const rows = await query(
+        `SELECT * FROM execution_jobs WHERE workspace_id = $1 AND id = $2`,
+        [selectedWorkspaceId, id],
+      )
+      return mapExecutionJob(rows[0])
+    },
+
+    async getJob(selectedWorkspaceId, id) {
+      return await this.getExecutionJob(selectedWorkspaceId, id)
+    },
+
+    async listExecutionJobs(selectedWorkspaceId, {
+      status = null,
+      kind = null,
+      agentRunId = null,
+      limit = 100,
+    } = {}) {
+      const params = [selectedWorkspaceId]
+      const filters = ['workspace_id = $1']
+      for (const [column, value] of [
+        ['status', status],
+        ['kind', kind],
+        ['agent_run_id', agentRunId],
+      ]) {
+        if (value) {
+          params.push(value)
+          filters.push(`${column} = $${params.length}`)
+        }
+      }
+      params.push(Math.min(500, Math.max(1, Number(limit) || 100)))
+      const rows = await query(
+        `SELECT * FROM execution_jobs
+         WHERE ${filters.join(' AND ')}
+         ORDER BY created_at DESC
+         LIMIT $${params.length}`,
+        params,
+      )
+      return rows.map(mapExecutionJob)
+    },
+
+    async listJobs(selectedWorkspaceId, filters = {}) {
+      return await this.listExecutionJobs(selectedWorkspaceId, filters)
+    },
+
+    async listExecutionWorkspaceIds() {
+      const rows = await query(
+        `SELECT DISTINCT workspace_id FROM execution_jobs
+         WHERE status IN ('queued', 'running')
+         ORDER BY workspace_id ASC`,
+      )
+      return rows.map((row) => row.workspace_id)
+    },
+
+    async listDueExecutionJobs(selectedWorkspaceId, now = nowIso(), limit = 50) {
+      const rows = await query(
+        `SELECT * FROM execution_jobs
+         WHERE workspace_id = $1 AND status = 'queued'
+           AND available_at <= $2 AND attempt_count < max_attempts
+         ORDER BY priority DESC, available_at ASC, created_at ASC
+         LIMIT $3`,
+        [
+          selectedWorkspaceId,
+          now,
+          Math.min(200, Math.max(1, Number(limit) || 50)),
+        ],
+      )
+      return rows.map(mapExecutionJob)
+    },
+
+    async listDueJobs(selectedWorkspaceId, now = nowIso(), limit = 50) {
+      return await this.listDueExecutionJobs(selectedWorkspaceId, now, limit)
+    },
+
+    async claimExecutionJob({
+      selectedWorkspaceId,
+      workspaceId,
+      id,
+      workerId,
+      now = nowIso(),
+      leaseSeconds = 60,
+      leaseExpiresAt = null,
+    }) {
+      const resolvedWorkspaceId = selectedWorkspaceId || workspaceId
+      const resolvedWorkerId = String(workerId || '').trim().slice(0, 200)
+      if (!resolvedWorkerId) throw codedError('JOB_WORKER_REQUIRED', 'A worker id is required to claim a job.')
+      const leaseUntil = leaseExpiresAt || new Date(
+        Date.parse(now) + Math.max(5, Math.min(3_600, Number(leaseSeconds) || 60)) * 1_000,
+      ).toISOString()
+      const rows = await query(
+        `UPDATE execution_jobs
+         SET status = 'running', attempt_count = attempt_count + 1,
+             lease_owner = $1, lease_expires_at = $2, heartbeat_at = $3,
+             started_at = COALESCE(started_at, $3), updated_at = $3,
+             error_code = NULL, error_message = NULL
+         WHERE workspace_id = $4 AND id = $5 AND status = 'queued'
+           AND available_at <= $3 AND attempt_count < max_attempts
+         RETURNING *`,
+        [resolvedWorkerId, leaseUntil, now, resolvedWorkspaceId, id],
+      )
+      return mapExecutionJob(rows[0])
+    },
+
+    async claimJob(input) {
+      return await this.claimExecutionJob(input)
+    },
+
+    async claimNextExecutionJob({
+      selectedWorkspaceId,
+      workspaceId,
+      workerId,
+      now = nowIso(),
+      leaseSeconds = 60,
+    }) {
+      const resolvedWorkspaceId = selectedWorkspaceId || workspaceId
+      const candidates = await this.listDueExecutionJobs(resolvedWorkspaceId, now, 20)
+      for (const candidate of candidates) {
+        const claimed = await this.claimExecutionJob({
+          selectedWorkspaceId: resolvedWorkspaceId,
+          id: candidate.id,
+          workerId,
+          now,
+          leaseSeconds,
+        })
+        if (claimed) return claimed
+      }
+      return null
+    },
+
+    async heartbeatExecutionJob({
+      selectedWorkspaceId,
+      workspaceId,
+      id,
+      workerId,
+      now = nowIso(),
+      leaseSeconds = 60,
+      leaseExpiresAt = null,
+    }) {
+      const resolvedWorkspaceId = selectedWorkspaceId || workspaceId
+      const leaseUntil = leaseExpiresAt || new Date(
+        Date.parse(now) + Math.max(5, Math.min(3_600, Number(leaseSeconds) || 60)) * 1_000,
+      ).toISOString()
+      const rows = await query(
+        `UPDATE execution_jobs
+         SET heartbeat_at = $1, lease_expires_at = $2, updated_at = $1
+         WHERE workspace_id = $3 AND id = $4 AND status = 'running'
+           AND lease_owner = $5 AND lease_expires_at > $1
+         RETURNING *`,
+        [now, leaseUntil, resolvedWorkspaceId, id, workerId],
+      )
+      return mapExecutionJob(rows[0])
+    },
+
+    async heartbeatJob(input) {
+      return await this.heartbeatExecutionJob(input)
+    },
+
+    async recoverExpiredExecutionJobs(selectedWorkspaceId, {
+      now = nowIso(),
+      retryAt = now,
+    } = {}) {
+      const failedRows = await query(
+        `UPDATE execution_jobs
+         SET status = 'failed', error_code = 'JOB_LEASE_EXPIRED',
+             error_message = 'The execution lease expired after the final attempt.',
+             lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL,
+             completed_at = $1, updated_at = $1
+         WHERE workspace_id = $2 AND status = 'running'
+           AND lease_expires_at IS NOT NULL AND lease_expires_at <= $1
+           AND attempt_count >= max_attempts
+         RETURNING *`,
+        [now, selectedWorkspaceId],
+      )
+      const retriedRows = await query(
+        `UPDATE execution_jobs
+         SET status = 'queued', available_at = $1,
+             error_code = 'JOB_LEASE_EXPIRED',
+             error_message = 'The execution lease expired and the job was requeued.',
+             lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL,
+             updated_at = $2
+         WHERE workspace_id = $3 AND status = 'running'
+           AND lease_expires_at IS NOT NULL AND lease_expires_at <= $2
+           AND attempt_count < max_attempts
+         RETURNING *`,
+        [retryAt, now, selectedWorkspaceId],
+      )
+      return {
+        failed: failedRows.map(mapExecutionJob),
+        retried: retriedRows.map(mapExecutionJob),
+      }
+    },
+
+    async recoverJobs(selectedWorkspaceId, options = {}) {
+      return await this.recoverExpiredExecutionJobs(selectedWorkspaceId, options)
+    },
+
+    async completeExecutionJob({
+      selectedWorkspaceId,
+      workspaceId,
+      id,
+      workerId,
+      output = null,
+      now = nowIso(),
+    }) {
+      const resolvedWorkspaceId = selectedWorkspaceId || workspaceId
+      const rows = await query(
+        `UPDATE execution_jobs
+         SET status = 'completed', output_json = $1,
+             error_code = NULL, error_message = NULL,
+             lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL,
+             completed_at = $2, updated_at = $2
+         WHERE workspace_id = $3 AND id = $4 AND status = 'running'
+           AND lease_owner = $5 AND lease_expires_at > $2
+         RETURNING *`,
+        [
+          output === null || output === undefined ? null : stableJson(output),
+          now,
+          resolvedWorkspaceId,
+          id,
+          workerId,
+        ],
+      )
+      return mapExecutionJob(rows[0])
+    },
+
+    async completeJob(input) {
+      return await this.completeExecutionJob(input)
+    },
+
+    async failExecutionJob({
+      selectedWorkspaceId,
+      workspaceId,
+      id,
+      workerId,
+      errorCode = 'JOB_FAILED',
+      errorMessage = 'The execution job failed.',
+      retry = true,
+      retryAt = nowIso(),
+      now = nowIso(),
+    }) {
+      const resolvedWorkspaceId = selectedWorkspaceId || workspaceId
+      const currentRows = await query(
+        `SELECT * FROM execution_jobs
+         WHERE workspace_id = $1 AND id = $2 AND status = 'running'
+           AND lease_owner = $3 AND lease_expires_at > $4`,
+        [resolvedWorkspaceId, id, workerId, now],
+      )
+      const current = currentRows[0]
+      if (!current) return null
+      const shouldRetry = Boolean(retry) && Number(current.attempt_count) < Number(current.max_attempts)
+      const rows = await query(
+        `UPDATE execution_jobs
+         SET status = $1, available_at = $2,
+             error_code = $3, error_message = $4,
+             lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL,
+             completed_at = $5, updated_at = $6
+         WHERE workspace_id = $7 AND id = $8 AND status = 'running'
+           AND lease_owner = $9
+         RETURNING *`,
+        [
+          shouldRetry ? 'queued' : 'failed',
+          shouldRetry ? retryAt : current.available_at,
+          String(errorCode || 'JOB_FAILED').slice(0, 160),
+          String(errorMessage || 'The execution job failed.').slice(0, 2_000),
+          shouldRetry ? null : now,
+          now,
+          resolvedWorkspaceId,
+          id,
+          workerId,
+        ],
+      )
+      return mapExecutionJob(rows[0])
+    },
+
+    async failJob(input) {
+      return await this.failExecutionJob(input)
+    },
+
+    async retryExecutionJob(selectedWorkspaceId, id, {
+      availableAt = nowIso(),
+      resetAttempts = false,
+    } = {}) {
+      const rows = await query(
+        `UPDATE execution_jobs
+         SET status = 'queued', available_at = $1,
+             attempt_count = CASE WHEN $2 = 1 THEN 0 ELSE attempt_count END,
+             error_code = NULL, error_message = NULL, completed_at = NULL,
+             lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL,
+             updated_at = $3
+         WHERE workspace_id = $4 AND id = $5 AND status = 'failed'
+           AND ($2 = 1 OR attempt_count < max_attempts)
+         RETURNING *`,
+        [availableAt, resetAttempts ? 1 : 0, nowIso(), selectedWorkspaceId, id],
+      )
+      return mapExecutionJob(rows[0])
+    },
+
+    async cancelExecutionJob(selectedWorkspaceId, id, now = nowIso()) {
+      const rows = await query(
+        `UPDATE execution_jobs
+         SET status = 'cancelled', lease_owner = NULL, lease_expires_at = NULL,
+             heartbeat_at = NULL, completed_at = $1, updated_at = $1
+         WHERE workspace_id = $2 AND id = $3 AND status IN ('queued', 'running')
+         RETURNING *`,
+        [now, selectedWorkspaceId, id],
+      )
+      return mapExecutionJob(rows[0])
+    },
+
+    async cancelJob(selectedWorkspaceId, id, now = nowIso()) {
+      return await this.cancelExecutionJob(selectedWorkspaceId, id, now)
+    },
+
+    async appendExecutionJobEvent({
+      workspaceId,
+      jobId,
+      level = 'info',
+      eventType,
+      message = '',
+      data = null,
+    }) {
+      const sequenceRows = await query(
+        `UPDATE execution_jobs
+         SET event_sequence = event_sequence + 1
+         WHERE workspace_id = $1 AND id = $2
+         RETURNING event_sequence`,
+        [workspaceId, jobId],
+      )
+      if (!sequenceRows.length) return null
+      const sequence = Number(sequenceRows[0].event_sequence)
+      const createdAt = nowIso()
+      const id = stableId('xjevt', `${workspaceId}:${jobId}:${sequence}`)
+      const resolvedLevel = ['info', 'warning', 'error'].includes(level) ? level : 'info'
+      const dataJson = data === null || data === undefined ? null : stableJson(data)
+      await query(
+        `INSERT INTO execution_job_events (
+           id, workspace_id, job_id, sequence, level, event_type,
+           message, data_json, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          id,
+          workspaceId,
+          jobId,
+          sequence,
+          resolvedLevel,
+          String(eventType || 'log').slice(0, 120),
+          String(message || '').slice(0, 2_000),
+          dataJson,
+          createdAt,
+        ],
+      )
+      return mapExecutionJobEvent({
+        id,
+        job_id: jobId,
+        sequence,
+        level: resolvedLevel,
+        event_type: String(eventType || 'log').slice(0, 120),
+        message: String(message || '').slice(0, 2_000),
+        data_json: dataJson,
+        created_at: createdAt,
+      })
+    },
+
+    async appendJobEvent(input) {
+      return await this.appendExecutionJobEvent(input)
+    },
+
+    async listExecutionJobEvents(selectedWorkspaceId, jobId, { after = 0, limit = 500 } = {}) {
+      const rows = await query(
+        `SELECT * FROM execution_job_events
+         WHERE workspace_id = $1 AND job_id = $2 AND sequence > $3
+         ORDER BY sequence ASC
+         LIMIT $4`,
+        [
+          selectedWorkspaceId,
+          jobId,
+          Math.max(0, Number(after) || 0),
+          Math.min(1_000, Math.max(1, Number(limit) || 500)),
+        ],
+      )
+      return rows.map(mapExecutionJobEvent)
+    },
+
+    async listJobEvents(selectedWorkspaceId, jobId, options = {}) {
+      return await this.listExecutionJobEvents(selectedWorkspaceId, jobId, options)
+    },
+
+    async createArtifact({
+      workspaceId,
+      createdBy,
+      runId = null,
+      kind = 'file',
+      mimeType = 'application/octet-stream',
+      name,
+      body = null,
+      contentBase64 = null,
+      storageDocumentId = null,
+      size = null,
+      contentSha256 = null,
+      storageProvider = null,
+      storageKey = null,
+      externalUrl = null,
+      source = 'runtime',
+      metadata = {},
+      expiresAt = null,
+      id: providedId,
+    }) {
+      const membership = await query(
+        `SELECT 1 FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`,
+        [workspaceId, createdBy],
+      )
+      if (!membership.length) {
+        throw codedError('ARTIFACT_WORKSPACE_ACCESS_DENIED', 'The artifact creator does not belong to this workspace.')
+      }
+      if (runId && !(await this.getAgentRun(workspaceId, runId))) {
+        throw codedError('ARTIFACT_AGENT_RUN_NOT_FOUND', 'The artifact agent run was not found in this workspace.')
+      }
+      let content = body
+      if (content === null && contentBase64 !== null) content = Buffer.from(contentBase64, 'base64')
+      if (content !== null && !Buffer.isBuffer(content)) content = Buffer.from(content)
+
+      let document = null
+      if (storageDocumentId) {
+        document = await this.getWorkspaceDocument(workspaceId, storageDocumentId)
+        if (!document) {
+          throw codedError('ARTIFACT_DOCUMENT_NOT_FOUND', 'The artifact storage document was not found.')
+        }
+        if (content && (
+          content.byteLength !== Number(document.size) ||
+          createHash('sha256').update(content).digest('hex') !== document.sha256
+        )) {
+          throw codedError('ARTIFACT_INTEGRITY_ERROR', 'Artifact content does not match the storage document.')
+        }
+      } else if (content) {
+        document = await this.createWorkspaceDocument({
+          workspaceId,
+          name,
+          mimeType,
+          body: content,
+        })
+        storageDocumentId = document.id
+      }
+
+      const resolvedSize = document ? Number(document.size) : Math.max(0, Number(size) || 0)
+      const resolvedSha256 = document
+        ? document.sha256
+        : contentSha256
+          ? String(contentSha256)
+          : null
+      if (size !== null && size !== undefined && Number(size) !== resolvedSize) {
+        throw codedError('ARTIFACT_INTEGRITY_ERROR', 'Artifact size does not match its stored content.')
+      }
+      if (contentSha256 && resolvedSha256 !== contentSha256) {
+        throw codedError('ARTIFACT_INTEGRITY_ERROR', 'Artifact checksum does not match its stored content.')
+      }
+      if (!storageDocumentId && !storageKey && !externalUrl) {
+        throw codedError('ARTIFACT_STORAGE_REQUIRED', 'An artifact requires inline or external storage.')
+      }
+      const timestamp = nowIso()
+      const id = providedId || stableId(
+        'art',
+        `${workspaceId}:${runId || ''}:${name}:${resolvedSha256 || storageKey || externalUrl}:${randomUUID()}`,
+      )
+      await query(
+        `INSERT INTO artifacts (
+           id, workspace_id, created_by, run_id, kind, mime_type, name,
+           storage_document_id, size, content_sha256, storage_provider,
+           storage_key, external_url, source, metadata_json,
+           created_at, updated_at, expires_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+        [
+          id,
+          workspaceId,
+          createdBy,
+          runId,
+          String(kind || 'file').slice(0, 120),
+          String(mimeType || 'application/octet-stream').slice(0, 200),
+          String(name || '').slice(0, 500),
+          storageDocumentId,
+          resolvedSize,
+          resolvedSha256,
+          String(storageProvider || (storageDocumentId ? 'workspace_document' : 'external')).slice(0, 120),
+          storageKey ? String(storageKey).slice(0, 1_000) : null,
+          externalUrl ? String(externalUrl).slice(0, 4_000) : null,
+          String(source || 'runtime').slice(0, 160),
+          stableJson(metadata || {}),
+          timestamp,
+          timestamp,
+          expiresAt,
+        ],
+      )
+      return await this.getArtifact(workspaceId, id)
+    },
+
+    async getArtifact(selectedWorkspaceId, id, { includeDeleted = false } = {}) {
+      const rows = await query(
+        `SELECT * FROM artifacts
+         WHERE workspace_id = $1 AND id = $2
+           ${includeDeleted ? '' : 'AND deleted_at IS NULL'}`,
+        [selectedWorkspaceId, id],
+      )
+      return mapArtifact(rows[0])
+    },
+
+    async listArtifacts(selectedWorkspaceId, {
+      runId = null,
+      kind = null,
+      subjectType = null,
+      subjectId = null,
+      includeDeleted = false,
+      limit = 200,
+    } = {}) {
+      const params = [selectedWorkspaceId]
+      const filters = ['artifacts.workspace_id = $1']
+      const joins = []
+      if (!includeDeleted) filters.push('artifacts.deleted_at IS NULL')
+      if (runId) {
+        params.push(runId)
+        filters.push(`artifacts.run_id = $${params.length}`)
+      }
+      if (kind) {
+        params.push(kind)
+        filters.push(`artifacts.kind = $${params.length}`)
+      }
+      if (subjectType || subjectId) {
+        if (!subjectType || !subjectId) {
+          throw codedError('ARTIFACT_LINK_FILTER_INVALID', 'Artifact subject type and id must be provided together.')
+        }
+        joins.push(
+          `JOIN artifact_links links
+             ON links.workspace_id = artifacts.workspace_id
+            AND links.artifact_id = artifacts.id`,
+        )
+        params.push(subjectType, subjectId)
+        filters.push(`links.subject_type = $${params.length - 1}`)
+        filters.push(`links.subject_id = $${params.length}`)
+      }
+      params.push(Math.min(500, Math.max(1, Number(limit) || 200)))
+      const rows = await query(
+        `SELECT DISTINCT artifacts.*
+         FROM artifacts
+         ${joins.join('\n')}
+         WHERE ${filters.join(' AND ')}
+         ORDER BY artifacts.created_at DESC
+         LIMIT $${params.length}`,
+        params,
+      )
+      return rows.map(mapArtifact)
+    },
+
+    async getArtifactContent(selectedWorkspaceId, id) {
+      const artifact = await this.getArtifact(selectedWorkspaceId, id)
+      if (!artifact) return null
+      if (!artifact.storageDocumentId) return { ...artifact, body: null }
+      const document = await this.getWorkspaceDocument(
+        selectedWorkspaceId,
+        artifact.storageDocumentId,
+      )
+      if (!document) {
+        throw codedError('ARTIFACT_INTEGRITY_ERROR', 'The artifact storage document is missing.')
+      }
+      const actualSha256 = createHash('sha256').update(document.body).digest('hex')
+      if (
+        Number(document.size) !== document.body.byteLength ||
+        Number(artifact.size) !== document.body.byteLength ||
+        document.sha256 !== actualSha256 ||
+        artifact.sha256 !== actualSha256
+      ) {
+        throw codedError('ARTIFACT_INTEGRITY_ERROR', 'Stored artifact content failed its integrity check.')
+      }
+      return { ...artifact, body: document.body }
+    },
+
+    async updateArtifactContent(selectedWorkspaceId, id, {
+      body,
+      mimeType = null,
+      metadata = undefined,
+    }) {
+      const artifact = await this.getArtifact(selectedWorkspaceId, id)
+      if (!artifact) return null
+      const content = Buffer.isBuffer(body) ? body : Buffer.from(body)
+      const resolvedMimeType = mimeType || artifact.mimeType
+      let document
+      if (artifact.storageDocumentId) {
+        document = await this.updateWorkspaceDocumentContent(
+          selectedWorkspaceId,
+          artifact.storageDocumentId,
+          { body: content, mimeType: resolvedMimeType },
+        )
+      } else {
+        document = await this.createWorkspaceDocument({
+          workspaceId: selectedWorkspaceId,
+          name: artifact.name,
+          mimeType: resolvedMimeType,
+          body: content,
+        })
+      }
+      const timestamp = nowIso()
+      const rows = await query(
+        `UPDATE artifacts
+         SET storage_document_id = $1, mime_type = $2, size = $3,
+             content_sha256 = $4, storage_provider = 'workspace_document',
+             storage_key = NULL, external_url = NULL,
+             metadata_json = $5, updated_at = $6
+         WHERE workspace_id = $7 AND id = $8 AND deleted_at IS NULL
+         RETURNING *`,
+        [
+          document.id,
+          resolvedMimeType,
+          document.size,
+          document.sha256,
+          metadata === undefined ? stableJson(artifact.metadata || {}) : stableJson(metadata || {}),
+          timestamp,
+          selectedWorkspaceId,
+          id,
+        ],
+      )
+      return mapArtifact(rows[0])
+    },
+
+    async linkArtifact({
+      workspaceId,
+      artifactId,
+      subjectType,
+      subjectId,
+      relation = 'output',
+    }) {
+      const artifact = await this.getArtifact(workspaceId, artifactId)
+      if (!artifact) return null
+      const normalizedSubjectType = String(subjectType || '').trim()
+      if (!(await artifactSubjectExists(workspaceId, normalizedSubjectType, subjectId))) {
+        throw codedError('ARTIFACT_SUBJECT_NOT_FOUND', 'The artifact link target was not found in this workspace.')
+      }
+      const createdAt = nowIso()
+      await query(
+        `INSERT INTO artifact_links (
+           workspace_id, artifact_id, subject_type, subject_id, relation, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (workspace_id, artifact_id, subject_type, subject_id, relation)
+         DO NOTHING`,
+        [
+          workspaceId,
+          artifactId,
+          normalizedSubjectType,
+          String(subjectId),
+          String(relation || 'output').slice(0, 120),
+          createdAt,
+        ],
+      )
+      return {
+        workspaceId,
+        artifactId,
+        subjectType: normalizedSubjectType,
+        subjectId: String(subjectId),
+        relation: String(relation || 'output').slice(0, 120),
+        createdAt,
+      }
+    },
+
+    async listArtifactLinks(selectedWorkspaceId, {
+      artifactId = null,
+      subjectType = null,
+      subjectId = null,
+    } = {}) {
+      const params = [selectedWorkspaceId]
+      const filters = ['workspace_id = $1']
+      for (const [column, value] of [
+        ['artifact_id', artifactId],
+        ['subject_type', subjectType],
+        ['subject_id', subjectId],
+      ]) {
+        if (value) {
+          params.push(value)
+          filters.push(`${column} = $${params.length}`)
+        }
+      }
+      const rows = await query(
+        `SELECT * FROM artifact_links
+         WHERE ${filters.join(' AND ')}
+         ORDER BY created_at ASC`,
+        params,
+      )
+      return rows.map((row) => ({
+        workspaceId: row.workspace_id,
+        artifactId: row.artifact_id,
+        subjectType: row.subject_type,
+        subjectId: row.subject_id,
+        relation: row.relation,
+        createdAt: row.created_at,
+      }))
+    },
+
+    async unlinkArtifact({
+      selectedWorkspaceId,
+      workspaceId,
+      artifactId,
+      subjectType,
+      subjectId,
+      relation = 'output',
+    }) {
+      const resolvedWorkspaceId = selectedWorkspaceId || workspaceId
+      const rows = await query(
+        `DELETE FROM artifact_links
+         WHERE workspace_id = $1 AND artifact_id = $2
+           AND subject_type = $3 AND subject_id = $4 AND relation = $5
+         RETURNING artifact_id`,
+        [resolvedWorkspaceId, artifactId, subjectType, subjectId, relation],
+      )
+      return rows.length > 0
+    },
+
+    async deleteArtifact(selectedWorkspaceId, id, timestamp = nowIso()) {
+      const rows = await query(
+        `UPDATE artifacts
+         SET deleted_at = $1, updated_at = $1
+         WHERE workspace_id = $2 AND id = $3 AND deleted_at IS NULL
+         RETURNING *`,
+        [timestamp, selectedWorkspaceId, id],
+      )
+      return mapArtifact(rows[0])
+    },
+
+    async restoreArtifact(selectedWorkspaceId, id, timestamp = nowIso()) {
+      const rows = await query(
+        `UPDATE artifacts
+         SET deleted_at = NULL, updated_at = $1
+         WHERE workspace_id = $2 AND id = $3 AND deleted_at IS NOT NULL
+         RETURNING *`,
+        [timestamp, selectedWorkspaceId, id],
+      )
+      return mapArtifact(rows[0])
+    },
+
     async listIdeaNotes(selectedWorkspaceId, boardId) {
       const rows = await query(
         `SELECT id, workspace_id, board_id, content, version, created_by, created_at, updated_at
@@ -3662,7 +5479,7 @@ export async function openDatabase({
         onedrive: { name: 'Microsoft OneDrive', description: 'Choose a OneDrive folder as a private storage point for workspace files.', category: 'Storage', icon: 'onedrive', accent: '#4f8df7' },
         paystack: { name: 'Paystack', description: 'Collect region-friendly card and bank payments across African markets.', category: 'Payments', icon: 'paystack', accent: '#00c3f7' },
         n8n: { name: 'n8n', description: 'Connect repeatable workflows in either direction with signed GET and POST webhooks.', category: 'Automation', icon: 'n8n', accent: '#ea4b71' },
-        'mcp-grid': { name: 'Lancee MCP', description: 'Application-owned workspace tools exposed through the local Lancee MCP route.', category: 'Automation', icon: 'mcp', accent: '#786bff' },
+        'lancee-mcp': { name: 'Lancee MCP', description: 'Application-owned workspace tools exposed through the local Lancee MCP route.', category: 'Automation', icon: 'mcp', accent: '#786bff' },
         'codex-ai': { name: 'lancee AI for Codex', description: 'Let an external Codex client call this workspace’s configured AI provider.', category: 'Automation', icon: 'codex', accent: '#6c654f' },
         'codex-runtime': { name: 'Codex Workspace', description: 'Run OpenAI Codex inside lancee against the server-configured project workspace.', category: 'Automation', icon: 'codex', accent: '#171a15' },
         mail: { name: 'Mail', description: 'Read and send workspace email, then trigger native automations from recipients, subjects, and keywords.', category: 'Communication', icon: 'messages', accent: '#6854e8' },
@@ -3671,7 +5488,7 @@ export async function openDatabase({
       return rows.filter((row) => Object.hasOwn(integrationMeta, row.integration_id)).map((row) => {
         const meta = integrationMeta[row.integration_id]
         let connected = row.connected === 1
-        if (row.integration_id === 'mcp-grid') {
+        if (row.integration_id === 'lancee-mcp') {
           connected = true
         } else if (row.integration_id === 'codex-ai') {
           connected = codexConnection.connected
@@ -5990,33 +7807,6 @@ export async function openDatabase({
         `UPDATE n8n_connections SET status = 'disconnected', updated_at = $1 WHERE workspace_id = $2`,
         [nowIso(), selectedWorkspaceId],
       )
-    },
-
-    async listMcpServiceStates(selectedWorkspaceId) {
-      const rows = await query(
-        `SELECT service_id, active FROM mcp_service_state WHERE workspace_id = $1`,
-        [selectedWorkspaceId],
-      )
-      return rows.map((row) => ({ serviceId: row.service_id, active: row.active === 1 }))
-    },
-
-    async touchMcpAccess(selectedWorkspaceId, timestamp = nowIso()) {
-      await query(
-        `UPDATE mcp_access SET updated_at = $1 WHERE workspace_id = $2`,
-        [timestamp, selectedWorkspaceId],
-      )
-    },
-
-    async deactivateMcpServices(selectedWorkspaceId) {
-      const timestamp = nowIso()
-      for (const row of await query(`SELECT service_id FROM mcp_service_state WHERE workspace_id = $1 AND active = 1`, [selectedWorkspaceId])) {
-        await query(
-          `INSERT INTO mcp_service_state (workspace_id, service_id, active, updated_at)
-           VALUES ($1, $2, 0, $3)
-           ON CONFLICT (workspace_id, service_id) DO UPDATE SET active = 0, updated_at = EXCLUDED.updated_at`,
-          [selectedWorkspaceId, row.service_id, timestamp],
-        )
-      }
     },
 
     async getN8nDeliveryByIdempotency(selectedWorkspaceId, idempotencyKey) {

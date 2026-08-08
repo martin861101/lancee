@@ -318,12 +318,17 @@ The application serves the only MCP endpoint on its normal origin:
 https://lancee.hookitupservices.com/mcp
 ```
 
-No MCP-specific environment variables are required. To connect an agent client:
+No MCP gateway, remote-server, or bearer-secret environment variables are
+required. To connect an agent client:
 
 1. Request a Lancee device code with the `mcp:invoke` scope.
 2. Sign in to Lancee and approve the displayed code and scope.
 3. Exchange the device code for the one-time displayed token.
 4. Connect to `POST /mcp` with `Authorization: Bearer lnc_codex_...`.
+
+The endpoint advertises 40 local tools. The floating dashboard assistant uses
+the same registry through persisted agent runs, including budgets, result
+chaining, cancellation, and expiring one-use approvals.
 
 For the dashboard path:
 
@@ -334,8 +339,9 @@ For the dashboard path:
 
 There is no external MCP gateway, Basebox MCP connection, or service activation
 state. Provider keys belong in Lancee's application vault and are never MCP
-tool arguments. See [`LANCEE_MCP.md`](LANCEE_MCP.md) for the protocol and
-[`DURABLE_FOUNDATION.md`](DURABLE_FOUNDATION.md) for local persistence.
+tool arguments. See [`LANCEE_MCP.md`](LANCEE_MCP.md) for the protocol,
+[`LANCEE_AGENT_RUNTIME.md`](LANCEE_AGENT_RUNTIME.md) for the dashboard agent,
+and [`DURABLE_FOUNDATION.md`](DURABLE_FOUNDATION.md) for persistence.
 
 ## Production deployment
 
@@ -349,18 +355,20 @@ Before starting, confirm:
 - the proxy has a valid TLS certificate
 - TCP port `5177` is not publicly exposed unless intentionally firewalled
 
-Build and reload the application:
+Build and reload the authoritative Compose application:
 
 ```bash
-pnpm install --frozen-lockfile
-pnpm build
-pm2 startOrReload ecosystem.config.cjs --update-env
-pm2 save
-pm2 describe nexus-agents-platform
+docker compose up -d --build app
+docker compose ps
+curl --fail http://127.0.0.1:5177/api/health
 ```
 
-`nexus-agents-platform` is the current legacy internal PM2 process name; the
-public product and service remain **lancee**.
+This image includes the pinned Playwright/Chromium runtime. Express remains the
+single Lancee application and MCP endpoint; browser-read work runs as the
+unprivileged `pwuser` child in the same container. A deliberate non-Docker PM2
+deployment must install a matching Chromium runtime and configure
+`LANCEE_BROWSER_EXECUTABLE`; otherwise browser capabilities will report
+unavailable. `nexus-agents-platform` remains the legacy PM2 process name.
 
 Configure the reverse proxy with:
 
@@ -382,7 +390,7 @@ cookie is marked `Secure`.
 ```bash
 curl -fsS https://lancee.hookitupservices.com/api/health
 curl -I https://lancee.hookitupservices.com
-pm2 logs nexus-agents-platform --nostream --lines 50
+docker compose logs --tail=50 app
 ```
 
 Also verify in a private browser window:
@@ -393,6 +401,10 @@ Also verify in a private browser window:
 4. Valid credentials open the workspace.
 5. Refreshing the page preserves the session.
 6. Sign-out clears the session.
+7. An approved `browser_screenshot` of a public HTTPS page creates a PNG
+   artifact; private/loopback URLs remain blocked.
+8. A dashboard agent run can pause for approval, resume, and still be inspected
+   from `GET /api/agent/runs/:runId`.
 
 ## Updating an existing deployment
 
@@ -400,9 +412,7 @@ After reviewing and merging the desired source changes:
 
 ```bash
 cd /home/apps/agent-app
-pnpm install --frozen-lockfile
-pnpm build
-pm2 startOrReload ecosystem.config.cjs --update-env
+docker compose up -d --build app
 curl -fsS https://lancee.hookitupservices.com/api/health
 ```
 
@@ -419,8 +429,18 @@ pnpm verify:durability
 pnpm verify:paystack
 pnpm verify:n8n
 pnpm verify:offline
+pnpm verify:mcp
+pnpm verify:capabilities
+pnpm verify:documents
+pnpm verify:runtime-persistence
+pnpm verify:agent-runtime
+pnpm verify:workers-artifacts
+pnpm verify:codex-connector
 node --check server/database.mjs
 node --check server/index.mjs
+node --check server/agent-runtime.mjs
+node --check server/execution-worker.mjs
+node --check server/browser-worker.mjs
 node --check server/notifications.mjs
 node --check server/paystack.mjs
 node --check server/n8n.mjs
@@ -440,9 +460,8 @@ Implemented backend routes:
 | PATCH | `/api/ideas/notes/:noteId` | Required |
 | GET | `/api/mcp/access` | Required |
 | GET | `/api/mcp/services` | Required |
-| POST | `/api/mcp/access-request` | Required |
-| POST | `/api/mcp/access/revoke` | Required |
-| POST | `/api/mcp/services/:serviceId` | Required |
+| POST | `/api/mcp/invoke` | Required, explicit dashboard approval |
+| POST | `/mcp` | Device token with `mcp:invoke` |
 | GET | `/api/money/paystack/status` | Required |
 | GET | `/api/money/invoices` | Required |
 | POST | `/api/money/paystack/payment-links` | Required |
@@ -529,6 +548,10 @@ automation secrets should remain server-side.
 | `PAYSTACK_SECRET_KEY` | For live Paystack flow | Server-only `sk_test_...` or `sk_live_...` key |
 | `PAYSTACK_BASE_URL` | Recommended | Defaults to `https://api.paystack.co` |
 | `PAYSTACK_CALLBACK_URL` | Recommended | Browser return URL after hosted checkout |
+| `LANCEE_MCP_CODE_EXECUTION` | No | Enables owner-only bounded Python/JavaScript tools when exactly `true`; keep disabled unless required |
+| `LANCEE_MCP_PYTHON_BIN` | With Python execution | Python executable; defaults to `python3` |
+| `LANCEE_BROWSER_EXECUTABLE` | Non-Docker browser deployment | Optional explicit Chromium executable; the production image uses its pinned Playwright browser |
+| `LANCEE_BROWSER_RUN_AS_USER` | Recommended in a root container | Unprivileged browser child user; the Docker image sets `pwuser` |
 
 ## Troubleshooting
 
@@ -543,6 +566,8 @@ automation secrets should remain server-side.
 | SMTP test says it is not configured | SMTP status and `.env` | Enable SMTP and provide host, port, and from address; restart |
 | SMTP provider rejects the message | PM2 logs and provider policy | Verify credentials, TLS mode, allowed sender, and relay permissions |
 | MCP returns `401` | Device token and scope | Approve a current device code, exchange it once, and use a non-revoked token with `mcp:invoke` |
+| Browser tool says unavailable | Runtime image/executable and child user | Use the production Docker image, or install the pinned browser and configure its executable; confirm `pwuser` exists in a root container |
+| Agent run waits | Pending action and expiry | Approve or deny the displayed exact action; expired or already-consumed approvals cannot be replayed |
 | Durable state is missing after restart | PostgreSQL connection values or local `DATABASE_PATH` | Confirm every process uses the same database and that the persistent volume/cluster is healthy |
 | Mutation returns `400` | `Idempotency-Key` header | Supply a stable 8–128 character key and reuse it only for the same logical request |
 | Mutation returns `409` | Reused idempotency key | Use the original payload or issue a new key for a new mutation |
@@ -575,6 +600,10 @@ automation secrets should remain server-side.
 | [`server/database.mjs`](../server/database.mjs) | PostgreSQL pool/transactions, SQLite fallback, and repositories |
 | [`server/ai.mjs`](../server/ai.mjs) | OpenAI, Anthropic, and Gemini transports |
 | [`server/lancee-mcp-protocol.mjs`](../server/lancee-mcp-protocol.mjs) | Local MCP JSON-RPC and invocation transport |
+| [`server/capabilities/`](../server/capabilities) | Typed 40-tool local capability registry and adapters |
+| [`server/agent-runtime.mjs`](../server/agent-runtime.mjs) | Persisted planner/executor, budgets, result references, approvals, and cancellation |
+| [`server/execution-worker.mjs`](../server/execution-worker.mjs) | Durable leased jobs, retries, events, cancellation, and recovery |
+| [`server/browser-worker.mjs`](../server/browser-worker.mjs) | Isolated Playwright read/snapshot/screenshot worker |
 | [`server/paystack.mjs`](../server/paystack.mjs) | Paystack authentication, initialization, timeout, and signature verification |
 | [`server/n8n.mjs`](../server/n8n.mjs) | URL policy, encryption, canonical signatures, DNS checks, and outbound delivery |
 | [`server/notifications.mjs`](../server/notifications.mjs) | SMTP transport and notification delivery |

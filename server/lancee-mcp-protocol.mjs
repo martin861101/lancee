@@ -42,14 +42,15 @@ function validArguments(value) {
 
 export function createLanceeMcpProtocolServer({
   runtime,
-  toolDefinitions = lanceeMcpToolDefinitions,
+  toolDefinitions = null,
   logger = console,
 } = {}) {
   if (!runtime || typeof runtime.invoke !== 'function') {
     throw new TypeError('A Lancee MCP runtime with an invoke method is required.')
   }
 
-  const tools = toolDefinitions.map((tool) => ({ ...tool }))
+  const resolvedTools = toolDefinitions || runtime.listTools?.() || lanceeMcpToolDefinitions
+  const tools = resolvedTools.map((tool) => ({ ...tool }))
   const toolNames = new Set(tools.map((tool) => tool.name))
 
   async function handleMessage(message, context) {
@@ -86,7 +87,10 @@ export function createLanceeMcpProtocolServer({
         return rpcError(message.id, -32602, 'Tool arguments must be a JSON object.')
       }
       try {
-        const result = await runtime.invoke(name, argumentsValue, context)
+        const result = await runtime.invoke(name, argumentsValue, context, {
+          origin: 'mcp-protocol',
+          requestId: String(message.id),
+        })
         return rpcResult(message.id, toolResult(result))
       } catch (error) {
         const knownError = error instanceof LanceeMcpError

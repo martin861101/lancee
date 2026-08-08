@@ -64,6 +64,7 @@ export default function WorkspaceChat() {
   const [message, setMessage] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [busy, setBusy] = useState(false)
+  const [agentThreadId, setAgentThreadId] = useState<string | undefined>()
   const messagesElement = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -80,7 +81,8 @@ export default function WorkspaceChat() {
     setMessage('')
     setBusy(true)
     try {
-      const result = await api.chat.complete(content, messages)
+      const result = await api.chat.agent(content, agentThreadId)
+      setAgentThreadId(result.run.threadId)
       setMessages([
         ...next,
         {
@@ -102,6 +104,29 @@ export default function WorkspaceChat() {
     if (!action || messages[index]?.actionState !== 'pending') return
     setMessages((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, actionState: 'running' } : item))
     try {
+      if (action.agentRunId && action.approvalId) {
+        const agentResult = await api.chat.decideAgent(
+          action.agentRunId,
+          action.approvalId,
+          'approved',
+        )
+        setAgentThreadId(agentResult.run.threadId)
+        window.dispatchEvent(new Event(DASHBOARD_CHANGED_EVENT))
+        setMessages((current) => current.map((item, itemIndex) => itemIndex === index
+          ? {
+              ...item,
+              content: agentResult.content,
+              proposedAction: agentResult.proposedAction || undefined,
+              actionState: agentResult.proposedAction
+                ? 'pending'
+                : agentResult.run.status === 'completed' ? 'completed' : 'failed',
+              actionMessage: agentResult.proposedAction
+                ? 'Safe steps completed · another approval is required.'
+                : `Agent run ${readableLabel(agentResult.run.status)}`,
+            }
+          : item))
+        return
+      }
       const result = await api.mcp.invoke(action.serviceId, action.toolId, action.arguments)
       const data = objectValue(result.data)
       const workflow = objectValue(data.workflow)
@@ -170,7 +195,35 @@ export default function WorkspaceChat() {
     }
   }
 
-  const denyAction = (index: number) => {
+  const denyAction = async (index: number) => {
+    const action = messages[index]?.proposedAction
+    if (action?.agentRunId && action.approvalId) {
+      setMessages((current) => current.map((item, itemIndex) => itemIndex === index
+        ? { ...item, actionState: 'running' }
+        : item))
+      try {
+        const agentResult = await api.chat.decideAgent(
+          action.agentRunId,
+          action.approvalId,
+          'denied',
+          'Denied in the Lancee workspace assistant.',
+        )
+        setMessages((current) => current.map((item, itemIndex) => itemIndex === index
+          ? {
+              ...item,
+              content: agentResult.content,
+              proposedAction: undefined,
+              actionState: 'denied',
+              actionMessage: 'Action denied · persisted run stopped.',
+            }
+          : item))
+      } catch (error) {
+        setMessages((current) => current.map((item, itemIndex) => itemIndex === index
+          ? { ...item, actionState: 'failed', actionMessage: error instanceof Error ? error.message : 'The denial could not be saved.' }
+          : item))
+      }
+      return
+    }
     setMessages((current) => current.map((item, itemIndex) => itemIndex === index
       ? { ...item, actionState: 'denied', actionMessage: 'Action not approved.' }
       : item))
@@ -186,7 +239,7 @@ export default function WorkspaceChat() {
           </header>
           <div className="workspace-chat__messages" ref={messagesElement}>
             {messages.length === 0 && (
-              <p>Ask about any dashboard area. I can use Lancee's local tools, create files and records, add connector requests, and build prompt-backed workflows. Every tool action asks for confirmation first.</p>
+              <p>Ask about any dashboard area. Lancee plans a bounded, persisted run, uses only local capabilities, and pauses for confirmation before write or external actions.</p>
             )}
             {messages.map((item, index) => (
               <div className={`workspace-chat__message workspace-chat__message--${item.role}`} key={`${item.role}:${index}`}>
@@ -202,7 +255,7 @@ export default function WorkspaceChat() {
                         <button type="button" onClick={() => void approveAction(index)}>
                           {item.proposedAction.risk === 'high' ? 'Approve high-risk action' : 'Confirm'}
                         </button>
-                        <button type="button" onClick={() => denyAction(index)}>Deny</button>
+                        <button type="button" onClick={() => void denyAction(index)}>Deny</button>
                       </div>
                     )}
                     {item.actionState === 'running' && <small>Working…</small>}

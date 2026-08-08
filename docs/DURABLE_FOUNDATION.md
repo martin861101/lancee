@@ -34,8 +34,7 @@ idempotency, and query indexes. See
 | `users` | Durable identity, display name, email, and scrypt password material |
 | `workspaces` | Stable workspace identity and name |
 | `workspace_members` | Owner/collaborator membership boundary |
-| `mcp_access` | Workspace-scoped bearer request and approval state |
-| `mcp_service_state` | Workspace-scoped service activation |
+| `mcp_invocations` | Workspace-scoped audit ledger for the one local Lancee MCP registry |
 | `api_keys` | Masked key metadata, SHA-256 secret hash, scopes, use and revocation timestamps |
 | `idempotency_requests` | Mutation request hash and replayable non-secret response |
 | `payment_connections` | Workspace provider status, encrypted credential, and non-secret fingerprint |
@@ -47,6 +46,15 @@ idempotency, and query indexes. See
 | `n8n_nonces` | Workspace-scoped inbound replay protection |
 | `idea_notes` | Workspace/board-scoped content with optimistic versions |
 | `project_files` | Project attachment metadata, SHA-256 digest, and bounded PostgreSQL-backed content |
+| `agent_threads` | Workspace/user-scoped persisted assistant conversations |
+| `agent_runs` | Validated plans, budgets, usage, results, status, pending action, and final output |
+| `agent_steps` | Ordered resolved capability inputs/hashes, results, and errors |
+| `agent_approvals` | Expiring exact tool/argument approvals with atomic one-use consumption |
+| `agent_run_events` | Monotonic agent execution and approval events |
+| `execution_jobs` | Idempotent queued work, attempts, leases, heartbeats, retry state, and output |
+| `execution_job_events` | Monotonic durable job lifecycle and delivery events |
+| `artifacts` | Workspace-owned output metadata, SHA-256 integrity, storage reference, and lifecycle |
+| `artifact_links` | Workspace-scoped relationships between artifacts and runs/resources |
 
 The configured administrator is an initial bootstrap identity. On startup,
 lancee upserts that identity and ensures an owner membership in
@@ -81,9 +89,11 @@ request, and stores the response for 24 hours.
 Current idempotent routes:
 
 ```text
-POST   /api/mcp/access-request
-POST   /api/mcp/access/revoke
-POST   /api/mcp/services/:serviceId
+POST   /api/mcp/invoke
+POST   /api/agent/runs
+POST   /api/agent/runs/:runId/resume
+POST   /api/agent/runs/:runId/approvals/:approvalId
+POST   /api/agent/runs/:runId/cancel
 POST   /api/api-keys
 DELETE /api/api-keys/:keyId
 POST   /api/ideas/notes
@@ -137,12 +147,32 @@ scopes return `403`; unknown or revoked keys return `401`.
 
 Lancee MCP uses the existing hashed device-token records and workspace context.
 Its local service is always active, so no external gateway lease or per-service
-activation is required. The legacy `mcp_access` and `mcp_service_state` tables
-remain temporarily for schema compatibility but do not authorize the local
-tool runtime.
+activation is required. Startup removes the obsolete `mcp_access` and
+`mcp_service_state` tables from older databases; only the workspace-scoped
+`mcp_invocations` audit ledger remains.
 
 The focused MCP and connector verifiers exercise the in-process protocol
 adapter and the authenticated HTTP `/mcp` boundary without production services.
+
+## Agent runs, jobs, and artifacts
+
+Agent execution persists the validated source plan separately from resolved
+step inputs. Later-step result references resolve only from an earlier
+persisted normalized result; the resolved arguments and canonical SHA-256 hash
+are stored before approval or invocation. This lets a run resume deterministically
+without accepting client-provided workspace context or argument replacement.
+
+The generic execution queue is database-authoritative. Enqueue is
+workspace/idempotency scoped, claims are atomic, active attempts hold expiring
+leases and heartbeats, and expired leases are recovered into bounded retry or
+terminal failure. A workspace can have at most 1,000 active queued/running
+jobs. Redis or event delivery can wake consumers, but losing an accelerator
+does not lose the job ledger or event stream.
+
+Artifacts register durable outputs with their MIME type, byte size, SHA-256,
+storage location, creating user/run, metadata, links, expiry, and soft-delete
+state. Every read, link, lifecycle transition, and job/agent lookup includes a
+workspace predicate.
 
 ## Verification
 
@@ -154,6 +184,9 @@ pnpm lint
 pnpm verify:durability
 pnpm verify:offline
 pnpm verify:postgres
+pnpm verify:runtime-persistence
+pnpm verify:agent-runtime
+pnpm verify:workers-artifacts
 pnpm verify:workspace-flows
 ```
 

@@ -1,6 +1,6 @@
 # Lancee MCP & Agentic Runtime Architecture
 
-**Status:** Accepted architecture · Phase 1 in progress
+**Status:** Accepted architecture · V1 phases 0–5 implemented · production deployment smoke pending
 **Platform:** Lancee
 **Purpose:** AI orchestration, tool execution, automation and global capability framework
 **Design principle:** *AI decides. MCP exposes. Services execute. Lancee governs.*
@@ -39,22 +39,66 @@ The following legacy paths are retired as part of Phase 1:
 - Basebox MCP discovery and invocation;
 - per-workspace activation of external MCP servers;
 - separate MCP bearer secrets and standalone MCP deployment commands;
-- the repository-local MCP capability-grid documentation.
+- the repository-local MCP capability-grid documentation; and
+- the obsolete `mcp_access` and `mcp_service_state` activation tables (startup
+  drops them from upgraded databases; `mcp_invocations` remains as audit).
 
 ## Integration rollout
 
 | Phase | Status | Deliverable |
 | --- | --- | --- |
 | 0. Architecture lock | Complete | One in-codebase Lancee MCP boundary; no external MCP federation. |
-| 1. Local protocol foundation | In progress | `/mcp` lists and invokes Lancee tools directly with workspace context; remove remote MCP code/configuration. |
-| 2. Capability modules | Pending | Move web, browser, document, file, visual, and integration capabilities behind typed local adapters. |
-| 3. Agent runtime | Pending | Planner/executor loop, budgets, retries, approvals, run state, and tool-result contracts. |
-| 4. Workers and artifacts | Pending | Durable jobs, artifact registration, event delivery, and resumable long-running operations. |
-| 5. V1 hardening | Pending | Contract tests, risk-policy coverage, audit/observability, load limits, and production rollout. |
+| 1. Local protocol foundation | Complete | `/mcp` lists and invokes Lancee tools directly with workspace context; remote MCP code/configuration removed. |
+| 2. Capability modules | Complete | One typed 40-tool registry covers Lancee platform, web, browser-read, visual, files, documents, integrations, artifacts, jobs, and approvals. |
+| 3. Agent runtime | Complete | Persisted planner/executor loop, hard budgets, bounded retries, loop protection, cancellation, and one-use argument-bound approvals. |
+| 4. Workers and artifacts | Complete | Database-authoritative leased jobs, recovery, retries, events, artifact integrity, links, and workspace isolation. |
+| 5. V1 hardening | Complete in code | Schema parity, policy, SSRF, audit, rate/concurrency/queue limits, SQLite/PostgreSQL portability, and end-to-end tests are implemented. Production deployment and browser smoke remain operator steps. |
 
 Phase 1 is complete when Lancee can initialize MCP, list its local tool schema,
 invoke a tool with the authenticated workspace context, and run without any
 remote MCP server URL, token, registry, or client package.
+
+## V1 implementation completion — 2026-08-08
+
+The rollout above is implemented in this repository. The application exposes
+exactly one MCP protocol endpoint at `/mcp`; it does not discover, proxy, start,
+or configure another MCP server. Its dynamic catalog contains 40 public tools
+backed by immutable local contracts under `server/capabilities/`. Every
+contract declares its schemas, version, provider, permissions, risk, approval
+policy, timeout, cost estimate, concurrency limit, async support, and tags.
+
+The completed runtime includes:
+
+- local web search/access/extract/crawl with DNS pinning, public-address checks,
+  redirect revalidation, bounded responses, and untrusted-result marking;
+- isolated Playwright read/snapshot/screenshot work, visual inspection, file
+  read/write/search, PDF/DOCX/HTML/Markdown creation, deterministic document
+  merging, and artifact registration;
+- a persisted agent thread/run/step/event model with validated JSON planning,
+  backward-only result references between steps, normalized tool envelopes,
+  hard token/cost/runtime/tool/step budgets, bounded retry backoff,
+  cancellation, and repeated-call protection;
+- expiring, one-use approvals bound to the exact capability and canonical
+  argument hash before an autonomous high-risk invocation can execute;
+- database-authoritative execution jobs with idempotent enqueue, atomic leases,
+  heartbeats, crash recovery, retries, cancellation, durable events, and a
+  queue-depth limit;
+- workspace-scoped artifacts with integrity hashes, metadata, links, content
+  access, soft deletion, and restoration;
+- one authorization and audit boundary shared by MCP clients, the persisted
+  dashboard agent, and internal service adapters; and
+- focused SQLite and PostgreSQL-compatible persistence checks plus end-to-end
+  MCP, policy, connector, worker, artifact, document, and agent verifiers.
+
+The production container supplies a pinned Playwright/Chromium runtime and
+runs browser work in a non-root child process. A deployed Chromium screenshot
+smoke and normal production rollout checks cannot be completed by source
+implementation alone and are explicitly retained as deployment steps.
+
+Sections 58 and 59 describe post-V1 expansion ideas. Interactive browser
+mutation tools, broad SaaS families, agent delegation, and arbitrary custom
+modules are not part of this completed V1 and must enter through the same local
+registry and policy boundary if added later.
 
 ---
 

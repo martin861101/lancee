@@ -1,10 +1,12 @@
-import { lookup } from 'node:dns/promises'
 import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
-import { isIP } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createTextPdf } from './pdf.mjs'
+import {
+  createLanceeCapabilityRegistry,
+  LanceeCapabilityError,
+  lanceeMcpCapabilityBindings,
+} from './capabilities/index.mjs'
 
 export const lanceeMcpScope = 'mcp:invoke'
 
@@ -13,10 +15,7 @@ const runIdPattern = /^run_[a-f0-9]{12}$/
 const MAX_INSTRUCTION_LENGTH = 5_000
 const MAX_FILE_CONTENT_LENGTH = 512_000
 const MAX_PDF_CONTENT_LENGTH = 200_000
-const MAX_SEARCH_RESPONSE_LENGTH = 1_000_000
 const MAX_CODE_LENGTH = 20_000
-const MAX_EXTERNAL_BODY_LENGTH = 32_000
-const MAX_EXTERNAL_RESPONSE_LENGTH = 256_000
 const MAX_CODE_OUTPUT_LENGTH = 64_000
 
 export class LanceeMcpError extends Error {
@@ -343,6 +342,49 @@ export const lanceeMcpToolDefinitions = [
   },
 ]
 
+const platformCapabilityMetadata = Object.freeze({
+  run_workflow: { permissions: ['automations:run'], risk: 'internal-write', approval: true, tags: ['automation', 'run'] },
+  create_workflow: { permissions: ['automations:write'], risk: 'internal-write', approval: true, tags: ['automation', 'create'] },
+  query_dashboard: { permissions: ['workspace:read'], risk: 'read', approval: false, tags: ['workspace', 'query'] },
+  create_client: { permissions: ['clients:write'], risk: 'internal-write', approval: true, tags: ['client', 'create'] },
+  create_project: { permissions: ['projects:write'], risk: 'internal-write', approval: true, tags: ['project', 'create'] },
+  set_project_status: { permissions: ['projects:write'], risk: 'internal-write', approval: true, tags: ['project', 'status'] },
+  request_connector: { permissions: ['integrations:write'], risk: 'internal-write', approval: true, tags: ['integration', 'request'] },
+  delete_workspace_resource: { permissions: ['workspace:delete'], risk: 'destructive', approval: true, tags: ['workspace', 'delete'] },
+  get_workflow_status: { permissions: ['automations:read'], risk: 'read', approval: false, tags: ['automation', 'status'] },
+  search_workflows: { permissions: ['automations:read'], risk: 'read', approval: false, tags: ['automation', 'search'] },
+  execute_python: { permissions: ['system:execute-code'], risk: 'administrative', approval: true, tags: ['system', 'code', 'python'] },
+  execute_javascript: { permissions: ['system:execute-code'], risk: 'administrative', approval: true, tags: ['system', 'code', 'javascript'] },
+  schedule_job: { permissions: ['automations:schedule'], risk: 'internal-write', approval: true, tags: ['job', 'automation', 'schedule'] },
+  get_logs: { permissions: ['automations:read'], risk: 'read', approval: false, tags: ['automation', 'logs'] },
+})
+
+function createPlatformCapabilityDefinitions(executePlatform) {
+  return Object.entries(platformCapabilityMetadata).map(([toolName, metadata]) => {
+    const tool = lanceeMcpToolDefinitions.find((candidate) => candidate.name === toolName)
+    const id = lanceeMcpCapabilityBindings[toolName]
+    if (!tool || !id) throw new TypeError(`Missing Lancee platform capability contract for ${toolName}.`)
+    return {
+      id,
+      namespace: id.split('.')[0],
+      version: '1.0.0',
+      description: tool.description,
+      provider: 'lancee.platform',
+      inputSchema: tool.inputSchema,
+      outputSchema: { type: 'object' },
+      requiredPermissions: metadata.permissions,
+      riskLevel: metadata.risk,
+      requiresApproval: metadata.approval,
+      timeoutMs: toolName.startsWith('execute_') ? 20_000 : 30_000,
+      concurrencyLimit: toolName.startsWith('execute_') ? 1 : 8,
+      estimatedCost: 0,
+      supportsAsync: false,
+      tags: metadata.tags,
+      execute: ({ input, context, invocation }) => executePlatform(toolName, context, input, invocation),
+    }
+  })
+}
+
 function objectArguments(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'Tool arguments must be an object.')
@@ -389,230 +431,6 @@ function publicContext(context) {
     user: { id: context.user.id, name: context.user.name, email: context.user.email },
     workspace: { id: context.workspace.id, name: context.workspace.name },
     membership: context.membership,
-  }
-}
-
-function privateIpv4(address) {
-  const octets = address.split('.').map(Number)
-  return (
-    octets[0] === 0 ||
-    octets[0] === 10 ||
-    octets[0] === 127 ||
-    (octets[0] === 169 && octets[1] === 254) ||
-    (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
-    (octets[0] === 192 && octets[1] === 168) ||
-    (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) ||
-    octets[0] >= 224
-  )
-}
-
-function privateIpv6(address) {
-  const normalized = address.toLowerCase()
-  if (normalized.startsWith('::ffff:')) return privateIpv4(normalized.slice(7))
-  return normalized === '::' || normalized === '::1' ||
-    normalized.startsWith('fc') || normalized.startsWith('fd') ||
-    normalized.startsWith('fe8') || normalized.startsWith('fe9') ||
-    normalized.startsWith('fea') || normalized.startsWith('feb') ||
-    normalized.startsWith('ff')
-}
-
-function isPrivateAddress(address) {
-  const version = isIP(address)
-  return version === 4 ? privateIpv4(address) : version === 6 ? privateIpv6(address) : true
-}
-
-async function validateExternalApiUrl(value) {
-  let target
-  try {
-    target = new URL(value)
-  } catch {
-    throw new LanceeMcpError('MCP_INVALID_URL', 'Enter a valid external API URL.')
-  }
-  if (target.username || target.password || target.hash) {
-    throw new LanceeMcpError('MCP_INVALID_URL', 'External API URLs cannot contain credentials or fragments.')
-  }
-  const production = process.env.NODE_ENV === 'production' || process.env.APP_ENV === 'production'
-  if (target.protocol !== 'https:' && !(target.protocol === 'http:' && !production && process.env.LANCEE_MCP_ALLOW_HTTP === 'true')) {
-    throw new LanceeMcpError('MCP_HTTPS_REQUIRED', 'External API calls must use HTTPS.')
-  }
-  const hostname = target.hostname.replace(/^\[|\]$/g, '').toLowerCase()
-  if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local') || hostname.endsWith('.internal') || hostname === 'metadata.google.internal') {
-    throw new LanceeMcpError('MCP_PRIVATE_ADDRESS_BLOCKED', 'Private and internal API hosts are not allowed.')
-  }
-  const addresses = isIP(hostname)
-    ? [{ address: hostname }]
-    : await lookup(hostname, { all: true, verbatim: true }).catch(() => [])
-  if (!addresses.length || addresses.some(({ address }) => isPrivateAddress(address))) {
-    throw new LanceeMcpError('MCP_PRIVATE_ADDRESS_BLOCKED', 'The API hostname must resolve only to public addresses.')
-  }
-  return target
-}
-
-function jsonByteLength(value) {
-  try {
-    return Buffer.byteLength(JSON.stringify(value))
-  } catch {
-    throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'The request body must be JSON-compatible.')
-  }
-}
-
-function decodeHtml(value) {
-  const named = {
-    amp: '&', apos: "'", gt: '>', lt: '<', nbsp: ' ', quot: '"',
-  }
-  return String(value || '')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity) => {
-      if (entity.startsWith('#')) {
-        const code = Number.parseInt(entity.slice(entity.startsWith('#x') ? 2 : 1), entity.startsWith('#x') ? 16 : 10)
-        return Number.isInteger(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match
-      }
-      return named[entity.toLowerCase()] || match
-    })
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function searchResultUrl(value) {
-  try {
-    const target = new URL(String(value || ''), 'https://html.duckduckgo.com')
-    const redirected = target.searchParams.get('uddg')
-    const selected = redirected ? new URL(redirected) : target
-    return ['http:', 'https:'].includes(selected.protocol) ? selected.toString() : null
-  } catch {
-    return null
-  }
-}
-
-async function searchPublicWeb(args) {
-  const query = textArgument(args, 'query', { required: true, maxLength: 300 })
-  const limit = Number.isInteger(args.limit) ? Math.min(20, Math.max(1, args.limit)) : 10
-  if (query.length < 2) throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'Enter a web search query of at least two characters.')
-  const endpoint = process.env.LANCEE_WEB_SEARCH_URL || 'https://html.duckduckgo.com/html/'
-  let response
-  try {
-    response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0 (compatible; LanceeResearch/1.0; +https://lancee.hookitupservices.com)',
-      },
-      body: new URLSearchParams({ q: query }),
-      redirect: 'error',
-      signal: AbortSignal.timeout(15_000),
-    })
-  } catch (error) {
-    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
-      throw new LanceeMcpError('MCP_SEARCH_TIMEOUT', 'The web search provider timed out.', 504)
-    }
-    throw new LanceeMcpError('MCP_SEARCH_UNREACHABLE', 'The web search provider could not be reached.', 502)
-  }
-  if (!response.ok) {
-    throw new LanceeMcpError('MCP_SEARCH_FAILED', `The web search provider returned HTTP ${response.status}.`, 502)
-  }
-  const body = Buffer.from(await response.arrayBuffer())
-  if (body.byteLength > MAX_SEARCH_RESPONSE_LENGTH) {
-    throw new LanceeMcpError('MCP_SEARCH_RESPONSE_TOO_LARGE', 'The web search response exceeded the 1 MB limit.', 502)
-  }
-  const html = body.toString('utf8')
-  const links = [...html.matchAll(/<a[^>]*class=["']result__a["'][^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
-  const results = []
-  const seen = new Set()
-  for (let index = 0; index < links.length && results.length < limit; index += 1) {
-    const match = links[index]
-    const url = searchResultUrl(match[1])
-    if (!url || seen.has(url)) continue
-    const segment = html.slice(match.index + match[0].length, links[index + 1]?.index || html.length)
-    const snippetMatch = segment.match(/class=["'][^"']*result__snippet[^"']*["'][^>]*>([\s\S]*?)<\/(?:a|div)>/i)
-    const title = decodeHtml(match[2])
-    if (!title) continue
-    seen.add(url)
-    results.push({ title, url, snippet: decodeHtml(snippetMatch?.[1] || '').slice(0, 800) })
-  }
-  if (!results.length) {
-    throw new LanceeMcpError('MCP_SEARCH_EMPTY', 'The web search provider returned no usable results.', 502)
-  }
-  return { query, provider: 'DuckDuckGo HTML', results, searchedAt: new Date().toISOString() }
-}
-
-async function readResponseBody(response, maximumLength) {
-  if (!response.body) return Buffer.alloc(0)
-  const reader = response.body.getReader()
-  const chunks = []
-  let length = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    length += value.byteLength
-    if (length > maximumLength) {
-      await reader.cancel().catch(() => {})
-      throw new LanceeMcpError('MCP_RESPONSE_TOO_LARGE', 'The external API response exceeded the 256 KB limit.', 413)
-    }
-    chunks.push(Buffer.from(value))
-  }
-  return Buffer.concat(chunks)
-}
-
-async function callExternalApi(args) {
-  const target = await validateExternalApiUrl(textArgument(args, 'url', { required: true, maxLength: 2048 }))
-  const method = textArgument(args, 'method', { maxLength: 10 }).toUpperCase() || 'GET'
-  if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].includes(method)) {
-    throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'Use GET, POST, PUT, PATCH, DELETE, or HEAD.')
-  }
-  const headers = args.headers === undefined ? {} : args.headers
-  if (!headers || typeof headers !== 'object' || Array.isArray(headers)) {
-    throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'headers must be an object of string values.')
-  }
-  const blockedHeaders = new Set(['authorization', 'cookie', 'set-cookie', 'proxy-authorization', 'host', 'content-length', 'x-forwarded-for', 'x-forwarded-host'])
-  const requestHeaders = {}
-  for (const [key, value] of Object.entries(headers)) {
-    const normalizedKey = key.toLowerCase()
-    if (blockedHeaders.has(normalizedKey)) {
-      throw new LanceeMcpError('MCP_HEADER_BLOCKED', `The ${key} header is not allowed.`)
-    }
-    if (!/^[a-z0-9-]+$/i.test(key) || typeof value !== 'string' || value.length > 500) {
-      throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'Headers must use simple names and string values up to 500 characters.')
-    }
-    requestHeaders[key] = value
-  }
-  const hasBody = args.body !== undefined && method !== 'GET' && method !== 'HEAD'
-  if (args.body !== undefined && jsonByteLength(args.body) > MAX_EXTERNAL_BODY_LENGTH) {
-    throw new LanceeMcpError('MCP_BODY_TOO_LARGE', 'The external API request body exceeded the 32 KB limit.', 413)
-  }
-  const timeoutMs = Number.isFinite(Number(args.timeout_ms))
-    ? Math.min(15_000, Math.max(250, Number(args.timeout_ms)))
-    : 10_000
-  if (hasBody && !Object.keys(requestHeaders).some((key) => key.toLowerCase() === 'content-type')) {
-    requestHeaders['Content-Type'] = 'application/json'
-  }
-  let response
-  try {
-    response = await fetch(target, {
-      method,
-      headers: requestHeaders,
-      body: hasBody ? JSON.stringify(args.body) : undefined,
-      redirect: 'error',
-      signal: AbortSignal.timeout(timeoutMs),
-    })
-  } catch (error) {
-    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
-      throw new LanceeMcpError('MCP_EXTERNAL_TIMEOUT', 'The external API did not respond before the timeout.', 504)
-    }
-    throw new LanceeMcpError('MCP_EXTERNAL_UNREACHABLE', 'The external API could not be reached.', 502)
-  }
-  const body = await readResponseBody(response, MAX_EXTERNAL_RESPONSE_LENGTH)
-  const contentType = response.headers.get('content-type') || ''
-  const raw = body.toString('utf8')
-  let data = raw
-  if (contentType.includes('json')) {
-    try { data = JSON.parse(raw) } catch { data = raw }
-  }
-  return {
-    status: response.status,
-    ok: response.ok,
-    url: target.toString(),
-    contentType: contentType || null,
-    data,
   }
 }
 
@@ -696,6 +514,18 @@ export function createLanceeMcpRuntime({
   executeAutomationRun,
   enqueueCoreJob,
   prepareAutomationRun,
+  capabilities = null,
+  requestImpl,
+  dnsLookup,
+  env,
+  now,
+  renderPdf,
+  renderDocx,
+  browserWorker,
+  executionWorker,
+  sharpImpl,
+  authorize,
+  audit,
 }) {
   const availableCoreTools = new Set(coreToolIds)
   let schedulerTimer = null
@@ -773,48 +603,6 @@ export function createLanceeMcpRuntime({
       status,
     })
     return { project }
-  }
-
-  async function createFile(context, args) {
-    const name = textArgument(args, 'name', { required: true, maxLength: 240 })
-    const content = String(args.content ?? '')
-    const mimeType = textArgument(args, 'mime_type', { maxLength: 80 }) || (name.toLowerCase().endsWith('.md') ? 'text/markdown' : 'text/plain')
-    if (name.includes('/') || name.includes('\\') || name.includes('\0')) {
-      throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'The file name cannot contain path separators or null characters.')
-    }
-    if (!['text/plain', 'text/markdown', 'application/json'].includes(mimeType)) {
-      throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'Create a text, Markdown, or JSON file.')
-    }
-    const body = Buffer.from(content, 'utf8')
-    if (body.byteLength > MAX_FILE_CONTENT_LENGTH) {
-      throw new LanceeMcpError('MCP_BODY_TOO_LARGE', 'The file content exceeds 512 KB.', 413)
-    }
-    if (mimeType === 'application/json') {
-      try { JSON.parse(content) } catch { throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'JSON file content must be valid JSON.') }
-    }
-    const file = await database.createWorkspaceDocument({ workspaceId: context.workspace.id, name, mimeType, body })
-    return { file }
-  }
-
-  async function createPdf(context, args) {
-    const rawName = textArgument(args, 'name', { required: true, maxLength: 240 })
-    const name = rawName.toLowerCase().endsWith('.pdf') ? rawName : `${rawName}.pdf`
-    const title = textArgument(args, 'title', { required: true, maxLength: 200 })
-    const content = String(args.content ?? '')
-    if (name.length > 240 || name.includes('/') || name.includes('\\') || name.includes('\0') || content.length === 0) {
-      throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'Use a valid PDF name, title, and non-empty content.')
-    }
-    if (Buffer.byteLength(content, 'utf8') > MAX_PDF_CONTENT_LENGTH) {
-      throw new LanceeMcpError('MCP_BODY_TOO_LARGE', 'The PDF source content exceeds 200 KB.', 413)
-    }
-    const body = createTextPdf({ title, content })
-    const file = await database.createWorkspaceDocument({
-      workspaceId: context.workspace.id,
-      name,
-      mimeType: 'application/pdf',
-      body,
-    })
-    return { file }
   }
 
   async function requestConnector(context, args) {
@@ -999,9 +787,7 @@ export function createLanceeMcpRuntime({
     schedulerTimer = null
   }
 
-  async function invoke(name, rawArguments, rawContext) {
-    const context = requireContext(rawContext)
-    const args = objectArguments(rawArguments)
+  async function invokePlatformTool(name, context, args) {
     if (name === 'run_workflow') return runWorkflow(context, args)
     if (name === 'query_dashboard') return queryDashboard(context, args)
     if (name === 'create_client') return createClient(context, args)
@@ -1016,9 +802,6 @@ export function createLanceeMcpRuntime({
       if (!project) throw new LanceeMcpError('MCP_RESOURCE_NOT_FOUND', 'Project not found.', 404)
       return { project }
     }
-    if (name === 'create_file') return createFile(context, args)
-    if (name === 'web_search') return searchPublicWeb(args)
-    if (name === 'create_pdf') return createPdf(context, args)
     if (name === 'request_connector') return requestConnector(context, args)
     if (name === 'delete_workspace_resource') return deleteWorkspaceResource(context, args)
     if (name === 'create_workflow') {
@@ -1099,12 +882,74 @@ export function createLanceeMcpRuntime({
       const logs = (run.events || []).filter((event) => (level === 'all' || event.level === level) && (!eventType || event.eventType === eventType))
       return { runId: selectedRunId, logs: logs.slice(0, limit), total: logs.length }
     }
-    if (name === 'call_external_api') {
-      requireOwner(context)
-      return callExternalApi(args)
-    }
     throw new LanceeMcpError('MCP_TOOL_NOT_FOUND', `Unknown Lancee MCP tool: ${name}.`, 404)
   }
 
-  return { invoke, startScheduler, stopScheduler, dispatchDueSchedules }
+  const capabilityRegistry = capabilities || createLanceeCapabilityRegistry({
+    database,
+    requestImpl,
+    dnsLookup,
+    env,
+    now,
+    renderPdf,
+    renderDocx,
+    browserWorker,
+    executionWorker,
+    sharpImpl,
+    authorize,
+    audit,
+    additionalCapabilities: createPlatformCapabilityDefinitions(invokePlatformTool),
+  })
+
+  async function invoke(name, rawArguments, rawContext, invocation = {}) {
+    const context = requireContext(rawContext)
+    const args = objectArguments(rawArguments)
+    const capabilityId = lanceeMcpCapabilityBindings[name]
+    if (!capabilityId || !capabilityRegistry.has(capabilityId)) {
+      throw new LanceeMcpError('MCP_TOOL_NOT_FOUND', `Unknown Lancee MCP tool: ${name}.`, 404)
+    }
+    if (name === 'call_external_api') requireOwner(context)
+    try {
+      return await capabilityRegistry.invoke(capabilityId, args, context, {
+        origin: 'mcp',
+        ...invocation,
+      })
+    } catch (error) {
+      if (error instanceof LanceeCapabilityError) {
+        throw new LanceeMcpError(`MCP_${error.code}`, error.message, error.status)
+      }
+      throw error
+    }
+  }
+
+  function listTools() {
+    return Object.entries(lanceeMcpCapabilityBindings).flatMap(([name, capabilityId]) => {
+      const capability = capabilityRegistry.get(capabilityId)
+      if (!capability) return []
+      const existing = lanceeMcpToolDefinitions.find((tool) => tool.name === name)
+      const openWorld = ['web', 'browser', 'integration'].includes(capability.namespace)
+      return [{
+        name,
+        title: existing?.title || name.split('_').map((word) => word[0].toUpperCase() + word.slice(1)).join(' '),
+        description: capability.description,
+        inputSchema: capability.inputSchema,
+        annotations: existing?.annotations || {
+          readOnlyHint: capability.riskLevel === 'read',
+          destructiveHint: ['destructive', 'administrative'].includes(capability.riskLevel),
+          idempotentHint: capability.riskLevel === 'read',
+          ...(openWorld ? { openWorldHint: true } : {}),
+        },
+      }]
+    })
+  }
+
+  return {
+    invoke,
+    startScheduler,
+    stopScheduler,
+    dispatchDueSchedules,
+    listCapabilities: () => capabilityRegistry.list(),
+    listTools,
+    capabilities: capabilityRegistry,
+  }
 }

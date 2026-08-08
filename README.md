@@ -230,18 +230,19 @@ Lancee has one MCP server: the `/mcp` route in this application. It lists and
 invokes the local Lancee tool registry directly. There is no remote MCP Grid,
 Basebox server, external MCP discovery, or separate MCP deployment.
 
-The workspace assistant uses native provider function calls to propose tools,
-but the browser still shows an explicit risk-labelled **Confirm** or **Approve
-high-risk action** control before invoking one. The built-in Lancee tools are
-always available to an authenticated workspace and execute with that user's
-workspace context.
+The workspace assistant now creates a durable agent thread and run. Its plan,
+steps, events, usage, results, and approval state survive a restart. When an
+autonomous capability requires approval, the browser shows a risk-labelled
+approval card and the server binds that one-use decision to the exact tool and
+argument hash. The built-in Lancee tools are always available to an
+authenticated workspace and execute with that user's workspace context.
 
-The built-in dashboard control plane can read workspace-scoped PostgreSQL data
-without exposing raw SQL or database credentials, create clients and projects,
-change project status, create text/Markdown/JSON files, save connector requests
-into **Connections**, and create prompt-backed Core or Edge workflows. Every
-tool call is individually approved. Destructive deletion, external API calls,
-and enabled code execution are additionally restricted to workspace owners.
+The local catalog exposes 40 public tools across workspace operations, web
+research, browser read/snapshot/screenshot, visual inspection, files,
+documents, artifacts, jobs, approvals, integrations, scheduling, logs, and
+optional code execution. Workspace and role policy is enforced before every
+call. Destructive deletion, external API calls, and enabled code execution are
+additionally restricted to workspace owners.
 
 See [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) and
 [`docs/mcp-services.md`](docs/mcp-services.md).
@@ -251,8 +252,16 @@ See [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) and
 The same app now serves an MCP endpoint at `/mcp` on the normal application
 port (`5177` by default). The implementation is split between
 [`server/lancee-mcp-protocol.mjs`](server/lancee-mcp-protocol.mjs), which owns
-MCP JSON-RPC, and [`server/lancee-mcp.mjs`](server/lancee-mcp.mjs), which owns
-the workspace-scoped tool contracts and adapters.
+MCP JSON-RPC, [`server/lancee-mcp.mjs`](server/lancee-mcp.mjs), which owns the
+workspace-scoped public tool contracts and authorization mapping, and
+[`server/capabilities/`](server/capabilities), which owns typed local capability
+contracts and adapters.
+
+The registry dynamically maps all 40 public tools to typed local capabilities.
+Each contract records its provider, input/output schemas, permissions, role
+policy, risk, approval policy, timeout, cost estimate, concurrency limit, and
+tags. Calls return one normalized success/error envelope and emit one audit
+record at the registry boundary.
 
 Connect an MCP client to `https://lancee.hookitupservices.com/mcp` with
 `Authorization: Bearer <lancee-device-token>`. The token must have the
@@ -261,8 +270,10 @@ by the app on port `5177` behind the existing HTTPS reverse proxy. Lancee no
 longer accepts `MCP_SERVER_TOKEN`, `MCP_GATEWAY_URL`, `MCP_API_TOKEN`, or
 Basebox MCP configuration.
 
-The rollout and remaining agent-runtime phases are tracked in
-[`LANCEE_RUNTIME_MCP_INTEGRATIONS.md`](LANCEE_RUNTIME_MCP_INTEGRATIONS.md).
+The completed V1 architecture is recorded in
+[`LANCEE_RUNTIME_MCP_INTEGRATIONS.md`](LANCEE_RUNTIME_MCP_INTEGRATIONS.md), with
+runtime operations in
+[`docs/LANCEE_AGENT_RUNTIME.md`](docs/LANCEE_AGENT_RUNTIME.md).
 
 ## Storefront preview video
 
@@ -364,16 +375,16 @@ security, packaging, configuration, and verification details.
 
 The Lancee MCP bridge is the agent-facing surface for the platform itself. It
 uses the same device approval flow as the AI connector, but requires the
-separate `mcp:invoke` scope. It exposes workspace-scoped dashboard reads,
-client/project/file/connector actions, workflow search, prompt-backed creation,
-execution, status, logs, durable scheduling, bounded external API calls, and
-enabled Python/JavaScript execution.
+separate `mcp:invoke` scope. Its 40 tools expose workspace operations, web and
+browser research, visual analysis, file/document/artifact operations, durable
+jobs, approvals, workflow execution/status/logs/scheduling, bounded external
+API calls, and explicitly enabled Python/JavaScript execution.
 
-The same runtime is available to the floating dashboard assistant. Asking it
-to create a workflow produces a typed approval request; approval creates and
-activates the workflow, saves its optional reusable prompt or JSON step plan,
-refreshes the dashboard UI, and makes it immediately eligible for
-`run_workflow` or `schedule_job`.
+The floating dashboard assistant uses the persisted planner/executor runtime
+over that same registry. Runs are workspace/user scoped, budgeted, cancellable,
+restart-resumable, and protected against retry loops. Approval, denial,
+expiry, replay, and argument mismatch are handled server-side before a gated
+step can execute.
 
 Explicit file-writing prompts are routed directly to the built-in
 `create_file` declaration instead of making the provider choose from the full
@@ -390,10 +401,10 @@ document.
 The bridge is implemented directly by
 [`server/lancee-mcp-protocol.mjs`](server/lancee-mcp-protocol.mjs) and
 [`server/lancee-mcp.mjs`](server/lancee-mcp.mjs). Workflow runs reuse the
-existing Core/Edge engine and Redis queue. Scheduling entries are persisted in
-the database and resumed by the server scheduler. See
+existing Core/Edge engine. Generic long-running work uses database-authoritative
+jobs with leases, heartbeats, retries, recovery, cancellation, and durable
+events; Redis is only an optional wake-up accelerator. See
 [`docs/LANCEE_MCP.md`](docs/LANCEE_MCP.md) for the complete tool contract and
-security boundaries.
 
 ## n8n integration
 
@@ -711,6 +722,11 @@ pnpm verify:n8n
 pnpm verify:offline
 pnpm verify:ai
 pnpm verify:mcp
+pnpm verify:capabilities
+pnpm verify:documents
+pnpm verify:runtime-persistence
+pnpm verify:agent-runtime
+pnpm verify:workers-artifacts
 pnpm verify:codex-connector
 pnpm verify:google-drive
 pnpm verify:workspace-flows
@@ -728,6 +744,9 @@ node --check server/paystack.mjs
 node --check server/n8n.mjs
 node --check server/lancee-mcp-protocol.mjs
 node --check server/lancee-mcp.mjs
+node --check server/agent-runtime.mjs
+node --check server/execution-worker.mjs
+node --check server/browser-worker.mjs
 node --check public/sw.js
 npm --prefix remotion run render
 ```
@@ -749,5 +768,10 @@ the compiled app and API on `0.0.0.0:5177`. Nginx Proxy Manager terminates TLS
 for `lancee.hookitupservices.com` and forwards to that listener. Do not run the PM2
 entry and the Compose app simultaneously on the same port; use
 `ecosystem.config.cjs` only for a deliberate non-Docker deployment.
+
+The application image is based on the pinned Playwright runtime. The Express
+process owns the Lancee API while browser-read work is launched as the
+unprivileged `pwuser` child configured by `LANCEE_BROWSER_RUN_AS_USER`; no
+second MCP server or browser sidecar is deployed.
 
 More implementation notes are in [`docs/PLATFORM.md`](docs/PLATFORM.md).

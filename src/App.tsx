@@ -1616,7 +1616,7 @@ function IntegrationsPage({
           <span className="micro-label">Connection health</span>
           <h2>Your everyday tools, in one view.</h2>
           <p>
-            {connectionCatalog.filter((item) => item.connected && item.id !== 'mcp-grid').length}{' '}
+            {connectionCatalog.filter((item) => item.connected && item.id !== 'lancee-mcp').length}{' '}
             tools are connected, plus the built-in Lancee MCP surface.
           </p>
         </div>
@@ -1654,7 +1654,7 @@ function IntegrationsPage({
           <article className="integration-card" key={integration.id}>
             <div className="integration-card__top">
               <IntegrationLogo integration={integration} />
-              {integration.id === 'mcp-grid' ? (
+              {integration.id === 'lancee-mcp' ? (
                 <span className="platform-label">
                   <Icon name="shield" size={12} /> Included
                 </span>
@@ -1678,7 +1678,7 @@ function IntegrationsPage({
                 <small>Bidirectional</small>
               </div>
             )}
-            {integration.id === 'mcp-grid' && (
+            {integration.id === 'lancee-mcp' && (
               <div className="protocol-badges protocol-badges--mcp" aria-label="MCP features">
                 <span>MCP</span>
                 <span>Built in</span>
@@ -1708,7 +1708,7 @@ function IntegrationsPage({
             )}
             <button
               className={`button ${
-                integration.id === 'mcp-grid'
+                integration.id === 'lancee-mcp'
                   ? 'button--dark'
                   : integration.connected
                     ? 'button--secondary'
@@ -1716,7 +1716,7 @@ function IntegrationsPage({
               }`}
               onClick={() => {
                 if (integration.id === 'n8n') onConfigureN8n()
-                else if (integration.id === 'mcp-grid') onConfigureMcp()
+                else if (integration.id === 'lancee-mcp') onConfigureMcp()
                 else if (integration.id === 'general-ai') {
                   onToast('General AI is ready for provider configuration in the upcoming AI layer.')
                 }
@@ -1740,13 +1740,13 @@ function IntegrationsPage({
               ) : (
                 <Icon
                   name={
-                    integration.id === 'mcp-grid'
+                    integration.id === 'lancee-mcp'
                       ? 'shield'
                       : integration.id === 'codex-ai' ||
                           integration.id === 'codex-runtime'
                         ? 'command'
                       : integration.connected
-                      ? integration.id === 'n8n' || integration.id === 'mcp-grid'
+                      ? integration.id === 'n8n' || integration.id === 'lancee-mcp'
                         ? 'settings'
                         : 'plug'
                       : 'plus'
@@ -1754,7 +1754,7 @@ function IntegrationsPage({
                   size={15}
                 />
               )}
-              {integration.id === 'mcp-grid'
+              {integration.id === 'lancee-mcp'
                 ? 'View Lancee MCP'
                 : integration.id.startsWith('request:')
                   ? 'Pending setup'

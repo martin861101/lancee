@@ -230,6 +230,21 @@ export type ProposedMcpAction = {
   risk: 'low' | 'medium' | 'high'
   readOnly: boolean
   continueAfterSuccess?: boolean
+  agentRunId?: string
+  approvalId?: string
+}
+
+export type AgentChatResponse = {
+  content: string
+  proposedAction?: ProposedMcpAction | null
+  run: {
+    id: string
+    threadId: string
+    status: 'planned' | 'queued' | 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled' | 'budget_exceeded'
+    errorCode?: string | null
+    usage?: Record<string, unknown>
+    results?: unknown[]
+  }
 }
 
 export type StorefrontDomain = {
@@ -1297,6 +1312,40 @@ export const api = {
     },
   },
   chat: {
+    async agent(objective: string, threadId?: string): Promise<AgentChatResponse> {
+      const response = await fetch('/api/agent/runs', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify({ objective, ...(threadId ? { threadId } : {}) }),
+      })
+      const payload = (await response.json()) as Partial<AgentChatResponse> & { error?: string }
+      if (!response.ok || typeof payload.content !== 'string' || !payload.run?.id) {
+        throw new Error(payload.error || 'Unable to start the Lancee agent.')
+      }
+      return payload as AgentChatResponse
+    },
+    async decideAgent(
+      runId: string,
+      approvalId: string,
+      decision: 'approved' | 'denied',
+      reason = '',
+    ): Promise<AgentChatResponse> {
+      const response = await fetch(
+        `/api/agent/runs/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(approvalId)}`,
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: mutationHeaders(true),
+          body: JSON.stringify({ decision, reason }),
+        },
+      )
+      const payload = (await response.json()) as Partial<AgentChatResponse> & { error?: string }
+      if (!response.ok || typeof payload.content !== 'string' || !payload.run?.id) {
+        throw new Error(payload.error || 'Unable to update the agent approval.')
+      }
+      return payload as AgentChatResponse
+    },
     async complete(
       message: string,
       history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
@@ -1849,43 +1898,6 @@ export const api = {
       cachedMcpServices = payload.services
       return copy(cachedMcpServices)
     },
-    async requestAccess() {
-      const response = await fetch('/api/mcp/access-request', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: mutationHeaders(),
-      })
-      const payload = (await response.json()) as {
-        status?: McpConnection['accessStatus']
-        gatewayUrl?: string
-        requestedAt?: string | null
-        error?: string
-      }
-      if (!response.ok || !payload.status) {
-        throw new Error(payload.error || 'Unable to request MCP bearer access.')
-      }
-      const previous = cachedMcpConnection
-      cachedMcpConnection = {
-        gatewayUrl: payload.gatewayUrl || previous?.gatewayUrl || '',
-        capabilityEndpoint: '/mcp',
-        authSource: 'Lancee workspace token',
-        sourcePath: 'Local Lancee tool registry',
-        mode: 'In-process Lancee MCP',
-        accessStatus: payload.status,
-        connected: payload.status === 'approved',
-        requestedAt: payload.requestedAt ?? previous?.requestedAt ?? null,
-        lastSync: payload.status === 'approved' ? 'Just now' : 'Never',
-      }
-      const integrationResp = await fetch('/api/integrations', { credentials: 'same-origin' })
-      const integrationPayload = (await integrationResp.json()) as { integrations?: Integration[] }
-      const mcpGridIntegration = (integrationPayload.integrations || []).find((i) => i.id === 'mcp-grid')
-      if (!mcpGridIntegration) throw new Error('MCP integration state is unavailable.')
-      return {
-        integration: mcpGridIntegration,
-        connection: copy(cachedMcpConnection),
-        services: copy(cachedMcpServices),
-      }
-    },
     async sync() {
       const response = await fetch('/api/mcp/sync', {
         method: 'POST',
@@ -1904,32 +1916,6 @@ export const api = {
       cachedMcpServices = payload.services
       return { connection: payload.connection, services: payload.services }
     },
-    async toggleService(id: string) {
-      if (cachedMcpConnection?.accessStatus !== 'approved') {
-        throw new Error('Bearer access must be approved before services can be activated.')
-      }
-      const current = cachedMcpServices.find((service) => service.id === id)
-      if (!current) throw new Error('MCP service not found.')
-      const response = await fetch(`/api/mcp/services/${encodeURIComponent(id)}`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: mutationHeaders(true),
-        body: JSON.stringify({ active: !current.active }),
-      })
-      const payload = (await response.json()) as {
-        serviceId?: string
-        active?: boolean
-        error?: string
-      }
-      if (!response.ok || payload.serviceId !== id || typeof payload.active !== 'boolean') {
-        throw new Error(payload.error || 'Unable to update MCP service state.')
-      }
-      cachedMcpServices = cachedMcpServices.map((service) =>
-        service.id === id ? { ...service, active: payload.active! } : service,
-      )
-      const service = cachedMcpServices.find((item) => item.id === id)!
-      return copy(service)
-    },
     async invoke(
       serviceId: string,
       toolId: string,
@@ -1946,44 +1932,6 @@ export const api = {
         throw new Error(payload.error || 'Unable to invoke MCP tool.')
       }
       return payload as McpInvocationResult
-    },
-    async revokeAccess() {
-      const response = await fetch('/api/mcp/access/revoke', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: mutationHeaders(),
-      })
-      const payload = (await response.json()) as {
-        status?: McpConnection['accessStatus']
-        gatewayUrl?: string
-        requestedAt?: string | null
-        error?: string
-      }
-      if (!response.ok || !payload.status) {
-        throw new Error(payload.error || 'Unable to revoke MCP bearer access.')
-      }
-      const previous = cachedMcpConnection
-      cachedMcpConnection = {
-        gatewayUrl: payload.gatewayUrl || previous?.gatewayUrl || '',
-        capabilityEndpoint: '/mcp',
-        authSource: 'Lancee workspace token',
-        sourcePath: 'Local Lancee tool registry',
-        mode: 'In-process Lancee MCP',
-        accessStatus: payload.status,
-        connected: false,
-        lastSync: 'Never',
-        requestedAt: payload.requestedAt ?? null,
-      }
-      cachedMcpServices = cachedMcpServices.map((service) => ({ ...service, active: false }))
-      const integrationResp = await fetch('/api/integrations', { credentials: 'same-origin' })
-      const integrationPayload = (await integrationResp.json()) as { integrations?: Integration[] }
-      const mcpGridIntegration = (integrationPayload.integrations || []).find((i) => i.id === 'mcp-grid')
-      if (!mcpGridIntegration) throw new Error('MCP integration state is unavailable.')
-      return {
-        integration: mcpGridIntegration,
-        connection: copy(cachedMcpConnection),
-        services: copy(cachedMcpServices),
-      }
     },
   },
   apiKeys: {

@@ -536,7 +536,9 @@ try {
         'Content-Type': 'application/json',
         'Idempotency-Key': 'phase3-approval-send-0001',
       },
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        items: [{ bucketId: 'final-delivery', title: 'Final delivery' }],
+      }),
     },
   )
   assert.equal(sendApproval.status, 201)

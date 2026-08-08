@@ -1,44 +1,97 @@
 # Lancee MCP
 
-Lancee exposes one MCP server from the same application and repository as the
-rest of the platform:
+Lancee exposes exactly one MCP server from the same application and repository
+as the rest of the platform:
 
 ```text
 POST /mcp
 ```
 
-[`server/lancee-mcp-protocol.mjs`](../server/lancee-mcp-protocol.mjs) owns MCP
-JSON-RPC initialization, tool discovery, batch limits, calls, and error
-results. [`server/lancee-mcp.mjs`](../server/lancee-mcp.mjs) owns the typed tool
-contracts and delegates execution to Lancee's database, API, automation, PDF,
-and worker boundaries.
+It does not discover, proxy, configure, or start other MCP servers. Web,
+browser, document, visual, artifact, job, and provider operations are local
+Lancee modules or workers behind the same authorization and audit boundary.
 
-Lancee does not proxy or discover other MCP servers. Web, browser, document,
-and provider capabilities must be implemented as local Lancee adapters or
-workers and registered in this tool surface.
+## Runtime layout
 
-## Tools
+| Component | Responsibility |
+| --- | --- |
+| [`server/lancee-mcp-protocol.mjs`](../server/lancee-mcp-protocol.mjs) | MCP JSON-RPC initialization, discovery, bounded batches, calls, and protocol errors |
+| [`server/lancee-mcp.mjs`](../server/lancee-mcp.mjs) | Public tool bindings, authenticated context, and compatibility mapping |
+| [`server/capabilities/`](../server/capabilities) | Typed registry plus platform, web, browser, visual, file, document, integration, artifact, job, and approval adapters |
+| [`server/agent-runtime.mjs`](../server/agent-runtime.mjs) | Persisted planner/executor, budgets, retries, cancellation, and approval gates |
+| [`server/execution-worker.mjs`](../server/execution-worker.mjs) | Database-authoritative leased job execution and recovery |
+| [`server/browser-worker.mjs`](../server/browser-worker.mjs) | Isolated Playwright read, snapshot, and screenshot execution |
+
+The runtime builds `tools/list` from the same immutable input schemas that the
+registry validates. There is no separate static production catalog that can
+drift from invocation behavior.
+
+## Public tool catalog
+
+The V1 catalog contains 40 tools.
+
+### Lancee workspace and workflows
 
 | Tool | Purpose |
 | --- | --- |
 | `run_workflow` | Queue an active Core or Edge workflow. |
-| `create_workflow` | Create a bounded Core or Edge workflow; pass `activate: false` for a draft. |
-| `query_dashboard` | Read approved workspace resources without exposing raw SQL. |
-| `create_client` | Create or complete a client record. |
+| `create_workflow` | Create a bounded prompt-backed Core or Edge workflow. |
+| `query_dashboard` | Read an approved workspace resource without raw SQL. |
+| `create_client` | Create or complete a workspace client. |
 | `create_project` | Create a project for an existing or new client. |
-| `set_project_status` | Move a project to a supported dashboard status. |
-| `create_file` | Save a text, Markdown, or JSON file in the Files library. |
-| `web_search` | Search the public web for bounded source titles, URLs, and snippets. |
-| `create_pdf` | Generate a valid PDF and save it in Files. |
-| `request_connector` | Add a pending connector request to Connections. |
-| `delete_workspace_resource` | Permanently delete an automation or file with owner confirmation. |
-| `get_workflow_status` | Read workflow/run state and recent activity. |
+| `set_project_status` | Move a project to a supported status. |
+| `request_connector` | Persist a request for a managed integration. |
+| `delete_workspace_resource` | Delete a supported resource with owner confirmation. |
+| `get_workflow_status` | Read workflow or run state and recent activity. |
 | `search_workflows` | Filter workflows by text, status, and execution mode. |
-| `execute_python` | Run bounded Python only when server-side execution is enabled. |
-| `execute_javascript` | Run bounded JavaScript only when server-side execution is enabled. |
-| `schedule_job` | Persist a one-shot or repeating workflow run. |
-| `get_logs` | Read persisted workflow-run events. |
-| `call_external_api` | Call a public HTTPS API with bounded request/response limits. |
+| `schedule_job` | Persist a one-shot or repeating workflow schedule. |
+| `get_logs` | Read bounded persisted workflow-run events. |
+
+### Files, documents, and artifacts
+
+| Tool | Purpose |
+| --- | --- |
+| `create_file` | Store bounded text, Markdown, or JSON in Files. |
+| `read_file` | Read bounded supported file content. |
+| `search_files` | Search workspace file metadata/content safely. |
+| `get_file_metadata` | Read one file's workspace-scoped metadata. |
+| `create_pdf` | Render a valid PDF and register its artifact. |
+| `create_document` | Create PDF, DOCX, HTML, or Markdown output. |
+| `merge_documents` | Deterministically merge compatible documents. |
+| `list_artifacts` | List bounded artifact metadata. |
+| `get_artifact` | Read artifact metadata, links, and optional bounded content. |
+| `register_artifact` | Register an existing workspace file as an artifact. |
+
+### Web, browser, and visual capabilities
+
+| Tool | Purpose |
+| --- | --- |
+| `web_search` | Return bounded public source titles, URLs, and snippets. |
+| `access_webpage` | Fetch a bounded public web page. |
+| `extract_web_content` | Extract sanitized readable content from a public page. |
+| `crawl_website` | Crawl a bounded set of same-site public pages. |
+| `browser_read` | Read a public page through isolated Playwright. |
+| `browser_snapshot` | Return a bounded accessibility/content snapshot. |
+| `browser_screenshot` | Capture a screenshot and register it as an artifact. |
+| `analyze_visual` | Inspect image dimensions, format, and bounded statistics. |
+| `extract_visual_palette` | Return a bounded representative colour palette. |
+
+Browser tools are deliberately read-only in V1. Click, type, upload, download,
+credentialed browsing, and arbitrary browser script execution are not exposed.
+
+### Runtime controls, approvals, and integrations
+
+| Tool | Purpose |
+| --- | --- |
+| `get_job_status` | Read one durable job and its event stream. |
+| `list_jobs` | List bounded jobs in the current workspace. |
+| `cancel_job` | Cancel a queued or running job. |
+| `list_approvals` | List agent approvals in the current workspace. |
+| `get_approval` | Read one approval and its bound step/run details. |
+| `decide_approval` | Approve or deny a pending agent action. |
+| `execute_python` | Run bounded Python only when explicitly enabled. |
+| `execute_javascript` | Run bounded JavaScript only when explicitly enabled. |
+| `call_external_api` | Call a public HTTPS API with bounded input/output. |
 
 ## Authentication and workspace context
 
@@ -50,71 +103,150 @@ Authorization: Bearer lnc_codex_...
 Content-Type: application/json
 ```
 
-The existing device authorization endpoints issue the token only after a user
-signs in and approves the displayed code and scopes. Lancee stores only token
-hashes. The token resolves the user, workspace, and membership; tool arguments
-cannot select or override a workspace.
+The device flow issues a token only after a signed-in user approves the shown
+code and scopes. Lancee stores only token hashes. The token resolves the user,
+workspace, and membership on the server; tool arguments cannot select or
+override a workspace or user.
 
-`MCP_SERVER_TOKEN`, `MCP_GATEWAY_URL`, `MCP_API_TOKEN`, and Basebox credentials
-are no longer supported. The former stdio proxy and external MCP Grid have been
-removed.
+`MCP_SERVER_TOKEN`, `MCP_GATEWAY_URL`, `MCP_API_TOKEN`, Basebox credentials,
+external MCP discovery, and per-workspace server activation are unsupported.
 
 ## Protocol surface
 
-The first local phase supports:
+The local endpoint supports:
 
 - `initialize`;
 - `ping`;
 - `tools/list`;
 - `tools/call`;
-- `notifications/initialized` and `notifications/cancelled`;
+- `notifications/initialized` and `notifications/cancelled`; and
 - JSON-RPC batches of at most 64 messages.
 
-Tool failures are returned as MCP tool results with `isError: true` and a stable
-Lancee error code. Unknown methods and invalid parameters use JSON-RPC errors.
+Tool failures are returned as MCP tool results with `isError: true` and stable
+`MCP_*` error codes. Unknown methods and invalid JSON-RPC parameters use
+protocol errors.
 
-## Dashboard assistant path
+## Capability contract and result boundary
 
-The authenticated dashboard assistant receives the same local tool definitions
-as native AI-provider function declarations. The model can propose a tool call,
-but the browser presents a risk-labelled confirmation before
-`POST /api/mcp/invoke` executes it. High-risk tools enforce workspace-owner
-authority on the server.
+Every internal capability declares:
 
-The dashboard API remains as a UI-oriented adapter; `/mcp` and the dashboard
-both invoke the same `createLanceeMcpRuntime` instance.
+- a stable ID and semantic version;
+- JSON input and output schemas;
+- provider and availability state;
+- permissions and role policy;
+- risk and autonomous-approval policy;
+- timeout, estimated cost, concurrency limit, and async support; and
+- search/discovery tags.
 
-## Safety boundaries
+The registry validates input before execution and output after execution. Its
+internal normalized envelope is:
 
-- All data reads and writes use workspace-filtered database methods; raw SQL,
-  credentials, and workspace selectors are not tool inputs.
-- File and PDF sizes, workflow plans, logs, schedules, HTTP bodies, subprocess
-  output, and protocol batches are bounded.
-- Public search and external API results are untrusted data and cannot approve
-  a later mutation.
-- External API calls reject redirects, credentials, sensitive headers, and
-  private/internal network destinations; production requires HTTPS.
-- Code execution is disabled unless `LANCEE_MCP_CODE_EXECUTION=true`. It is
-  owner-only and should run in an isolated worker/container in production.
-- `delete_workspace_resource` requires owner authority and the literal
-  `confirmation: "DELETE"`.
-- All workflow and run identifiers are rechecked against the authenticated
-  workspace.
+```json
+{
+  "success": true,
+  "data": {},
+  "artifacts": [],
+  "warnings": [],
+  "error": null,
+  "metadata": {}
+}
+```
+
+MCP compatibility mapping exposes the capability data as `structuredContent`
+while retaining stable public tool names.
+
+## Authorization and approvals
+
+- Read capabilities are available to valid workspace members.
+- Viewers cannot mutate workspace state.
+- Collaborators may perform allowed internal writes.
+- External, destructive, and administrative actions require an owner.
+- Direct MCP calls remain explicit client requests and still pass role,
+  schema, rate, concurrency, and resource authorization.
+- An autonomous agent cannot execute a capability marked `requiresApproval`
+  without a persisted approval for that exact run, step, tool, and canonical
+  argument hash.
+- Agent approvals expire after 15 minutes by default, are consumed atomically
+  before invocation, and cannot be replayed or reused with different arguments.
+
+## Network and browser safety
+
+Outbound web and integration calls:
+
+- accept only supported HTTP methods and production HTTPS;
+- reject embedded credentials, sensitive forwarded headers, compression, and
+  oversized bodies;
+- resolve DNS, reject private/special IPv4 and IPv6 ranges, pin the validated
+  address, and revalidate every redirect;
+- bound request count, redirect count, response bytes, content, and time; and
+- mark remote text as untrusted data that cannot authorize another action.
+
+The production Docker image is based on the pinned Playwright runtime. Browser
+work is delegated from the Express process to a JSON-lines child running as
+the unprivileged `pwuser`. JavaScript, downloads, service workers, browser
+permissions, and uncontrolled subrequests are blocked. Every browser GET is
+refetched through the validated network layer.
+
+## Durable agent, jobs, and artifacts
+
+Agent threads, runs, steps, approvals, and sequenced events are stored in the
+same PostgreSQL/SQLite persistence layer as Lancee. Plans are validated JSON
+sequences, and runs enforce hard step, tool-call, runtime, cost, token, retry,
+and repeated-call budgets. Cancel and resume operations are workspace/user
+scoped.
+
+Long-running work uses database rows as the source of truth. Workers claim
+jobs atomically with a lease, heartbeat it, recover expired leases, retry only
+bounded retryable failures with exponential backoff, and append durable events.
+Redis may accelerate wake-ups but cannot become the job ledger.
+
+Artifacts store workspace ownership, source/run relationships, size, MIME
+type, SHA-256 integrity, storage reference, metadata, lifecycle timestamps, and
+links to other workspace subjects. Inline reads are bounded.
+
+## Audit and limits
+
+One registry boundary records duration, status, request/user/run origin,
+provider, risk, canonical input hash, returned artifact IDs, and stable error
+code. It never writes raw credentials or unrestricted tool input to the MCP
+audit message.
+
+The V1 limits include 120 registry calls per workspace/user/minute, per-tool
+concurrency limits, capability timeouts, a 1,000-job active queue ceiling per
+workspace, bounded protocol batches, and adapter-specific byte/item limits.
 
 ## Verification
 
-Run:
+Run the focused implementation checks:
 
 ```bash
 pnpm verify:mcp
+pnpm verify:capabilities
+pnpm verify:documents
+pnpm verify:runtime-persistence
+pnpm verify:agent-runtime
+pnpm verify:workers-artifacts
 pnpm verify:codex-connector
 ```
 
-The focused MCP verifier covers initialization, local schema discovery,
-workspace-context propagation, calls, bounded batches, and error results. The
-connector verifier exercises the HTTP `/mcp` route with an approved device
-token and covers workflow execution, scheduling, logs, code controls, token
-revocation, and hashed token storage.
+Or run the consolidated suite:
 
-The remaining capability and agent-runtime rollout is tracked in
-[`LANCEE_RUNTIME_MCP_INTEGRATIONS.md`](../LANCEE_RUNTIME_MCP_INTEGRATIONS.md).
+```bash
+pnpm verify:platform
+```
+
+The tests cover 40-tool schema parity, protocol behavior, device authorization,
+roles and approvals, normalization, auditing, rate/concurrency limits, SSRF
+variants, document and artifact integrity, job recovery/retry/cancellation,
+agent budgets/loops/restart isolation, SQLite/PostgreSQL-compatible persistence,
+and the authenticated HTTP connector path.
+
+The source suite uses an injected browser worker because no Chromium binary is
+required on a developer host. After building the production image, perform one
+real `browser_screenshot` smoke against a public HTTPS page to verify Chromium,
+font, sandbox, and `pwuser` execution in that deployment.
+
+See [`LANCEE_AGENT_RUNTIME.md`](LANCEE_AGENT_RUNTIME.md) for agent APIs and
+operations, and
+[`LANCEE_RUNTIME_MCP_INTEGRATIONS.md`](../LANCEE_RUNTIME_MCP_INTEGRATIONS.md)
+for the architecture decision and post-V1 expansion boundary.
