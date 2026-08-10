@@ -23,6 +23,8 @@ import {
   type CodexRuntimeStatus,
   type Integration,
   type IntegrationRequest,
+  type OpenConnectorProvider,
+  type OpenConnectorStatus,
   type McpConnection,
   type McpInvocationResult,
   type McpService,
@@ -1529,6 +1531,9 @@ function IntegrationLogo({ integration }: { integration: Integration }) {
 
 function IntegrationsPage({
   integrations,
+  externalProviders,
+  gatewayStatus,
+  canManage,
   connectionRequests,
   busyId,
   onToggle,
@@ -1542,9 +1547,15 @@ function IntegrationsPage({
   onToggleGoogleDrive,
   onOpenStorageSetup,
   onRequestConnection,
+  onConnectExternal,
+  onDisconnectExternal,
+  onRefreshExternal,
   onToast,
 }: {
   integrations: Integration[]
+  externalProviders: OpenConnectorProvider[]
+  gatewayStatus: OpenConnectorStatus | null
+  canManage: boolean
   connectionRequests: IntegrationRequest[]
   busyId: string | null
   onToggle: (integration: Integration) => void
@@ -1558,6 +1569,9 @@ function IntegrationsPage({
   onToggleGoogleDrive: (integration: Integration) => void
   onOpenStorageSetup: (provider: 'dropbox' | 'onedrive') => void
   onRequestConnection: () => void
+  onConnectExternal: (provider: OpenConnectorProvider) => void
+  onDisconnectExternal: (provider: OpenConnectorProvider) => void
+  onRefreshExternal: () => void
   onToast: (message: string) => void
 }) {
   const [query, setQuery] = useState('')
@@ -1591,6 +1605,10 @@ function IntegrationsPage({
       (category === 'All' || integration.category === category) &&
       `${integration.name} ${integration.description}`.toLowerCase().includes(query.toLowerCase()),
   )
+  const externalFiltered = externalProviders.filter((provider) =>
+    (category === 'All' || provider.categories.some((item) => item.toLowerCase().includes(category.toLowerCase().replace(/s$/, ''))))
+      && `${provider.displayName} ${provider.provider} ${provider.categories.join(' ')}`.toLowerCase().includes(query.toLowerCase()),
+  )
 
   return (
     <div className="page">
@@ -1621,13 +1639,13 @@ function IntegrationsPage({
           </p>
         </div>
         <div className="integration-banner__status">
-          <span className="online-dot" />
-          Backend status is live
+          <span className={gatewayStatus?.status === 'healthy' ? 'online-dot' : ''} />
+          Gateway {gatewayStatus?.status || 'loading'}
         </div>
       </section>
 
       <p className="integration-boundary-note">
-        Business connections and MCP tools share the Lancee application backend. Provider capabilities are local adapters, not separate MCP servers.
+        Lancee remains the orchestration and permission boundary. OpenConnector stores provider credentials and executes external actions behind the private gateway.
       </p>
 
       <div className="toolbar integrations-toolbar">
@@ -1648,6 +1666,64 @@ function IntegrationsPage({
           <Icon name="chevron-down" size={14} />
         </div>
       </div>
+
+      {externalProviders.length > 0 && (
+        <section aria-labelledby="external-integrations-title">
+          <div className="section-heading-row">
+            <div>
+              <span className="micro-label">External integration gateway</span>
+              <h2 id="external-integrations-title">Connected SaaS providers</h2>
+            </div>
+            <button className="button button--secondary" onClick={onRefreshExternal}>
+              Refresh status
+            </button>
+          </div>
+          <div className="integration-grid">
+            {externalFiltered.map((provider) => {
+              const connection = provider.connection
+              const connected = connection?.status === 'connected'
+              const connecting = connection?.status === 'connecting'
+              return (
+                <article className="integration-card" key={`openconnector:${provider.provider}`}>
+                  <div className="integration-card__top">
+                    <span className="integration-logo" aria-hidden="true">
+                      <span className="logo-letter">{provider.displayName.slice(0, 2).toUpperCase()}</span>
+                    </span>
+                    {connection && (
+                      <span className={connected ? 'connected-label' : 'platform-label'}>
+                        {connected ? <Icon name="check" size={12} /> : null}
+                        {connection.status}
+                      </span>
+                    )}
+                  </div>
+                  <span className="integration-category">{provider.categories[0] || 'Other'}</span>
+                  <h3>{provider.displayName}</h3>
+                  <p>{connected
+                    ? `${connection.displayName}${connection.scopes.length ? ` · ${connection.scopes.length} scopes` : ''}`
+                    : 'Connect through the workspace-scoped OpenConnector gateway.'}</p>
+                  {connected && (
+                    <small>Connected {new Date(connection.createdAt).toLocaleDateString()}</small>
+                  )}
+                  <div className="protocol-badges">
+                    <span>OpenConnector</span>
+                    {provider.authTypes.map((type) => <span key={type}>{type}</span>)}
+                  </div>
+                  <button
+                    className={`button ${connected ? 'button--secondary' : 'button--dark'}`}
+                    disabled={!canManage || busyId === `openconnector:${provider.provider}` || connecting || !provider.authTypes.includes('oauth2')}
+                    onClick={() => connected ? onDisconnectExternal(provider) : onConnectExternal(provider)}
+                  >
+                    {busyId === `openconnector:${provider.provider}`
+                      ? <span className="spinner" />
+                      : <Icon name={connected ? 'plug' : 'plus'} size={15} />}
+                    {connected ? 'Disconnect' : connecting ? 'Connecting…' : connection ? 'Reconnect' : 'Connect'}
+                  </button>
+                </article>
+              )
+            })}
+          </div>
+        </section>
+      )}
 
       <section className="integration-grid">
         {filtered.map((integration) => (
@@ -5679,6 +5755,8 @@ function WorkspaceApp() {
   const [workProjectId, setWorkProjectId] = useState('')
   const [messageFocus, setMessageFocus] = useState<{ folder: string; uid: number } | null>(null)
   const [integrations, setIntegrations] = useState<Integration[]>([])
+  const [externalProviders, setExternalProviders] = useState<OpenConnectorProvider[]>([])
+  const [gatewayStatus, setGatewayStatus] = useState<OpenConnectorStatus | null>(null)
   const [connectionRequests, setConnectionRequests] = useState<IntegrationRequest[]>([])
   const [n8nConfig, setN8nConfig] = useState<N8nConfig | null>(null)
   const [paystackConnection, setPaystackConnection] =
@@ -5809,6 +5887,8 @@ function WorkspaceApp() {
     setAutomations([])
     setRuns([])
     setIntegrations([])
+    setExternalProviders([])
+    setGatewayStatus(null)
     setConnectionRequests([])
     setN8nConfig(null)
     setPaystackConnection(null)
@@ -5934,6 +6014,25 @@ function WorkspaceApp() {
     return () => {
       active = false
     }
+  }, [user])
+
+  useEffect(() => {
+    if (!user) return
+    let active = true
+    void Promise.all([api.openConnector.status(), api.openConnector.providers('', 100), api.openConnector.connections()])
+      .then(([status, catalog, connections]) => {
+        if (!active) return
+        const byProvider = new Map(connections.map((connection) => [connection.provider, connection]))
+        setGatewayStatus(status)
+        setExternalProviders(catalog.providers.map((provider) => ({
+          ...provider,
+          connection: byProvider.get(provider.provider) || null,
+        })))
+      })
+      .catch(() => {
+        if (active) setGatewayStatus({ status: 'unavailable', latencyMs: 0 })
+      })
+    return () => { active = false }
   }, [user])
 
   useEffect(() => {
@@ -6348,6 +6447,58 @@ function WorkspaceApp() {
     }
   }
 
+  const refreshOpenConnector = async () => {
+    try {
+      const [status, connections] = await Promise.all([
+        api.openConnector.status(),
+        api.openConnector.connections(),
+      ])
+      const byProvider = new Map(connections.map((connection) => [connection.provider, connection]))
+      setGatewayStatus(status)
+      setExternalProviders((current) => current.map((provider) => ({
+        ...provider,
+        connection: byProvider.get(provider.provider) || null,
+      })))
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Unable to refresh external connections.')
+    }
+  }
+
+  const connectOpenConnector = async (provider: OpenConnectorProvider) => {
+    setBusyId(`openconnector:${provider.provider}`)
+    try {
+      const result = await api.openConnector.connect(provider.provider)
+      setExternalProviders((current) => current.map((item) => item.provider === provider.provider
+        ? { ...item, connection: result.connection }
+        : item))
+      window.open(result.authorizationUrl, 'lancee-openconnector', 'popup,width=640,height=760,noopener,noreferrer')
+      setToast(`Complete ${provider.displayName} authorization in the new window.`)
+      for (const delay of [2_000, 5_000, 10_000, 20_000]) {
+        window.setTimeout(() => void refreshOpenConnector(), delay)
+      }
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : `Unable to connect ${provider.displayName}.`)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const disconnectOpenConnector = async (provider: OpenConnectorProvider) => {
+    if (!provider.connection || !window.confirm(`Disconnect ${provider.displayName} from this workspace?`)) return
+    setBusyId(`openconnector:${provider.provider}`)
+    try {
+      await api.openConnector.disconnect(provider.connection.id)
+      setExternalProviders((current) => current.map((item) => item.provider === provider.provider
+        ? { ...item, connection: null }
+        : item))
+      setToast(`${provider.displayName} disconnected.`)
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : `Unable to disconnect ${provider.displayName}.`)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const updateCodexConnection = (connection: CodexConnection) => {
     setCodexConnection(connection)
     setIntegrations((current) =>
@@ -6683,6 +6834,9 @@ function WorkspaceApp() {
         page = (
           <IntegrationsPage
             integrations={integrations}
+            externalProviders={externalProviders}
+            gatewayStatus={gatewayStatus}
+            canManage={user.role === 'owner'}
             connectionRequests={connectionRequests}
             busyId={busyId}
             onToggle={toggleIntegration}
@@ -6713,6 +6867,9 @@ function WorkspaceApp() {
               setToast(`${provider === 'onedrive' ? 'OneDrive' : 'Dropbox'} storage point setup is ready.`)
             }}
             onRequestConnection={() => setModal('integration-request')}
+            onConnectExternal={(provider) => void connectOpenConnector(provider)}
+            onDisconnectExternal={(provider) => void disconnectOpenConnector(provider)}
+            onRefreshExternal={() => void refreshOpenConnector()}
             onToast={setToast}
           />
         )

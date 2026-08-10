@@ -28,7 +28,21 @@ drift from invocation behavior.
 
 ## Public tool catalog
 
-The V1 catalog contains 40 tools.
+The base catalog contains 40 tools. When `OPENCONNECTOR_ENABLED=true`, four
+dynamic gateway tools are added; provider actions themselves are never
+registered as permanent MCP tools.
+
+### External integration gateway
+
+| Tool | Purpose |
+| --- | --- |
+| `integrations_search` | Return a small ranked set of external actions. |
+| `integrations_describe` | Inspect one action's live schema, scopes, connection state, and risk. |
+| `integrations_connections` | List safe connections for the authorized workspace. |
+| `integrations_execute` | Execute one action through an owned connection and the approval boundary. |
+
+See [`integrations/openconnector.md`](integrations/openconnector.md) for the
+adapter, OAuth, deployment, security, and error contracts.
 
 ### Lancee workspace and workflows
 
@@ -235,7 +249,8 @@ Or run the consolidated suite:
 pnpm verify:platform
 ```
 
-The tests cover 40-tool schema parity, protocol behavior, device authorization,
+The tests cover base-tool schema parity, feature-gated integration tools,
+protocol behavior, device authorization,
 roles and approvals, normalization, auditing, rate/concurrency limits, SSRF
 variants, document and artifact integrity, job recovery/retry/cancellation,
 agent budgets/loops/restart isolation, SQLite/PostgreSQL-compatible persistence,

@@ -1,5 +1,6 @@
 import { requestPublicResource } from './network.mjs'
 import { LanceeCapabilityError, textInput } from './registry.mjs'
+import { IntegrationGatewayError } from '../integrations/integration-gateway.mjs'
 
 const MAX_EXTERNAL_BODY_LENGTH = 32_000
 const MAX_EXTERNAL_RESPONSE_LENGTH = 256_000
@@ -21,8 +22,9 @@ export function createIntegrationCapabilities({
   requestImpl = requestPublicResource,
   dnsLookup,
   env = process.env,
+  integrationGateway = null,
 } = {}) {
-  return [{
+  const capabilities = [{
     id: 'integration.http.request',
     namespace: 'integration',
     version: '1.1.0',
@@ -111,4 +113,123 @@ export function createIntegrationCapabilities({
       }
     },
   }]
+
+  if (!integrationGateway?.enabled) return capabilities
+
+  const execute = (operation) => async ({ input, context, signal, invocation }) => {
+    try {
+      return await operation(input, context, { ...invocation, signal })
+    } catch (error) {
+      if (error instanceof IntegrationGatewayError) {
+        throw new LanceeCapabilityError(error.code, error.message, error.status, { retryable: error.retryable })
+      }
+      throw error
+    }
+  }
+  const gatewayAvailable = () => integrationGateway.enabled
+
+  capabilities.push(
+    {
+      id: 'integration.search',
+      namespace: 'integration',
+      version: '1.0.0',
+      description: 'Search the external integration catalog dynamically and return a small ranked set of workspace-relevant actions.',
+      provider: 'lancee.integration-gateway',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', minLength: 1, maxLength: 256 },
+          provider: { type: 'string', maxLength: 80 },
+          connected_only: { type: 'boolean' },
+          limit: { type: 'integer', minimum: 1, maximum: 10 },
+        },
+        required: ['query'],
+        additionalProperties: false,
+      },
+      outputSchema: { type: 'array', maxItems: 10 },
+      requiredPermissions: ['integrations:read'],
+      riskLevel: 'read',
+      requiresApproval: false,
+      timeoutMs: 15_000,
+      concurrencyLimit: 4,
+      estimatedCost: 0,
+      supportsAsync: false,
+      tags: ['integration', 'search', 'discovery'],
+      isAvailable: gatewayAvailable,
+      execute: execute((input, context) => integrationGateway.searchActions(context, input)),
+    },
+    {
+      id: 'integration.describe',
+      namespace: 'integration',
+      version: '1.0.0',
+      description: 'Describe one external action using its current OpenConnector schema, scopes, connection state, and risk classification.',
+      provider: 'lancee.integration-gateway',
+      inputSchema: {
+        type: 'object',
+        properties: { action: { type: 'string', minLength: 3, maxLength: 240 } },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      outputSchema: { type: 'object' },
+      requiredPermissions: ['integrations:read'],
+      riskLevel: 'read',
+      requiresApproval: false,
+      timeoutMs: 15_000,
+      concurrencyLimit: 4,
+      estimatedCost: 0,
+      supportsAsync: false,
+      tags: ['integration', 'describe', 'schema'],
+      isAvailable: gatewayAvailable,
+      execute: execute((input, context) => integrationGateway.describeAction(context, input.action)),
+    },
+    {
+      id: 'integration.connections',
+      namespace: 'integration',
+      version: '1.0.0',
+      description: 'List only the safe, non-secret external provider connections owned by the authorized Lancee workspace.',
+      provider: 'lancee.integration-gateway',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      outputSchema: { type: 'array' },
+      requiredPermissions: ['integrations:read'],
+      riskLevel: 'read',
+      requiresApproval: false,
+      timeoutMs: 15_000,
+      concurrencyLimit: 4,
+      estimatedCost: 0,
+      supportsAsync: false,
+      tags: ['integration', 'connection', 'discovery'],
+      isAvailable: gatewayAvailable,
+      execute: execute((_input, context) => integrationGateway.listConnections(context)),
+    },
+    {
+      id: 'integration.execute',
+      namespace: 'integration',
+      version: '1.0.0',
+      description: 'Execute one validated external provider action through a workspace-owned connection. Credentials never enter Lancee tool arguments or results.',
+      provider: 'lancee.integration-gateway',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', minLength: 3, maxLength: 240 },
+          connection_id: { type: 'string', minLength: 8, maxLength: 100 },
+          input: { type: 'object' },
+          source: { type: 'string', enum: ['user', 'ai', 'automation', 'workflow', 'api'] },
+        },
+        required: ['action', 'connection_id', 'input'],
+        additionalProperties: false,
+      },
+      outputSchema: { type: 'object' },
+      requiredPermissions: ['integrations:invoke'],
+      riskLevel: 'external-action',
+      requiresApproval: true,
+      timeoutMs: 35_000,
+      concurrencyLimit: 2,
+      estimatedCost: 0,
+      supportsAsync: false,
+      tags: ['integration', 'execute', 'external'],
+      isAvailable: gatewayAvailable,
+      execute: execute((input, context, invocation) => integrationGateway.executeAction(context, input, invocation)),
+    },
+  )
+  return capabilities
 }

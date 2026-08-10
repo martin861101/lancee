@@ -600,7 +600,8 @@ automation secrets should remain server-side.
 | [`server/database.mjs`](../server/database.mjs) | PostgreSQL pool/transactions, SQLite fallback, and repositories |
 | [`server/ai.mjs`](../server/ai.mjs) | OpenAI, Anthropic, and Gemini transports |
 | [`server/lancee-mcp-protocol.mjs`](../server/lancee-mcp-protocol.mjs) | Local MCP JSON-RPC and invocation transport |
-| [`server/capabilities/`](../server/capabilities) | Typed 40-tool local capability registry and adapters |
+| [`server/capabilities/`](../server/capabilities) | Typed 40-tool base capability registry plus four feature-gated OpenConnector tools |
+| [`server/integrations/`](../server/integrations) | OpenConnector adapter and workspace-scoped IntegrationGateway service |
 | [`server/agent-runtime.mjs`](../server/agent-runtime.mjs) | Persisted planner/executor, budgets, result references, approvals, and cancellation |
 | [`server/execution-worker.mjs`](../server/execution-worker.mjs) | Durable leased jobs, retries, events, cancellation, and recovery |
 | [`server/browser-worker.mjs`](../server/browser-worker.mjs) | Isolated Playwright read/snapshot/screenshot worker |

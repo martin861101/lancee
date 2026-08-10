@@ -28,12 +28,13 @@
     "verify:documents": "node scripts/verify-document-capabilities.mjs",
     "verify:google-drive": "node scripts/verify-google-drive.mjs",
     "verify:mail": "node scripts/verify-mail-connector.mjs",
+    "verify:openconnector": "node scripts/verify-openconnector.mjs",
     "verify:whatsapp": "node scripts/verify-whatsapp.mjs",
     "verify:workspace-flows": "node scripts/verify-workspace-flows.mjs",
     "verify:workspace-builder": "node scripts/verify-workspace-builder.mjs",
     "verify:client-files": "node scripts/verify-client-document-workspaces.mjs",
     "verify:project-reviews": "node scripts/verify-project-review-packages.mjs",
-    "verify:platform": "npm run build && npm run lint && npm run verify:ai && npm run verify:mcp && npm run verify:capabilities && npm run verify:documents && npm run verify:runtime-persistence && npm run verify:agent-runtime && npm run verify:workers-artifacts && npm run verify:core-edge && npm run verify:codex-connector && npm run verify:workspace-flows",
+    "verify:platform": "npm run build && npm run lint && npm run verify:ai && npm run verify:mcp && npm run verify:capabilities && npm run verify:openconnector && npm run verify:documents && npm run verify:runtime-persistence && npm run verify:agent-runtime && npm run verify:workers-artifacts && npm run verify:core-edge && npm run verify:codex-connector && npm run verify:workspace-flows",
     "migrate:postgres": "node scripts/migrate-sqlite-to-postgres.mjs"
   },
   "dependencies": {

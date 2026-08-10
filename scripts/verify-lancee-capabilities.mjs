@@ -227,7 +227,7 @@ try {
     coreToolIds: ['workspace.summary'],
     executeAutomationRun: async () => {},
   })
-  assert.equal(Object.keys(lanceeMcpCapabilityBindings).length, 40)
+  assert.equal(Object.keys(lanceeMcpCapabilityBindings).length, 44)
   assert.equal(runtime.listTools().length, 40)
   for (const tool of runtime.listTools()) {
     const capability = runtime.capabilities.get(lanceeMcpCapabilityBindings[tool.name])
@@ -251,7 +251,7 @@ try {
   await rateRegistry.invoke('test.rate', {}, context)
   await assert.rejects(rateRegistry.invoke('test.rate', {}, context), (error) => error.code === 'RATE_LIMITED')
 
-  console.log('Lancee capabilities verified: 40-tool registry parity, schemas, policies, web/files/documents/browser/visual adapters, artifacts/jobs/approvals, normalized results, auditing, limits, and SSRF defenses.')
+  console.log('Lancee capabilities verified: base registry parity plus feature-gated integration tools, schemas, policies, web/files/documents/browser/visual adapters, artifacts/jobs/approvals, normalized results, auditing, limits, and SSRF defenses.')
 } finally {
   await database?.close()
   rmSync(directory, { recursive: true, force: true })

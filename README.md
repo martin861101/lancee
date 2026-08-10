@@ -121,7 +121,8 @@ the supporting automation documentation in [`automations/`](automations/).
   transient socket closures reconnect automatically, and the UI exposes the
   current connection state. Requests for additional business systems are
   persisted without pretending an unsupported provider is connected. See
-  [`docs/WHATSAPP_BAILEYS.md`](docs/WHATSAPP_BAILEYS.md).
+  [`docs/WHATSAPP_BAILEYS.md`](docs/WHATSAPP_BAILEYS.md) and
+  [`docs/GOOGLE_OAUTH.md`](docs/GOOGLE_OAUTH.md) for provider callback setup.
 - **Codex Workspace** — an embedded Codex App Server connection with native
   OpenAI device login, isolated per-user auth state, sandboxed repository work,
   and streamed task output.
@@ -237,12 +238,19 @@ approval card and the server binds that one-use decision to the exact tool and
 argument hash. The built-in Lancee tools are always available to an
 authenticated workspace and execute with that user's workspace context.
 
-The local catalog exposes 40 public tools across workspace operations, web
+The base catalog exposes 40 public tools across workspace operations, web
 research, browser read/snapshot/screenshot, visual inspection, files,
 documents, artifacts, jobs, approvals, integrations, scheduling, logs, and
 optional code execution. Workspace and role policy is enforced before every
 call. Destructive deletion, external API calls, and enabled code execution are
 additionally restricted to workspace owners.
+
+When `OPENCONNECTOR_ENABLED=true`, four discovery-oriented integration tools
+are added without expanding every provider action into the MCP catalog. Lancee
+keeps orchestration, workspace policy, approvals, and audit ownership while
+OpenConnector handles provider OAuth credentials, refresh, schemas, and
+execution. See
+[`docs/integrations/openconnector.md`](docs/integrations/openconnector.md).
 
 See [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) and
 [`docs/mcp-services.md`](docs/mcp-services.md).
@@ -257,7 +265,8 @@ workspace-scoped public tool contracts and authorization mapping, and
 [`server/capabilities/`](server/capabilities), which owns typed local capability
 contracts and adapters.
 
-The registry dynamically maps all 40 public tools to typed local capabilities.
+The registry dynamically maps the 40 base tools—and four optional
+OpenConnector gateway tools—to typed local capabilities.
 Each contract records its provider, input/output schemas, permissions, role
 policy, risk, approval policy, timeout, cost estimate, concurrency limit, and
 tags. Calls return one normalized success/error envelope and emit one audit
@@ -375,10 +384,11 @@ security, packaging, configuration, and verification details.
 
 The Lancee MCP bridge is the agent-facing surface for the platform itself. It
 uses the same device approval flow as the AI connector, but requires the
-separate `mcp:invoke` scope. Its 40 tools expose workspace operations, web and
+separate `mcp:invoke` scope. Its 40 base tools expose workspace operations, web and
 browser research, visual analysis, file/document/artifact operations, durable
 jobs, approvals, workflow execution/status/logs/scheduling, bounded external
-API calls, and explicitly enabled Python/JavaScript execution.
+API calls, and explicitly enabled Python/JavaScript execution. Enabling the
+OpenConnector gateway adds four dynamic integration tools.
 
 The floating dashboard assistant uses the persisted planner/executor runtime
 over that same registry. Runs are workspace/user scoped, budgeted, cancellable,

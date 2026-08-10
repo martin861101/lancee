@@ -102,6 +102,11 @@ import {
   createCodexAppServerManager,
   CodexAppServerError,
 } from './codex-app-server.mjs'
+import { createOpenConnectorAdapter } from './integrations/openconnector-adapter.mjs'
+import {
+  createIntegrationGateway,
+  IntegrationGatewayError,
+} from './integrations/integration-gateway.mjs'
 import {
   accessTokenIsFresh,
   buildGoogleAuthUrl,
@@ -264,6 +269,11 @@ const database = await openDatabase({
   adminPasswordHash: process.env.ADMIN_PASSWORD_HASH,
   workspaceId,
   workspaceName,
+})
+const openConnectorAdapter = createOpenConnectorAdapter()
+const integrationGateway = createIntegrationGateway({
+  database,
+  adapter: openConnectorAdapter,
 })
 const whatsapp = createWhatsAppRuntime({
   database,
@@ -2020,11 +2030,25 @@ app.post(
 app.use(express.urlencoded({ extended: false, limit: '8kb' }))
 app.use(express.json({ limit: '24kb' }))
 
-app.get('/api/health', (_request, response) => {
+app.get('/openconnector/oauth/callback', async (request, response) => {
+  const callback = await openConnectorAdapter.completeOAuthCallback(
+    request.originalUrl.slice(request.path.length),
+  )
+  response.status(callback.status).set({
+    'Cache-Control': 'no-store',
+    'Content-Type': callback.contentType,
+  })
+  if (callback.location) response.set('Location', callback.location)
+  response.send(callback.body)
+})
+
+app.get('/api/health', async (_request, response) => {
+  const openconnector = await integrationGateway.health()
   response.json({
     ok: true,
     service: 'lancee-agents-platform',
     core: { redis: coreRedis.connected },
+    openconnector,
   })
 })
 
@@ -4346,6 +4370,123 @@ app.get('/api/integrations', requireAuth, async (request, response) => {
     ),
   })
 })
+
+app.get('/api/openconnector/status', requireAuth, async (_request, response) => {
+  response.json(await integrationGateway.health())
+})
+
+app.get('/api/openconnector/providers', requireAuth, async (request, response) => {
+  const limit = Number.parseInt(String(request.query.limit || '50'), 10)
+  const providers = await integrationGateway.providers(request.auth.context, {
+    query: String(request.query.q || ''),
+    limit: Number.isFinite(limit) ? limit : 50,
+  })
+  response.json({ enabled: integrationGateway.enabled, providers })
+})
+
+app.get('/api/openconnector/connections', requireAuth, async (request, response) => {
+  response.json({
+    enabled: integrationGateway.enabled,
+    connections: await integrationGateway.listConnections(request.auth.context),
+  })
+})
+
+app.post(
+  '/api/openconnector/connections/:provider/connect',
+  secureMutations,
+  requireAuth,
+  requireOwner,
+  async (request, response) => {
+    const provider = String(request.params.provider || '').trim().toLowerCase()
+    const result = await executeIdempotentMutation({
+      request,
+      route: `POST /api/openconnector/connections/${provider}/connect`,
+      input: { provider },
+      operation: async () => ({
+        status: 200,
+        response: await integrationGateway.connect(request.auth.context, provider),
+      }),
+    })
+    sendMutationResponse(response, result)
+  },
+)
+
+app.delete(
+  '/api/openconnector/connections/:connectionId',
+  secureMutations,
+  requireAuth,
+  requireOwner,
+  async (request, response) => {
+    const connectionId = String(request.params.connectionId || '')
+    const result = await executeIdempotentMutation({
+      request,
+      route: `DELETE /api/openconnector/connections/${connectionId}`,
+      input: { connectionId },
+      operation: async () => ({
+        status: 200,
+        response: await integrationGateway.disconnect(request.auth.context, connectionId),
+      }),
+    })
+    sendMutationResponse(response, result)
+  },
+)
+
+app.get('/api/openconnector/actions/search', requireAuth, async (request, response) => {
+  const limit = Number.parseInt(String(request.query.limit || '8'), 10)
+  const actions = await integrationGateway.searchActions(request.auth.context, {
+    query: String(request.query.q || ''),
+    provider: request.query.provider ? String(request.query.provider) : undefined,
+    connected_only: request.query.connected === 'true',
+    limit: Number.isFinite(limit) ? limit : 8,
+  })
+  response.json({ actions })
+})
+
+app.get('/api/openconnector/actions/:actionId', requireAuth, async (request, response) => {
+  response.json({
+    action: await integrationGateway.describeAction(
+      request.auth.context,
+      String(request.params.actionId || ''),
+    ),
+  })
+})
+
+app.post(
+  '/api/openconnector/actions/:actionId/execute',
+  secureMutations,
+  requireAuth,
+  requireOwner,
+  async (request, response) => {
+    const action = String(request.params.actionId || '')
+    const description = await integrationGateway.describeAction(request.auth.context, action)
+    if (description.riskLevel !== 'read' && request.body?.confirm !== true) {
+      throw new IntegrationGatewayError(
+        'INTEGRATION_APPROVAL_REQUIRED',
+        'Confirm this external action before execution.',
+        409,
+      )
+    }
+    const result = await executeIdempotentMutation({
+      request,
+      route: `POST /api/openconnector/actions/${action}/execute`,
+      input: {
+        action,
+        connectionId: request.body?.connection_id,
+        actionInput: request.body?.input,
+      },
+      operation: async () => ({
+        status: 200,
+        response: await integrationGateway.executeAction(request.auth.context, {
+          action,
+          connection_id: request.body?.connection_id,
+          input: request.body?.input,
+          source: 'api',
+        }, { origin: 'api' }),
+      }),
+    })
+    sendMutationResponse(response, result)
+  },
+)
 
 app.get('/api/whatsapp/status', requireAuth, requireOwner, async (request, response) => {
   response.set('Cache-Control', 'no-store')
@@ -7075,7 +7216,11 @@ app.get('/api/google-drive/oauth/url', requireAuth, async (request, response) =>
 })
 
 app.get(
-  ['/oauth/callback', '/api/google-drive/oauth/callback'],
+  [
+    '/oauth/callback',
+    '/api/google-drive/oauth/callback',
+    '/api/integrations/google/callback',
+  ],
   async (request, response) => {
   response.set('Cache-Control', 'no-store')
   let returnTo = 'integrations'
@@ -7553,6 +7698,7 @@ const lanceeMcp = createLanceeMcpRuntime({
   database,
   browserWorker,
   executionWorker,
+  integrationGateway,
   coreToolIds: coreToolCatalog().map((tool) => tool.id),
   executeAutomationRun,
   enqueueCoreJob: (job) => coreRedis.enqueue(job),
@@ -7591,6 +7737,9 @@ function agentPlannerCapabilities(objective) {
     namespaces.add('document')
     namespaces.add('pdf')
     namespaces.add('artifact')
+  }
+  if (/\b(email|mail|gmail|outlook|slack|github|notion|airtable|dropbox|onedrive|microsoft|google workspace|external app|connected app)\b/.test(goal)) {
+    namespaces.add('integration')
   }
   for (const namespace of ['client', 'project', 'automation', 'integration', 'job']) {
     if (goal.includes(namespace)) namespaces.add(namespace)
@@ -8267,6 +8416,13 @@ app.use((error, _request, response, _next) => {
   }
   if (error instanceof LanceeMcpError) {
     response.status(error.status || 400).json({
+      error: error.message,
+      code: error.code,
+    })
+    return
+  }
+  if (error instanceof IntegrationGatewayError) {
+    response.status(error.status || 502).json({
       error: error.message,
       code: error.code,
     })

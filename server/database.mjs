@@ -646,6 +646,43 @@ function mapNotification(row) {
   }
 }
 
+function mapIntegrationConnection(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    userId: row.user_id,
+    provider: row.provider,
+    externalConnectionId: row.external_connection_id || null,
+    externalConnectionName: row.external_connection_name,
+    displayName: row.display_name || row.provider,
+    status: row.status,
+    scopes: parsePermissions(row.scopes_json),
+    lastError: row.last_error || '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    lastUsedAt: row.last_used_at || null,
+  }
+}
+
+function mapIntegrationExecution(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    userId: row.user_id,
+    provider: row.provider,
+    connectionId: row.connection_id,
+    action: row.action,
+    riskLevel: row.risk_level,
+    status: row.status,
+    durationMs: row.duration_ms,
+    source: row.source,
+    errorCode: row.error_code || null,
+    createdAt: row.created_at,
+  }
+}
+
 function mapGoogleDriveSelection(row) {
   if (!row) return null
   return {
@@ -1046,6 +1083,37 @@ export async function openDatabase({
       status TEXT NOT NULL DEFAULT 'requested' CHECK (status IN ('requested', 'planned', 'declined')),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS integration_connections (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      provider TEXT NOT NULL,
+      external_connection_id TEXT,
+      external_connection_name TEXT NOT NULL,
+      display_name TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'connecting'
+        CHECK (status IN ('available', 'connecting', 'connected', 'expired', 'error', 'disabled')),
+      scopes_json TEXT NOT NULL DEFAULT '[]',
+      last_error TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_used_at TEXT,
+      UNIQUE (workspace_id, provider, external_connection_name)
+    )`,
+    `CREATE TABLE IF NOT EXISTS integration_executions (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      provider TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      risk_level TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      source TEXT NOT NULL CHECK (source IN ('user', 'ai', 'automation', 'workflow', 'api')),
+      error_code TEXT,
+      created_at TEXT NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS workspace_settings (
       workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1765,6 +1833,10 @@ export async function openDatabase({
       ON codex_device_authorizations (user_code_hash, status)`,
     `CREATE INDEX IF NOT EXISTS idx_codex_access_token
       ON codex_access_tokens (token_hash, revoked_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_integration_connections_workspace_provider
+      ON integration_connections (workspace_id, provider, status)`,
+    `CREATE INDEX IF NOT EXISTS idx_integration_executions_workspace_created
+      ON integration_executions (workspace_id, created_at)`,
   ]
 
   for (const statement of schemaSqls) {
@@ -1788,21 +1860,17 @@ export async function openDatabase({
   await query('DROP TABLE IF EXISTS mcp_access')
 
   if (!isInMemory && !isSqlite) {
-    await query(
-      `ALTER TABLE tenant_integration_tokens ENABLE ROW LEVEL SECURITY`,
-    )
-    await query(
-      `ALTER TABLE tenant_integration_tokens FORCE ROW LEVEL SECURITY`,
-    )
-    await query(
-      `DROP POLICY IF EXISTS tenant_isolation_policy ON tenant_integration_tokens`,
-    )
-    await query(
-      `CREATE POLICY tenant_isolation_policy ON tenant_integration_tokens
-         FOR ALL
-         USING (workspace_id = current_setting('app.current_tenant_id', true))
-         WITH CHECK (workspace_id = current_setting('app.current_tenant_id', true))`,
-    )
+    for (const table of ['tenant_integration_tokens', 'integration_connections', 'integration_executions']) {
+      await query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`)
+      await query(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`)
+      await query(`DROP POLICY IF EXISTS tenant_isolation_policy ON ${table}`)
+      await query(
+        `CREATE POLICY tenant_isolation_policy ON ${table}
+           FOR ALL
+           USING (workspace_id = current_setting('app.current_tenant_id', true))
+           WITH CHECK (workspace_id = current_setting('app.current_tenant_id', true))`,
+      )
+    }
   }
 
   if (isSqlite) {
@@ -5571,6 +5639,205 @@ export async function openDatabase({
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       }))
+    },
+
+    async saveIntegrationConnection({
+      id,
+      workspaceId,
+      userId,
+      provider,
+      externalConnectionName,
+      externalConnectionId = null,
+      displayName = '',
+      status = 'connecting',
+      scopes = [],
+      lastError = '',
+    }) {
+      return await this.runAsTenant(workspaceId, async () => {
+        const timestamp = nowIso()
+        await query(
+          `INSERT INTO integration_connections (
+             id, workspace_id, user_id, provider, external_connection_id,
+             external_connection_name, display_name, status, scopes_json,
+             last_error, created_at, updated_at, last_used_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NULL)
+           ON CONFLICT (id) DO UPDATE SET
+             external_connection_id = EXCLUDED.external_connection_id,
+             display_name = EXCLUDED.display_name,
+             status = EXCLUDED.status,
+             scopes_json = EXCLUDED.scopes_json,
+             last_error = EXCLUDED.last_error,
+             updated_at = EXCLUDED.updated_at`,
+          [
+            id,
+            workspaceId,
+            userId,
+            provider,
+            externalConnectionId,
+            externalConnectionName,
+            displayName,
+            status,
+            JSON.stringify(scopes),
+            String(lastError).slice(0, 1_000),
+            timestamp,
+            timestamp,
+          ],
+        )
+        return await this.getIntegrationConnection(workspaceId, id)
+      })
+    },
+
+    async getIntegrationConnection(selectedWorkspaceId, id) {
+      return await this.runAsTenant(selectedWorkspaceId, async () => {
+        const rows = await query(
+          `SELECT id, workspace_id, user_id, provider, external_connection_id,
+                  external_connection_name, display_name, status, scopes_json,
+                  last_error, created_at, updated_at, last_used_at
+           FROM integration_connections
+           WHERE workspace_id = $1 AND id = $2`,
+          [selectedWorkspaceId, id],
+        )
+        return mapIntegrationConnection(rows[0])
+      })
+    },
+
+    async getIntegrationConnectionByProvider(selectedWorkspaceId, provider) {
+      return await this.runAsTenant(selectedWorkspaceId, async () => {
+        const rows = await query(
+          `SELECT id, workspace_id, user_id, provider, external_connection_id,
+                  external_connection_name, display_name, status, scopes_json,
+                  last_error, created_at, updated_at, last_used_at
+           FROM integration_connections
+           WHERE workspace_id = $1 AND provider = $2
+           ORDER BY created_at ASC
+           LIMIT 1`,
+          [selectedWorkspaceId, provider],
+        )
+        return mapIntegrationConnection(rows[0])
+      })
+    },
+
+    async listIntegrationConnections(selectedWorkspaceId) {
+      return await this.runAsTenant(selectedWorkspaceId, async () => {
+        const rows = await query(
+          `SELECT id, workspace_id, user_id, provider, external_connection_id,
+                  external_connection_name, display_name, status, scopes_json,
+                  last_error, created_at, updated_at, last_used_at
+           FROM integration_connections
+           WHERE workspace_id = $1
+           ORDER BY provider ASC, created_at ASC`,
+          [selectedWorkspaceId],
+        )
+        return rows.map(mapIntegrationConnection)
+      })
+    },
+
+    async markIntegrationConnectionUsed(selectedWorkspaceId, id) {
+      return await this.runAsTenant(selectedWorkspaceId, async () => {
+        const timestamp = nowIso()
+        await query(
+          `UPDATE integration_connections
+           SET last_used_at = $1, updated_at = $1
+           WHERE workspace_id = $2 AND id = $3`,
+          [timestamp, selectedWorkspaceId, id],
+        )
+        return await this.getIntegrationConnection(selectedWorkspaceId, id)
+      })
+    },
+
+    async deleteIntegrationConnection(selectedWorkspaceId, id) {
+      return await this.runAsTenant(selectedWorkspaceId, async () => {
+        const connection = await this.getIntegrationConnection(selectedWorkspaceId, id)
+        if (!connection) return null
+        await query(
+          `DELETE FROM integration_connections WHERE workspace_id = $1 AND id = $2`,
+          [selectedWorkspaceId, id],
+        )
+        return connection
+      })
+    },
+
+    async recordIntegrationExecution({
+      id,
+      workspaceId,
+      userId,
+      provider,
+      connectionId,
+      action,
+      riskLevel,
+      status,
+      durationMs,
+      source,
+      errorCode = null,
+    }) {
+      return await this.runAsTenant(workspaceId, async () => {
+        await query(
+          `INSERT INTO integration_executions (
+             id, workspace_id, user_id, provider, connection_id, action,
+             risk_level, status, duration_ms, source, error_code, created_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          [
+            id,
+            workspaceId,
+            userId,
+            provider,
+            connectionId,
+            action,
+            riskLevel,
+            status,
+            Math.max(0, Math.round(durationMs || 0)),
+            source,
+            errorCode,
+            nowIso(),
+          ],
+        )
+        const rows = await query(
+          `SELECT id, workspace_id, user_id, provider, connection_id, action,
+                  risk_level, status, duration_ms, source, error_code, created_at
+           FROM integration_executions WHERE workspace_id = $1 AND id = $2`,
+          [workspaceId, id],
+        )
+        return mapIntegrationExecution(rows[0])
+      })
+    },
+
+    async completeIntegrationExecution(selectedWorkspaceId, id, {
+      status,
+      durationMs,
+      errorCode = null,
+    }) {
+      return await this.runAsTenant(selectedWorkspaceId, async () => {
+        const rows = await query(
+          `UPDATE integration_executions
+           SET status = $1, duration_ms = $2, error_code = $3
+           WHERE workspace_id = $4 AND id = $5 AND status = 'running'
+           RETURNING id, workspace_id, user_id, provider, connection_id, action,
+                     risk_level, status, duration_ms, source, error_code, created_at`,
+          [
+            status,
+            Math.max(0, Math.round(durationMs || 0)),
+            errorCode,
+            selectedWorkspaceId,
+            id,
+          ],
+        )
+        return mapIntegrationExecution(rows[0])
+      })
+    },
+
+    async listIntegrationExecutions(selectedWorkspaceId, limit = 100) {
+      return await this.runAsTenant(selectedWorkspaceId, async () => {
+        const rows = await query(
+          `SELECT id, workspace_id, user_id, provider, connection_id, action,
+                  risk_level, status, duration_ms, source, error_code, created_at
+           FROM integration_executions
+           WHERE workspace_id = $1
+           ORDER BY created_at DESC
+           LIMIT $2`,
+          [selectedWorkspaceId, Math.min(500, Math.max(1, limit))],
+        )
+        return rows.map(mapIntegrationExecution)
+      })
     },
 
     async getWorkspaceSettings(selectedWorkspaceId) {

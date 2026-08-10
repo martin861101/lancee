@@ -15,8 +15,10 @@ details, and uses the normal idempotent mutation boundary.
 This keeps long-lived business credentials, webhooks, and data access in the
 application backend. Google Drive starts OAuth directly from its Connections
 card using the non-sensitive `drive.file` scope, Google Picker, and the
-configured `/oauth/callback`. Only files and folders explicitly selected by
-the user are listed in lancee. The authenticated document workspace edits
+configured OAuth callback. The canonical path is `/oauth/callback`; existing
+deployments may use `/api/google-drive/oauth/callback` or
+`/api/integrations/google/callback` as compatibility aliases. Only files and
+folders explicitly selected by the user are listed in lancee. The authenticated document workspace edits
 Google Docs, Markdown, and DOCX files in place, previews PDFs and images, and
 uses Drive version checks to prevent stale saves. Paystack opens a workspace
 credential form, and n8n opens its signed webhook configuration. Generic

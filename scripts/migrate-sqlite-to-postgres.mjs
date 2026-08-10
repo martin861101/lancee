@@ -42,6 +42,8 @@ const tableOrder = [
   'workspace_integrations',
   'mail_accounts',
   'integration_requests',
+  'integration_connections',
+  'integration_executions',
   'workspace_settings',
   'plans',
   'subscriptions',
@@ -147,7 +149,7 @@ try {
     const quotedColumns = columns.map((column) => `"${column}"`).join(', ')
     const placeholders = columns.map((_, index) => `$${index + 1}`).join(', ')
     for (const row of rows) {
-      if (table === 'tenant_integration_tokens') {
+      if (['tenant_integration_tokens', 'integration_connections', 'integration_executions'].includes(table)) {
         await client.query(
           `SELECT set_config('app.current_tenant_id', $1, true)`,
           [row.workspace_id],

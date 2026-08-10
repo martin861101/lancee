@@ -92,6 +92,33 @@ export type Integration = {
   accent: string
 }
 
+export type OpenConnectorConnection = {
+  id: string
+  provider: string
+  displayName: string
+  status: 'available' | 'connecting' | 'connected' | 'expired' | 'error' | 'disabled'
+  scopes: string[]
+  createdAt: string
+  updatedAt: string
+  lastUsedAt: string | null
+  error: string | null
+}
+
+export type OpenConnectorProvider = {
+  provider: string
+  displayName: string
+  iconUrl: string | null
+  categories: string[]
+  authTypes: string[]
+  connection: OpenConnectorConnection | null
+}
+
+export type OpenConnectorStatus = {
+  status: 'healthy' | 'degraded' | 'unavailable' | 'disabled'
+  latencyMs: number
+  error?: string
+}
+
 export type WhatsAppStatus = {
   configured: boolean
   connected: boolean
@@ -1634,6 +1661,43 @@ export const api = {
           throw new Error(payload.error || 'Unable to remove the integration token.')
         }
       },
+    },
+  },
+  openConnector: {
+    async status() {
+      const response = await fetch('/api/openconnector/status', { credentials: 'same-origin' })
+      const payload = (await response.json()) as OpenConnectorStatus & { error?: string }
+      if (!response.ok || !payload.status) throw new Error(payload.error || 'Unable to load the integration gateway status.')
+      return payload
+    },
+    async providers(query = '', limit = 100) {
+      const params = new URLSearchParams({ limit: String(limit) })
+      if (query) params.set('q', query)
+      const response = await fetch(`/api/openconnector/providers?${params}`, { credentials: 'same-origin' })
+      const payload = (await response.json()) as { enabled?: boolean; providers?: OpenConnectorProvider[]; error?: string }
+      if (!response.ok || !payload.providers) throw new Error(payload.error || 'Unable to load external providers.')
+      return { enabled: Boolean(payload.enabled), providers: payload.providers }
+    },
+    async connections() {
+      const response = await fetch('/api/openconnector/connections', { credentials: 'same-origin' })
+      const payload = (await response.json()) as { enabled?: boolean; connections?: OpenConnectorConnection[]; error?: string }
+      if (!response.ok || !payload.connections) throw new Error(payload.error || 'Unable to load external connections.')
+      return payload.connections
+    },
+    async connect(provider: string) {
+      const response = await fetch(`/api/openconnector/connections/${encodeURIComponent(provider)}/connect`, {
+        method: 'POST', credentials: 'same-origin', headers: mutationHeaders(), body: '{}',
+      })
+      const payload = (await response.json()) as { connection?: OpenConnectorConnection; authorizationUrl?: string; error?: string }
+      if (!response.ok || !payload.connection || !payload.authorizationUrl) throw new Error(payload.error || 'Unable to start the provider connection.')
+      return payload as { connection: OpenConnectorConnection; authorizationUrl: string }
+    },
+    async disconnect(connectionId: string) {
+      const response = await fetch(`/api/openconnector/connections/${encodeURIComponent(connectionId)}`, {
+        method: 'DELETE', credentials: 'same-origin', headers: mutationHeaders(),
+      })
+      const payload = (await response.json()) as { disconnected?: boolean; error?: string }
+      if (!response.ok || !payload.disconnected) throw new Error(payload.error || 'Unable to disconnect the provider.')
     },
   },
   whatsapp: {

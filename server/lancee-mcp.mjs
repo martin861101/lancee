@@ -524,6 +524,7 @@ export function createLanceeMcpRuntime({
   browserWorker,
   executionWorker,
   sharpImpl,
+  integrationGateway,
   authorize,
   audit,
 }) {
@@ -896,6 +897,7 @@ export function createLanceeMcpRuntime({
     browserWorker,
     executionWorker,
     sharpImpl,
+    integrationGateway,
     authorize,
     audit,
     additionalCapabilities: createPlatformCapabilityDefinitions(invokePlatformTool),

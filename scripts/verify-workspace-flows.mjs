@@ -156,6 +156,16 @@ try {
     /page=integrations&drive=error/,
   )
 
+  const configuredDriveCallback = await fetch(
+    `${application.origin}/api/integrations/google/callback?error=access_denied`,
+    { redirect: 'manual' },
+  )
+  assert.equal(configuredDriveCallback.status, 302)
+  assert.match(
+    configuredDriveCallback.headers.get('location'),
+    /page=integrations&drive=error/,
+  )
+
   const settingsUpdate = await sessionRequest(
     application.origin,
     cookie,

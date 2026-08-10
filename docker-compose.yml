@@ -14,6 +14,10 @@ services:
       - DATABASE_PATH=
       - ALLOW_REGISTRATION=true
       - REDIS_URL=redis://redis:6379
+      - OPENCONNECTOR_ENABLED=${OPENCONNECTOR_ENABLED:-false}
+      - OPENCONNECTOR_URL=http://openconnector:3000
+      - OPENCONNECTOR_RUNTIME_TOKEN=${OPENCONNECTOR_RUNTIME_TOKEN:-}
+      - OPENCONNECTOR_ADMIN_TOKEN=${OPENCONNECTOR_ADMIN_TOKEN:-}
     env_file:
       - .env
     volumes:
@@ -24,6 +28,24 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
+
+  openconnector:
+    image: ghcr.io/oomol-lab/open-connector:v1.3.5
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      OOMOL_CONNECT_DATA_DIR: /app/data
+      OOMOL_CONNECT_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:5177}/openconnector
+      OOMOL_CONNECT_ENCRYPTION_KEY: ${OPENCONNECTOR_ENCRYPTION_KEY:-}
+      OOMOL_CONNECT_ADMIN_TOKEN: ${OPENCONNECTOR_ADMIN_TOKEN:-}
+      OOMOL_CONNECT_RUNTIME_TOKEN: ${OPENCONNECTOR_RUNTIME_TOKEN:-}
+      OOMOL_CONNECT_ALLOWED_ACTIONS: ${OPENCONNECTOR_ALLOWED_ACTIONS:-}
+      OOMOL_CONNECT_BLOCKED_ACTIONS: ${OPENCONNECTOR_BLOCKED_ACTIONS:-}
+      OOMOL_CONNECT_ALLOWED_PROXIES: ""
+      OOMOL_CONNECT_BLOCKED_PROXIES: "*"
+    volumes:
+      - openconnector_data:/app/data
     restart: unless-stopped
 
   db:
@@ -58,3 +80,4 @@ services:
 volumes:
   pgdata:
   core_redis:
+  openconnector_data:

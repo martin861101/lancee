@@ -36,7 +36,9 @@ After signing in to Google Cloud Console:
 
    Use the matching local `PUBLIC_ORIGIN` plus
    `/oauth/callback` for development. Google requires an exact
-   scheme/host/path match.
+   scheme/host/path match. Deployments already registered with
+   `https://lancee.hookitupservices.com/api/integrations/google/callback` may
+   keep that URI; the server accepts it as a compatibility alias.
  5. Create Picker credentials
    Create an **API key** in the same Google Cloud project. Restrict it to the
    production website/referrer and to the Google Picker API. Copy the Google
@@ -54,8 +56,9 @@ After signing in to Google Cloud Console:
 
    Restart the server after changing these values. The browser receives an
    authorization URL but never the client secret. Refresh tokens are encrypted
-   at rest. The legacy `/api/google-drive/oauth/callback` path remains accepted
-   only for deployment compatibility.
+   at rest. The `/api/google-drive/oauth/callback` and
+   `/api/integrations/google/callback` paths remain accepted for deployment
+   compatibility.
  7. Configure Drive UI Integration
    Optional — for 'Open with' / 'New' menus
    If you want your app to appear natively inside the Google Drive interface, go to APIs & Services > Enabled APIs & services, click Google Drive API, and navigate to the Drive UI integration tab to enter your webhooks and app icons.
