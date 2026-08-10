@@ -35,5 +35,5 @@ pnpm verify:codex-connector
 ```
 
 See
-[`LANCEE_RUNTIME_MCP_INTEGRATIONS.md`](../LANCEE_RUNTIME_MCP_INTEGRATIONS.md)
+[`LANCEE_RUNTIME_MCP_INTEGRATIONS.md`](LANCEE_RUNTIME_MCP_INTEGRATIONS.md)
 for the phased integration plan.

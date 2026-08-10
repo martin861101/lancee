@@ -4,9 +4,9 @@ Status: implementation design and delivery plan
 Audience: backend, frontend, platform, security, and operations engineers  
 Last updated: 2026-07-31
 
-This document turns [`ONBOARDING_DIAGRAM.md`](../ONBOARDING_DIAGRAM.md),
-[`ONBOARDING.md`](../ONBOARDING.md), and
-[`ONBOARDING_AGENT.md`](../ONBOARDING_AGENT.md) into an implementation plan for
+This document turns [`ONBOARDING_DIAGRAM.md`](ONBOARDING_DIAGRAM.md),
+[`ONBOARDING.md`](ONBOARDING.md), and
+[`ONBOARDING_AGENT.md`](ONBOARDING_AGENT.md) into an implementation plan for
 the current lancee codebase.
 
 ## 1. Executive decision

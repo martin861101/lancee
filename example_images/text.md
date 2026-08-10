@@ -1,1 +1,0 @@
-View example_images/style.png and modify the work tab in the dashboard to be styled like that as well as the text. Marked in red text is explanations with pointers to the red arrows. Also change the tab name to projects

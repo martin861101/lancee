@@ -7395,12 +7395,20 @@ app.get('/api/google-drive/files', requireAuth, async (request, response) => {
       folderId,
       fileIds: folderId ? null : rootFileIds,
     })
+    for (const unavailableFileId of result.unavailableFileIds || []) {
+      await database.deleteGoogleDriveSelection(workspaceId, unavailableFileId)
+      await database.deleteDriveResourceLinksForFile(workspaceId, unavailableFileId)
+      await database.clearWorkspaceDocumentDriveLink(workspaceId, unavailableFileId)
+    }
     await database.upsertGoogleDriveSelectionFiles(
       workspaceId,
       selectionRootId,
       result.files,
     )
-    response.json(result)
+    response.json({
+      files: result.files,
+      nextPageToken: result.nextPageToken,
+    })
   } catch (error) {
     if (error instanceof GoogleDriveError) {
       response.status(error.status || 502).json({

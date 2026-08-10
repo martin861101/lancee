@@ -1,7 +1,8 @@
 # lancee Legal & Business Infrastructure — Discovery and Implementation Report
 
-Scope note: `docs/LEGAL.md` is truncated and ends at **Section 2 — Canonical
-Business Identity**. The intro references subscription billing, invoice
+Scope note: the earlier legal prompt, quarantined at
+[`../junk/docs/LEGAL.md`](../junk/docs/LEGAL.md), is truncated and ends at
+**Section 2 — Canonical Business Identity**. The intro references subscription billing, invoice
 identity, revenue classification, and compliance administration, but no
 concrete requirements for those sections exist in the file. This task
 implements the two specified deliverables (Section 1 report, Section 2
@@ -47,9 +48,9 @@ canonical identity) and documents the rest as follow-ups.
 - Legal disclosure text (pages exist; company identity was hardcoded/missing).
 
 **External / manual configuration required**
-- Company registration number, VAT number, registered address, support/legal/POI emails, VAT registration status — must be set via env by the operator (not invented per `docs/LEGAL.md` rule 7).
+- Company registration number, VAT number, registered address, support/legal/POI emails, VAT registration status — must be set via env by the operator (not invented per the quarantined legal prompt's rule 7).
 - Legal review of the Terms/Privacy/Refund copy by the operator's counsel.
-- Subscription-billing engine, invoice identity/revenue classification, POPIA compliance administration, and legal-document hosting — not specified in `LEGAL.md`, tracked as follow-ups.
+- Subscription-billing engine, invoice identity/revenue classification, POPIA compliance administration, and legal-document hosting — not specified in the quarantined legal prompt, tracked as follow-ups.
 
 **Implemented during this task**
 - `shared/business.mjs` + `shared/business.d.mts` — canonical typed business identity (`BusinessIdentity` interface), validated env loader, documented defaults/placeholders.

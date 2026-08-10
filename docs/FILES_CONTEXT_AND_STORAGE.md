@@ -43,6 +43,12 @@ changing the workspace document or storage-point contract.
 Google Drive file selection remains an explicitly optional advanced workflow.
 It is not automatically opened when the Files page loads.
 
+Saved Drive selections are resolved independently. If Google reports that a
+selected file no longer exists or is no longer accessible, the Files endpoint
+omits that item and removes its stale selection, resource links, and local
+document sync pointer. Other available files continue to load, and local
+document content is retained.
+
 The primary explorer UI follows the dark reference layout: a storage sidebar,
 top utility bar, large search and filter controls, four-column quick access,
 aligned folder metadata, and a full document table. Controls use inline SVG

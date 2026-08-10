@@ -263,5 +263,5 @@ font, sandbox, and `pwuser` execution in that deployment.
 
 See [`LANCEE_AGENT_RUNTIME.md`](LANCEE_AGENT_RUNTIME.md) for agent APIs and
 operations, and
-[`LANCEE_RUNTIME_MCP_INTEGRATIONS.md`](../LANCEE_RUNTIME_MCP_INTEGRATIONS.md)
+[`LANCEE_RUNTIME_MCP_INTEGRATIONS.md`](LANCEE_RUNTIME_MCP_INTEGRATIONS.md)
 for the architecture decision and post-V1 expansion boundary.

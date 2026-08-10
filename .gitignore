@@ -7,6 +7,9 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Junk
+junk
+
 node_modules
 dist
 dist-ssr
@@ -29,3 +32,7 @@ dist-ssr
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 graft/
+ 
+# Dev Tools
+
+remotion

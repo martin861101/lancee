@@ -1,6 +1,7 @@
 # Dashboard Update 31
 
-This update applies the product changes requested in `docs/UPDATES_31.md`.
+This update records the product changes delivered during the dashboard update
+31 cycle.
 
 ## Navigation and account experience
 

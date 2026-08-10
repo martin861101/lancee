@@ -155,6 +155,19 @@ globalThis.fetch = async (url, init = {}) => {
       capabilities: { canEdit: true, canDownload: true },
     }), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
+  if (String(url).includes('/files/missing_file')) {
+    return new Response(JSON.stringify({
+      error: { message: 'File not found: missing_file' },
+    }), { status: 404, headers: { 'Content-Type': 'application/json' } })
+  }
+  if (String(url).includes('/files/available_file')) {
+    return new Response(JSON.stringify({
+      id: 'available_file',
+      name: 'Available brief',
+      mimeType: 'text/markdown',
+      capabilities: { canEdit: true, canDownload: true },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
   return new Response(JSON.stringify({
     files: [{
       id: 'file_1',
@@ -208,6 +221,13 @@ try {
     /'folder_123' in parents/,
   )
 
+  const selectedListing = await listGoogleDriveFiles({
+    accessToken: 'access-token',
+    fileIds: ['available_file', 'missing_file'],
+  })
+  assert.deepEqual(selectedListing.files.map((file) => file.id), ['available_file'])
+  assert.deepEqual(selectedListing.unavailableFileIds, ['missing_file'])
+
   const updated = await updateGoogleDriveFileContent({
     accessToken: 'access-token',
     fileId: 'file_1',
@@ -217,8 +237,8 @@ try {
   })
   assert.equal(updated.version, '8')
   assert.equal(updated.canEdit, true)
-  assert.equal(calls[4].init.method, 'PATCH')
-  assert.equal(calls[4].init.headers['If-Match'], '"drive-file-etag"')
+  assert.equal(calls[6].init.method, 'PATCH')
+  assert.equal(calls[6].init.headers['If-Match'], '"drive-file-etag"')
 
   const uploaded = await uploadGoogleDriveFile({
     accessToken: 'access-token',
@@ -228,13 +248,13 @@ try {
     folderId: 'folder_123',
   })
   assert.equal(uploaded.id, 'file_1')
-  assert.equal(calls[5].init.method, 'POST')
-  assert.match(calls[5].init.headers['Content-Type'], /^multipart\/related/)
-  assert.match(calls[5].init.body.toString(), /Client brief\.md/)
-  assert.match(calls[5].init.body.toString(), /folder_123/)
+  assert.equal(calls[7].init.method, 'POST')
+  assert.match(calls[7].init.headers['Content-Type'], /^multipart\/related/)
+  assert.match(calls[7].init.body.toString(), /Client brief\.md/)
+  assert.match(calls[7].init.body.toString(), /folder_123/)
 
   console.log(
-    'Google Drive verified: encrypted refresh tokens, signed OAuth state, Picker auth, folder listing, safe editor conversion, Drive updates, and multipart uploads.',
+    'Google Drive verified: encrypted refresh tokens, signed OAuth state, Picker auth, resilient selected-file listing, folder listing, safe editor conversion, Drive updates, and multipart uploads.',
   )
 } finally {
   globalThis.fetch = originalFetch

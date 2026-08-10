@@ -41,13 +41,15 @@ For a new installation, local full-stack setup, first sign-in, integrations,
 SMTP, production deployment, and troubleshooting, follow
 [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md).
 
-The standalone [lancee platform reference](lancee.html) tracks the current
-product surfaces, API route families, `.env.example` configuration, and PM2/
-reverse-proxy deployment shape. The deployed static copy is kept at
-[`public/lancee.html`](public/lancee.html).
+The standalone [lancee platform reference](public/lancee.html) tracks the
+current product surfaces, API route families, `.env.example` configuration, and
+PM2/reverse-proxy deployment shape. It is served at `/lancee.html` from the
+active public assets.
 
-The documented automation inventory is available in [`auto.md`](auto.md), with
-the supporting automation documentation in [`automations/`](automations/).
+The documented automation inventory is available in
+[`docs/AUTOMATIONS.md`](docs/AUTOMATIONS.md).
+
+The repository audit quarantine is documented in [`junk/README.md`](junk/README.md).
 
 ## Product areas
 
@@ -115,9 +117,10 @@ the supporting automation documentation in [`automations/`](automations/).
 - **Connections** — independent backend-managed Google Drive OAuth with
   non-sensitive per-file access through Google Picker, encrypted workspace
   Paystack credentials, signed n8n webhooks, and the application-owned Lancee
-  MCP tool surface. The owner can also connect
-  WhatsApp with a Baileys QR scan; platform notifications are restricted to
-  that verified owner number. Saved sessions restore on backend startup,
+  MCP tool surface. Drive selections that were deleted or are no longer shared
+  are skipped and pruned so one stale file cannot block the Files page. The
+  owner can also connect WhatsApp with a Baileys QR scan; platform notifications
+  are restricted to that verified owner number. Saved sessions restore on backend startup,
   transient socket closures reconnect automatically, and the UI exposes the
   current connection state. Requests for additional business systems are
   persisted without pretending an unsupported provider is connected. See
@@ -280,8 +283,7 @@ longer accepts `MCP_SERVER_TOKEN`, `MCP_GATEWAY_URL`, `MCP_API_TOKEN`, or
 Basebox MCP configuration.
 
 The completed V1 architecture is recorded in
-[`LANCEE_RUNTIME_MCP_INTEGRATIONS.md`](LANCEE_RUNTIME_MCP_INTEGRATIONS.md), with
-runtime operations in
+[`docs/LANCEE_RUNTIME_MCP_INTEGRATIONS.md`](docs/LANCEE_RUNTIME_MCP_INTEGRATIONS.md), with runtime operations in
 [`docs/LANCEE_AGENT_RUNTIME.md`](docs/LANCEE_AGENT_RUNTIME.md).
 
 ## Storefront preview video
@@ -599,7 +601,7 @@ The document title follows the active dashboard page for clearer tabs and
 history navigation.
 
 The implementation and verification record is in
-[`changelog_20260804_090222.md`](changelog_20260804_090222.md).
+[`changelogs/changelog_20260804_090222.md`](changelogs/changelog_20260804_090222.md).
 
 ## Backend status
 

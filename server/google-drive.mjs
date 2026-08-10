@@ -361,14 +361,28 @@ export async function listGoogleDriveFiles({
   if (folderId) q.push(`'${String(folderId)}' in parents`)
   if (Array.isArray(fileIds)) {
     if (fileIds.length === 0) return { files: [], nextPageToken: null }
-    const metas = await Promise.all(
+    const metadataResults = await Promise.allSettled(
       fileIds.map((id) =>
         getGoogleDriveFileMetadata({ accessToken, fileId: String(id) }),
       ),
     )
+    const files = []
+    const unavailableFileIds = []
+    for (const [index, result] of metadataResults.entries()) {
+      if (result.status === 'fulfilled') {
+        files.push(normalizeDriveListFile(result.value))
+        continue
+      }
+      if (result.reason instanceof GoogleDriveError && result.reason.status === 404) {
+        unavailableFileIds.push(String(fileIds[index]))
+        continue
+      }
+      throw result.reason
+    }
     return {
-      files: metas.map(normalizeDriveListFile),
+      files,
       nextPageToken: null,
+      unavailableFileIds,
     }
   }
   if (query && String(query).trim()) q.push(`(${String(query).trim()})`)
