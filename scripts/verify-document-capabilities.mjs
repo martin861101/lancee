@@ -209,9 +209,31 @@ const realDocx = await realDocxCapabilities.invoke('document.create', {
 const realDocxBody = realDocxFixture.documents.find(({ id }) => id === realDocx.file.id).body
 assert.equal(realDocxBody.subarray(0, 2).toString('ascii'), 'PK')
 
+const playwrightPdfFixture = databaseFixture()
+const playwrightPdfCalls = []
+const playwrightPdfCapabilities = createCapabilityRegistry(createDocumentCapabilities({
+  database: playwrightPdfFixture.database,
+  browserWorker: {
+    async renderDocumentPdf(input) {
+      playwrightPdfCalls.push(input)
+      return Buffer.from('%PDF-1.4 styled-playwright')
+    },
+  },
+}))
+const playwrightPdf = await playwrightPdfCapabilities.invoke('pdf.create', {
+  name: 'executive-brief',
+  title: 'Executive brief',
+  content: '## Finding\n\n- **Adoption:** growing',
+}, context)
+assert.equal(playwrightPdf.file.mimeType, 'application/pdf')
+assert.deepEqual(playwrightPdfCalls, [{
+  title: 'Executive brief',
+  content: '## Finding\n\n- **Adoption:** growing',
+}])
+
 assert(fixture.documents.every(({ workspaceId }) => workspaceId === context.workspace.id))
 assert(fixture.artifacts.every(({ workspaceId, createdBy }) => (
   workspaceId === context.workspace.id && createdBy === context.user.id
 )))
 
-console.log('Document capabilities verified: PDF compatibility, bounded PDF/DOCX/HTML/Markdown creation, deterministic merging, sanitization, workspace storage, and artifact registration.')
+console.log('Document capabilities verified: styled Playwright PDF selection and fallback compatibility, bounded PDF/DOCX/HTML/Markdown creation, deterministic merging, sanitization, workspace storage, and artifact registration.')

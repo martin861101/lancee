@@ -20,7 +20,7 @@ Lancee modules or workers behind the same authorization and audit boundary.
 | [`server/capabilities/`](../server/capabilities) | Typed registry plus platform, web, browser, visual, file, document, integration, artifact, job, and approval adapters |
 | [`server/agent-runtime.mjs`](../server/agent-runtime.mjs) | Persisted planner/executor, budgets, retries, cancellation, and approval gates |
 | [`server/execution-worker.mjs`](../server/execution-worker.mjs) | Database-authoritative leased job execution and recovery |
-| [`server/browser-worker.mjs`](../server/browser-worker.mjs) | Isolated Playwright read, snapshot, and screenshot execution |
+| [`server/browser-worker.mjs`](../server/browser-worker.mjs) | Isolated Playwright read, research, screenshot, and PDF execution |
 
 The runtime builds `tools/list` from the same immutable input schemas that the
 registry validates. There is no separate static production catalog that can
@@ -69,7 +69,7 @@ adapter, OAuth, deployment, security, and error contracts.
 | `read_file` | Read bounded supported file content. |
 | `search_files` | Search workspace file metadata/content safely. |
 | `get_file_metadata` | Read one file's workspace-scoped metadata. |
-| `create_pdf` | Render a valid PDF and register its artifact. |
+| `create_pdf` | Render approved Markdown as a styled, print-ready PDF and register its artifact. |
 | `create_document` | Create PDF, DOCX, HTML, or Markdown output. |
 | `merge_documents` | Deterministically merge compatible documents. |
 | `list_artifacts` | List bounded artifact metadata. |
@@ -87,11 +87,15 @@ adapter, OAuth, deployment, security, and error contracts.
 | `browser_read` | Read a public page through isolated Playwright. |
 | `browser_snapshot` | Return a bounded accessibility/content snapshot. |
 | `browser_screenshot` | Capture a screenshot and register it as an artifact. |
+| `browser_pdf` | Render a public page as an A4 PDF and register it as an artifact. |
+| `browser_research` | Search the public web and read up to five resulting sources as bounded rendered evidence. |
 | `analyze_visual` | Inspect image dimensions, format, and bounded statistics. |
 | `extract_visual_palette` | Return a bounded representative colour palette. |
 
-Browser tools are deliberately read-only in V1. Click, type, upload, download,
+Browser navigation remains deliberately read-only: click, type, upload, download,
 credentialed browsing, and arbitrary browser script execution are not exposed.
+`browser_screenshot` and `browser_pdf` write only their generated artifact to the
+authorized Lancee workspace, require approval, and cannot write to the browsed site.
 
 ### Runtime controls, approvals, and integrations
 

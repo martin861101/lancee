@@ -52,6 +52,7 @@ const browserWorker = {
   async read(url) { return { url, title: 'Rendered', text: 'Rendered text', links: [], requestCount: 1, bytes: 100 } },
   async snapshot(url) { return { url, title: 'Rendered', snapshot: '- document "Rendered"', requestCount: 1, bytes: 100 } },
   async screenshot(url) { return { url, body: await sharp({ create: { width: 2, height: 2, channels: 4, background: '#336699' } }).png().toBuffer(), mimeType: 'image/png', requestCount: 1, bytes: 100 } },
+  async pdf(url) { return { url, body: Buffer.from('%PDF-1.4'), mimeType: 'application/pdf', requestCount: 1, bytes: 100 } },
 }
 
 const timeoutCapability = {
@@ -114,10 +115,12 @@ try {
   })
 
   const contracts = capabilities.list()
-  assert.equal(contracts.length, 28)
+  assert.equal(contracts.length, 30)
   assert.equal(contracts.some(({ id }) => id === 'web.access'), true)
   assert.equal(contracts.some(({ id }) => id === 'document.merge'), true)
   assert.equal(contracts.some(({ id }) => id === 'browser.screenshot'), true)
+  assert.equal(contracts.some(({ id }) => id === 'browser.pdf'), true)
+  assert.equal(contracts.some(({ id }) => id === 'browser.research'), true)
   assert.equal(contracts.some(({ id }) => id === 'artifact.get'), true)
   assert.equal(contracts.some(({ id }) => id === 'job.get'), true)
   for (const contract of contracts) {
@@ -163,6 +166,10 @@ try {
     url: 'https://example.com/', name: 'example',
   }, context)
   assert.equal(screenshot.file.mimeType, 'image/png')
+  const browserPdf = await capabilities.invoke('browser.pdf', { url: 'https://example.com/', name: 'rendered' }, context)
+  assert.equal(browserPdf.file.mimeType, 'application/pdf')
+  const research = await capabilities.invoke('browser.research', { query: 'Lancee research', limit: 1 }, context)
+  assert.equal(research.pages.length, 1)
 
   const imageBody = await sharp({ create: { width: 3, height: 2, channels: 4, background: '#FF0000' } }).png().toBuffer()
   const imageFile = await database.createWorkspaceDocument({
@@ -227,8 +234,8 @@ try {
     coreToolIds: ['workspace.summary'],
     executeAutomationRun: async () => {},
   })
-  assert.equal(Object.keys(lanceeMcpCapabilityBindings).length, 44)
-  assert.equal(runtime.listTools().length, 40)
+  assert.equal(Object.keys(lanceeMcpCapabilityBindings).length, 46)
+  assert.equal(runtime.listTools().length, 42)
   for (const tool of runtime.listTools()) {
     const capability = runtime.capabilities.get(lanceeMcpCapabilityBindings[tool.name])
     assert(capability, `missing capability for ${tool.name}`)

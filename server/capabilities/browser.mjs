@@ -8,7 +8,7 @@ function browserOptions(input) {
   }
 }
 
-export function createBrowserCapabilities({ database, browserWorker }) {
+export function createBrowserCapabilities({ database, browserWorker, webSearch = null }) {
   const available = () => Boolean(browserWorker)
   const commonInput = {
     url: { type: 'string', minLength: 1, maxLength: 2048, format: 'uri' },
@@ -119,6 +119,110 @@ export function createBrowserCapabilities({ database, browserWorker }) {
             })
           : null
         return { file, artifact, artifacts: artifact ? [artifact] : [] }
+      },
+    },
+    {
+      id: 'browser.pdf',
+      namespace: 'browser',
+      version: '1.0.0',
+      description: 'Render one public page in the isolated browser as a print-ready PDF and register it as a workspace artifact.',
+      provider: 'lancee.browser.playwright',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...commonInput,
+          name: { type: 'string', minLength: 1, maxLength: 240 },
+          print_background: { type: 'boolean' },
+        },
+        required: ['url', 'name'],
+        additionalProperties: false,
+      },
+      outputSchema: { type: 'object', required: ['file', 'artifact'] },
+      requiredPermissions: ['browser:read', 'files:write'],
+      riskLevel: 'internal-write',
+      requiresApproval: true,
+      timeoutMs: 35_000,
+      concurrencyLimit: 1,
+      estimatedCost: 0,
+      supportsAsync: false,
+      tags: ['browser', 'pdf', 'print', 'artifact'],
+      isAvailable: () => available() && Boolean(database?.createWorkspaceDocument),
+      async execute({ input, context, invocation }) {
+        const rawName = textInput(input, 'name', { required: true, maxLength: 240 })
+        if (rawName.includes('/') || rawName.includes('\\') || rawName.includes('\0')) {
+          throw new LanceeCapabilityError('INVALID_ARGUMENTS', 'The PDF name cannot contain path separators.')
+        }
+        const name = rawName.toLowerCase().endsWith('.pdf') ? rawName : `${rawName}.pdf`
+        const pdf = await browserWorker.pdf(
+          textInput(input, 'url', { required: true, maxLength: 2048 }),
+          { ...browserOptions(input), printBackground: input.print_background !== false },
+        )
+        const file = await database.createWorkspaceDocument({
+          workspaceId: context.workspace.id,
+          name,
+          mimeType: pdf.mimeType,
+          body: pdf.body,
+        })
+        const artifact = typeof database.createArtifact === 'function'
+          ? await database.createArtifact({
+              workspaceId: context.workspace.id,
+              createdBy: context.user.id,
+              runId: invocation.runId || null,
+              kind: 'pdf',
+              mimeType: pdf.mimeType,
+              name,
+              storageDocumentId: file.id,
+              size: file.size,
+              sha256: file.sha256,
+              source: 'browser.pdf',
+              metadata: { url: pdf.url, printBackground: input.print_background !== false },
+            })
+          : null
+        return { file, artifact, artifacts: artifact ? [artifact] : [] }
+      },
+    },
+    {
+      id: 'browser.research',
+      namespace: 'browser',
+      version: '1.0.0',
+      description: 'Search the public web, then read up to five resulting sources in isolated browser contexts as bounded rendered evidence.',
+      provider: 'lancee.browser.playwright',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', minLength: 2, maxLength: 300 },
+          limit: { type: 'integer', minimum: 1, maximum: 5 },
+          width: commonInput.width,
+          height: commonInput.height,
+          timeout_ms: commonInput.timeout_ms,
+        },
+        required: ['query'],
+        additionalProperties: false,
+      },
+      outputSchema: { type: 'object', required: ['pages'] },
+      requiredPermissions: ['web:read', 'browser:read'],
+      riskLevel: 'read',
+      requiresApproval: false,
+      timeoutMs: 60_000,
+      concurrencyLimit: 1,
+      estimatedCost: 0,
+      supportsAsync: false,
+      tags: ['browser', 'research', 'sources', 'read'],
+      isAvailable: () => available() && typeof webSearch === 'function',
+      async execute({ input, signal }) {
+        const query = textInput(input, 'query', { required: true, maxLength: 300 })
+        const limit = Number.isInteger(input.limit) ? input.limit : 5
+        const search = await webSearch({ input: { query, limit }, signal })
+        const pages = []
+        for (const source of search.results) {
+          try {
+            const page = await browserWorker.read(source.url, browserOptions(input))
+            pages.push({ source, ...page })
+          } catch (error) {
+            pages.push({ source, error: error.code || 'BROWSER_FAILED' })
+          }
+        }
+        return { query, provider: search.provider, searchedAt: search.searchedAt, pages }
       },
     },
   ]

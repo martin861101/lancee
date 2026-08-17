@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import DOMPurify from 'dompurify'
+import { marked } from 'marked'
 import { api, type ProposedMcpAction, type RunEvent } from '../../lib/api'
+
+type ChatAttachment = {
+  id: string
+  name: string
+  mimeType: string
+  size?: number
+}
 
 type Message = {
   role: 'user' | 'assistant'
@@ -7,6 +16,7 @@ type Message = {
   proposedAction?: ProposedMcpAction
   actionState?: 'pending' | 'running' | 'completed' | 'failed' | 'denied'
   actionMessage?: string
+  attachments?: ChatAttachment[]
 }
 
 export const DASHBOARD_CHANGED_EVENT = 'lancee:dashboard-changed'
@@ -23,6 +33,44 @@ function readableLabel(value: string) {
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .trim()
   return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : 'Result'
+}
+
+function normalizedMarkdown(value: string) {
+  return value
+    .replace(/\s+(#{1,6}\s+)/g, '\n\n$1')
+    .replace(/:\s*[-*]\s+(?=\*\*)/g, ':\n\n- ')
+    .replace(/([.!?])\s+([-*]\s+(?=\*\*))/g, '$1\n\n$2')
+}
+
+function renderedMarkdown(value: string) {
+  return DOMPurify.sanitize(String(marked.parse(normalizedMarkdown(value), {
+    async: false,
+    gfm: true,
+    breaks: true,
+  })))
+}
+
+function attachmentsFromResults(results: unknown[] = []) {
+  const attachments = new Map<string, ChatAttachment>()
+  for (const result of results) {
+    const envelope = objectValue(result)
+    const data = objectValue(envelope.data)
+    const file = objectValue(data.file)
+    if (typeof file.id !== 'string' || typeof file.name !== 'string') continue
+    attachments.set(file.id, {
+      id: file.id,
+      name: file.name,
+      mimeType: typeof file.mimeType === 'string' ? file.mimeType : 'application/octet-stream',
+      ...(typeof file.size === 'number' ? { size: file.size } : {}),
+    })
+  }
+  return [...attachments.values()]
+}
+
+function attachmentLabel(attachment: ChatAttachment) {
+  const type = attachment.mimeType === 'application/pdf' ? 'PDF' : 'File'
+  if (!attachment.size) return type
+  return `${type} · ${Math.max(1, Math.round(attachment.size / 1024))} KB`
 }
 
 function summarizeOutput(value: unknown) {
@@ -90,6 +138,7 @@ export default function WorkspaceChat() {
           content: result.content || '',
           proposedAction: result.proposedAction || undefined,
           actionState: result.proposedAction ? 'pending' : undefined,
+          attachments: attachmentsFromResults(result.run.results),
         },
       ])
     } catch (error) {
@@ -122,7 +171,8 @@ export default function WorkspaceChat() {
                 : agentResult.run.status === 'completed' ? 'completed' : 'failed',
               actionMessage: agentResult.proposedAction
                 ? 'Safe steps completed · another approval is required.'
-                : `Agent run ${readableLabel(agentResult.run.status)}`,
+                : agentResult.run.status === 'completed' ? 'Created and attached.' : `Agent run ${readableLabel(agentResult.run.status)}`,
+              attachments: attachmentsFromResults(agentResult.run.results),
             }
           : item))
         return
@@ -139,10 +189,19 @@ export default function WorkspaceChat() {
       let actionMessage = `${result.message} (${result.duration}ms)`
       let actionState: Message['actionState'] = result.ok ? 'completed' : 'failed'
       let continuedResponse: Awaited<ReturnType<typeof api.chat.complete>> | null = null
+      const createdAttachments: ChatAttachment[] = []
       if (typeof workflow.id === 'string') {
         actionMessage = `${String(workflow.name || 'Workflow')} created · ${String(workflow.status || 'ready')}`
       }
-      if (typeof file.id === 'string') actionMessage = `${String(file.name || 'File')} saved to Files`
+      if (typeof file.id === 'string') {
+        actionMessage = 'Created and attached.'
+        createdAttachments.push({
+          id: file.id,
+          name: String(file.name || 'File'),
+          mimeType: typeof file.mimeType === 'string' ? file.mimeType : 'application/octet-stream',
+          ...(typeof file.size === 'number' ? { size: file.size } : {}),
+        })
+      }
       if (typeof client.id === 'string') actionMessage = `${String(client.name || 'Client')} saved to Clients`
       if (typeof project.id === 'string') actionMessage = `${String(project.name || 'Project')} saved · ${String(project.status || 'ready')}`
       if (typeof connector.id === 'string') actionMessage = `${String(connector.name || 'Connector')} added to Connections · requested`
@@ -177,7 +236,7 @@ export default function WorkspaceChat() {
       window.dispatchEvent(new Event(DASHBOARD_CHANGED_EVENT))
       setMessages((current) => {
         const updated = current.map((item, itemIndex) => itemIndex === index
-          ? { ...item, actionState, actionMessage }
+          ? { ...item, actionState, actionMessage, attachments: createdAttachments.length ? createdAttachments : item.attachments }
           : item)
         return continuedResponse
           ? [...updated, {
@@ -243,7 +302,20 @@ export default function WorkspaceChat() {
             )}
             {messages.map((item, index) => (
               <div className={`workspace-chat__message workspace-chat__message--${item.role}`} key={`${item.role}:${index}`}>
-                <div>{item.content}</div>
+                {item.role === 'assistant'
+                  ? <div className="workspace-chat__markdown" dangerouslySetInnerHTML={{ __html: renderedMarkdown(item.content) }} />
+                  : <div>{item.content}</div>}
+                {item.attachments?.map((attachment) => (
+                  <a
+                    className="workspace-chat__attachment"
+                    href={api.documents.downloadUrl(attachment.id)}
+                    download={attachment.name}
+                    key={attachment.id}
+                  >
+                    <span aria-hidden="true">↓</span>
+                    <span><strong>{attachment.name}</strong><small>{attachmentLabel(attachment)}</small></span>
+                  </a>
+                ))}
                 {item.proposedAction && (
                   <div className="workspace-chat__action">
                     <span>{item.proposedAction.title}</span>
@@ -253,7 +325,9 @@ export default function WorkspaceChat() {
                     {item.actionState === 'pending' && (
                       <div>
                         <button type="button" onClick={() => void approveAction(index)}>
-                          {item.proposedAction.risk === 'high' ? 'Approve high-risk action' : 'Confirm'}
+                          {item.proposedAction.toolId.includes('pdf') || item.proposedAction.toolId.includes('document') || item.proposedAction.toolId.includes('file')
+                            ? 'Create & attach file'
+                            : item.proposedAction.risk === 'high' ? 'Approve high-risk action' : 'Confirm'}
                         </button>
                         <button type="button" onClick={() => void denyAction(index)}>Deny</button>
                       </div>

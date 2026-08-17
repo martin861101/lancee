@@ -66,12 +66,12 @@ After signing in to Google Cloud Console:
 ## How file selection works
 
 Connecting first completes Google's OAuth consent. After the redirect,
-**Choose Drive files** launches Google's real Picker overlay using a short-lived
-access token and the browser-restricted Picker key. Google grants the app
-access only to the selected items, and lancee refreshes the Files tree after
-the Picker closes. An empty list means no files have been shared with lancee
-yet. Existing `drive.file` connections do not need a broader scope, but they
-must run Picker once before pre-existing Drive files become visible.
+**Choose folder** launches Google's real Picker overlay in folder-only mode
+using a short-lived access token and the browser-restricted Picker key. Google
+grants the app access only to the selected folder and its available children,
+and lancee refreshes the Files browser after the Picker closes. Existing
+`drive.file` connections do not need a broader scope, but they must run Picker
+once before a Drive folder becomes visible.
 
 ## In-app document workspace
 
@@ -96,14 +96,14 @@ layout, and some complex styling can be simplified during a save.
 
 ## Browsing a selected folder
 
-Choose a folder in Google Picker, then expand its chevron in the Files tree.
-lancee lazy-loads items whose Drive `parents` collection contains that folder
-ID and keeps nested folders visible in place. Select **Edit** or **View** on any
-supported child file, or **Link** to associate the item with a client and
-optional project.
+Choose a folder in Google Picker and it becomes the workspace Drive root. The
+Files page loads its direct children automatically, provides breadcrumbs for
+nested folders, and lazy-loads each folder when opened. Select **Edit** or
+**View** on any supported child file, or **Link** to associate the item with a
+client and optional project.
 
 The `drive.file` permission only exposes items Google has shared with this app.
-If a selected folder returns no accessible children, use **Choose Drive files**
-and explicitly select the required files from that folder. lancee shows this
-access limitation as an empty-state action instead of claiming the folder
-itself is empty.
+If a selected folder returns no accessible children, confirm that the folder
+and its contents are available to the connected Google account, or choose a
+different folder. lancee shows this as an empty folder state without claiming
+that inaccessible content does not exist.

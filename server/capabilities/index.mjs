@@ -27,6 +27,8 @@ export const lanceeMcpCapabilityBindings = Object.freeze({
   browser_read: 'browser.read',
   browser_snapshot: 'browser.snapshot',
   browser_screenshot: 'browser.screenshot',
+  browser_pdf: 'browser.pdf',
+  browser_research: 'browser.research',
   analyze_visual: 'visual.inspect',
   extract_visual_palette: 'visual.extract-palette',
   create_pdf: 'pdf.create',
@@ -108,12 +110,18 @@ export function createLanceeCapabilityRegistry({
         return value instanceof Date ? value.getTime() : Number(value)
       }
     : undefined
+  const webCapabilities = createWebCapabilities({ requestImpl, dnsLookup, env, now })
+  const webSearch = webCapabilities.find((capability) => capability.id === 'web.search')
   const definitions = [
-    ...createWebCapabilities({ requestImpl, dnsLookup, env, now }),
+    ...webCapabilities,
     ...createFileCapabilities({ database }),
-    ...createDocumentCapabilities({ database, renderPdf, renderDocx }),
+    ...createDocumentCapabilities({ database, renderPdf, renderDocx, browserWorker }),
     ...createIntegrationCapabilities({ requestImpl, dnsLookup, env, integrationGateway }),
-    ...createBrowserCapabilities({ database, browserWorker }),
+    ...createBrowserCapabilities({
+      database,
+      browserWorker,
+      webSearch: webSearch ? ({ input, signal }) => webSearch.execute({ input, signal }) : null,
+    }),
     ...createVisualCapabilities({ database, sharpImpl }),
     ...createRuntimeCapabilities({ database, executionWorker }),
     ...additionalCapabilities,

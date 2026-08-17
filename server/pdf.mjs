@@ -63,13 +63,27 @@ function wrapLine(value, maximumCharacters = 96) {
   return wrapped
 }
 
+function markdownText(value) {
+  return String(value || '')
+    .replace(/\s+(#{1,6}\s+)/g, '\n$1')
+    .replace(/:\s*[-*]\s+(?=\*\*)/g, ':\n- ')
+    .replace(/^\s*#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '- ')
+    .replace(/^\s*>\s?/gm, '')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)')
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(\*|_)(.*?)\1/g, '$2')
+    .replace(/`([^`]+)`/g, '$1')
+}
+
 function pdfObject(id, body) {
   return Buffer.from(`${id} 0 obj\n${body}\nendobj\n`, 'ascii')
 }
 
 export function createTextPdf({ title, content, generatedAt = new Date().toISOString() }) {
   const safeTitle = printableText(title).trim() || 'Lancee report'
-  const bodyLines = String(content || '')
+  const bodyLines = markdownText(content)
     .replace(/\r\n?/g, '\n')
     .split('\n')
     .flatMap((line) => wrapLine(line))

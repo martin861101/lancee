@@ -90,6 +90,10 @@ export default function DriveFileWorkspace({
   onSaved: (file: GoogleDriveFile) => void
 }) {
   const mode = driveWorkspaceMode(file)
+  const sourceContentUrl =
+    source === 'local'
+      ? api.documents.contentUrl(file.id)
+      : api.googleDrive.contentUrl(file.id)
   const editorRef = useRef<HTMLDivElement>(null)
   const [document, setDocument] = useState<GoogleDriveEditorDocument | null>(null)
   const [content, setContent] = useState('')
@@ -98,6 +102,47 @@ export default function DriveFileWorkspace({
   const [dirty, setDirty] = useState(false)
   const [error, setError] = useState('')
   const [markdownPreview, setMarkdownPreview] = useState(false)
+  const [binaryPreviewUrl, setBinaryPreviewUrl] = useState('')
+
+  useEffect(() => {
+    if (mode !== 'pdf' && mode !== 'image') {
+      setBinaryPreviewUrl('')
+      return
+    }
+    const controller = new AbortController()
+    let objectUrl = ''
+    setLoading(true)
+    setError('')
+    setBinaryPreviewUrl('')
+    void fetch(sourceContentUrl, {
+      credentials: 'same-origin',
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({})) as { error?: string }
+          throw new Error(payload.error || 'Unable to load this file preview.')
+        }
+        return response.blob()
+      })
+      .then((blob) => {
+        if (controller.signal.aborted) return
+        objectUrl = URL.createObjectURL(blob)
+        setBinaryPreviewUrl(objectUrl)
+      })
+      .catch((caught) => {
+        if (!controller.signal.aborted) {
+          setError(caught instanceof Error ? caught.message : 'Unable to load this file preview.')
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => {
+      controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [mode, sourceContentUrl])
 
   useEffect(() => {
     if (mode !== 'rich-text' && mode !== 'markdown') return
@@ -188,11 +233,6 @@ export default function DriveFileWorkspace({
   }
 
   const canSave = Boolean(document?.canEdit && dirty && !saving)
-  const previewUrl =
-    source === 'local'
-      ? api.documents.contentUrl(file.id)
-      : api.googleDrive.contentUrl(file.id)
-
   return (
     <div className="drive-workspace" role="dialog" aria-modal="true" aria-label={file.name}>
       <header className="drive-workspace__header">
@@ -213,6 +253,15 @@ export default function DriveFileWorkspace({
               {saving ? 'Saving…' : source === 'local' ? 'Save in lancee' : 'Save to Drive'}
             </button>
           )}
+          {source === 'local' && (
+            <a
+              className="button button--ghost button--small"
+              href={api.documents.downloadUrl(file.id)}
+              download={file.name}
+            >
+              Download
+            </a>
+          )}
           <button type="button" className="button button--ghost button--small" onClick={close}>
             Close
           </button>
@@ -224,13 +273,29 @@ export default function DriveFileWorkspace({
       <main className="drive-workspace__body">
         {loading && <div className="drive-workspace__loading">Preparing document editor…</div>}
 
-        {!loading && mode === 'pdf' && (
-          <iframe className="drive-workspace__frame" src={previewUrl} title={file.name} />
+        {!loading && mode === 'pdf' && binaryPreviewUrl && (
+          <iframe className="drive-workspace__frame" src={binaryPreviewUrl} title={file.name} />
         )}
 
-        {!loading && mode === 'image' && (
+        {!loading && mode === 'image' && binaryPreviewUrl && (
           <div className="drive-workspace__image-stage">
-            <img src={previewUrl} alt={file.name} />
+            <img src={binaryPreviewUrl} alt={file.name} />
+          </div>
+        )}
+
+        {!loading && error && (mode === 'pdf' || mode === 'image') && (
+          <div className="drive-workspace__loading">
+            <a className="button button--primary" href={sourceContentUrl} target="_blank" rel="noreferrer">
+              Open file in a new tab
+            </a>
+          </div>
+        )}
+
+        {!loading && mode === 'unsupported' && (
+          <div className="drive-workspace__loading">
+            {source === 'local'
+              ? <a className="button button--primary" href={api.documents.downloadUrl(file.id)}>Download {file.name}</a>
+              : <span>This file type opens in its storage provider.</span>}
           </div>
         )}
 

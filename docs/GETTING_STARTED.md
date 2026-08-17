@@ -403,7 +403,9 @@ Also verify in a private browser window:
 6. Sign-out clears the session.
 7. An approved `browser_screenshot` of a public HTTPS page creates a PNG
    artifact; private/loopback URLs remain blocked.
-8. A dashboard agent run can pause for approval, resume, and still be inspected
+8. An approved `browser_pdf` renders a public HTTPS page into an A4 PDF artifact;
+   `browser_research` searches then reads up to five public sources without browser interaction.
+9. A dashboard agent run can pause for approval, resume, and still be inspected
    from `GET /api/agent/runs/:runId`.
 
 ## Updating an existing deployment

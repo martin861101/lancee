@@ -250,12 +250,22 @@ function normalizedMergeParts(input) {
 
 export function createDocumentCapabilities({
   database,
-  renderPdf = createTextPdf,
+  renderPdf,
   renderDocx = defaultRenderDocx,
+  browserWorker,
 } = {}) {
   if (!database || typeof database.createWorkspaceDocument !== 'function') {
     throw new TypeError('The document capability requires the Lancee database adapter.')
   }
+  const pdfRenderer = renderPdf || (async (input) => {
+    if (typeof browserWorker?.renderDocumentPdf !== 'function') return createTextPdf(input)
+    try {
+      return await browserWorker.renderDocumentPdf(input)
+    } catch (error) {
+      if (error?.code === 'BROWSER_UNAVAILABLE') return createTextPdf(input)
+      throw error
+    }
+  })
 
   const commonMetadata = {
     requiredPermissions: ['documents:create', 'files:write'],
@@ -299,7 +309,7 @@ export function createDocumentCapabilities({
       if (Buffer.byteLength(content, 'utf8') > MAX_DOCUMENT_CONTENT_LENGTH) {
         throw new LanceeCapabilityError('BODY_TOO_LARGE', 'The PDF source content exceeds 200 KB.', 413)
       }
-      const body = renderedBuffer(await renderPdf({ title, content }))
+      const body = renderedBuffer(await pdfRenderer({ title, content }))
       const stored = await storeDocument({
         database,
         context,

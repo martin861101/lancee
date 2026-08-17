@@ -15,10 +15,13 @@ async function handle(message) {
     let result
     if (message.method === 'read') result = await worker.read(message.url, message.options || {})
     else if (message.method === 'snapshot') result = await worker.snapshot(message.url, message.options || {})
-    else if (message.method === 'screenshot') {
-      result = await worker.screenshot(message.url, message.options || {})
+    else if (message.method === 'screenshot' || message.method === 'pdf') {
+      result = await worker[message.method](message.url, message.options || {})
       result = { ...result, bodyBase64: result.body.toString('base64') }
       delete result.body
+    } else if (message.method === 'renderDocumentPdf') {
+      const body = await worker.renderDocumentPdf(message.options || {})
+      result = { bodyBase64: body.toString('base64') }
     } else if (message.method === 'health') result = await worker.health()
     else if (message.method === 'close') {
       closing = true
@@ -44,7 +47,7 @@ async function handle(message) {
 }
 
 lines.on('line', (line) => {
-  if (closing || line.length > 20_000) return
+  if (closing || line.length > 250_000) return
   try {
     void handle(JSON.parse(line))
   } catch {

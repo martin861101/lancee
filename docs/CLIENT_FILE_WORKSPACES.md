@@ -17,12 +17,12 @@ In **Work**:
 5. Drive folders and files linked to the client appear in its workspace;
    project-specific Drive resources appear in the project dialog.
 
-## Expandable Google Drive tree
+## Google Drive workspace folder
 
-The **Files** page lists Picker-authorized Drive resources as a tree. Select the
-chevron next to a folder to load its children without leaving the current view.
-Folder contents are fetched only when expanded and remain cached until Drive is
-refreshed.
+The **Files** page uses one Picker-authorized Google Drive folder as the
+workspace root. Its direct children load automatically; opening a nested folder
+uses breadcrumbs and keeps the current cloud location visible. The selected
+folder is also the destination for Drive uploads and local-document syncs.
 
 Select **Link** on a file or folder, choose a client, and optionally choose one
 of that client’s projects. Relationships are persisted in
@@ -31,7 +31,7 @@ Google Drive resource.
 
 Google OAuth continues to use the non-sensitive `drive.file` scope. A folder
 can expose only the children Google has made available to the lancee OAuth
-client; use **Choose Drive files** when a child is not visible.
+client; choose a different shared folder when a child is not visible.
 The real Picker overlay requires the browser-restricted
 `GOOGLE_PICKER_API_KEY` and Google Cloud project number in
 `GOOGLE_PICKER_APP_ID`.

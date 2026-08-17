@@ -29,6 +29,16 @@
 Built with React, TypeScript, Vite, and a small Express backend. AI is optional
 and appears only where it removes meaningful effort from an existing workflow.
 
+Lancee’s built-in MCP includes isolated Playwright research, screenshots, and
+approved public-page PDF artifacts. Browser interaction, credentials, uploads,
+downloads, and arbitrary page scripts remain unavailable to MCP clients.
+In the workspace chat, PDF, report, presentation, and executive-brief requests
+are planned as `pdf.create` actions and pause for confirmation. Approved files
+appear as downloadable chat attachments and in **Files**. Assistant Markdown is
+rendered as formatted content, and PDFs use a colored, print-ready report theme.
+PDFs and images open inside Files through authenticated in-app previews, with a
+download action retained as a fallback for every local file type.
+
 ## Why lancee
 
 | Focus | Flow | Craft | Control |
@@ -79,19 +89,16 @@ The repository audit quarantine is documented in [`junk/README.md`](junk/README.
   and keyboard/touch editing. Named boards remain attached to the lancee
   workspace and each canvas is restored locally between sessions.
 - **Files** — a reference-style dark file explorer with consistent SVG
-  controls, readable quick-access cards, aligned folder and document tables,
-  a storage-aware internal sidebar, responsive mobile layouts, and a lancee
-  document library. Storage options are local workspace, Google Drive,
-  Dropbox, and Microsoft OneDrive. Each cloud option can have a named,
-  workspace-scoped storage point with a default destination; Dropbox and
-  OneDrive points are intentionally URL-backed destinations rather than
-  provider browsers, while the optional Google Drive browser remains available
-  for existing Drive selections. Upload PDF, DOC/DOCX, Markdown, text, and
-  image files to the local library or assign them to a configured storage
-  point. Supported documents remain editable in-app, Google Drive files can be
-  synced later, and local files have a visible confirmation-protected remove
-  action. The page keeps its own scroll region so long file lists remain usable
-  on desktop and mobile.
+  controls, practical search and action menus, responsive mobile layouts, and
+  a lancee document library. Google Drive can be connected through a
+  folder-only Picker: one selected folder becomes the workspace Drive root,
+  its contents load automatically, nested folders are navigable, and supported
+  cloud files can be viewed or edited in-app and saved back to Drive. New Drive
+  uploads and local-document syncs target that selected folder. Local
+  workspace, Dropbox, and Microsoft OneDrive storage points remain available;
+  Dropbox and OneDrive are intentionally URL-backed destinations rather than
+  provider browsers. The page keeps its own scroll region so long file lists
+  remain usable on desktop and mobile.
 - **Messages** — a workspace mail app with automatic provider discovery,
   guided manual IMAP/SMTP setup, folders, search, message reading, compose and
   reply. New incoming mail can trigger native Core automations by sender,

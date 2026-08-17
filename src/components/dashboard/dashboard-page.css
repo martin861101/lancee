@@ -2,6 +2,165 @@
   padding: 24px;
 }
 
+/* The selected Drive folder is the primary workspace in Files. */
+.drive-folder-section {
+  margin-top: 28px;
+}
+
+.drive-folder-section__heading {
+  align-items: flex-start;
+}
+
+.drive-folder-section__hint {
+  margin: 6px 0 0;
+  color: var(--explorer-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.drive-folder-section__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.drive-folder-section__empty {
+  display: grid;
+  min-height: 112px;
+  align-content: center;
+  gap: 6px;
+  padding: 20px;
+  color: #8da2b8;
+  background: rgba(14, 31, 49, .65);
+  border: 1px dashed #33516f;
+  border-radius: 11px;
+  font-size: 12px;
+}
+
+.drive-folder-section__empty strong {
+  color: #dce9f7;
+  font-size: 13px;
+}
+
+.drive-folder-browser {
+  overflow: hidden;
+  background: rgba(13, 28, 45, .72);
+  border: 1px solid #2a425c;
+  border-radius: 12px;
+}
+
+.drive-folder-browser__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 49px;
+  padding: 8px 14px;
+  background: rgba(23, 47, 73, .55);
+  border-bottom: 1px solid #2a425c;
+}
+
+.drive-folder-browser__breadcrumbs {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  overflow: auto;
+  color: #718aa5;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.drive-folder-browser__breadcrumbs span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.drive-folder-browser__breadcrumbs button {
+  max-width: 260px;
+  overflow: hidden;
+  padding: 4px 0;
+  color: #93caff;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+}
+
+.drive-folder-browser__breadcrumbs button:disabled {
+  color: #e6f0fb;
+  font-weight: 650;
+}
+
+.drive-folder-browser__count {
+  flex: 0 0 auto;
+  color: #8198b2;
+  font-size: 10px;
+}
+
+.drive-folder-table {
+  margin: 0;
+}
+
+.drive-folder-table th,
+.drive-folder-table td {
+  padding-inline: 14px;
+}
+
+.drive-folder-table th:first-child,
+.drive-folder-table td:first-child {
+  width: 48%;
+}
+
+.drive-folder-table__folder-icon {
+  display: inline-grid;
+  width: 27px;
+  height: 33px;
+  flex: 0 0 27px;
+  place-items: center;
+  color: #65b5ff;
+}
+
+.drive-folder-table .file-explorer__file-name:disabled,
+.drive-folder-browser button:disabled {
+  cursor: default;
+}
+
+.drive-folder-table .file-explorer__file-name:hover strong {
+  color: #78bdff;
+}
+
+@media (max-width: 600px) {
+  .drive-folder-section__heading {
+    display: grid;
+    gap: 12px;
+  }
+
+  .drive-folder-section__actions {
+    justify-content: flex-start;
+  }
+
+  .drive-folder-browser__bar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .drive-folder-table th:nth-child(2),
+  .drive-folder-table td:nth-child(2),
+  .drive-folder-table th:nth-child(3),
+  .drive-folder-table td:nth-child(3) {
+    display: none;
+  }
+
+  .drive-folder-table th:first-child,
+  .drive-folder-table td:first-child {
+    width: auto;
+  }
+}
+
 .files-page {
   height: calc(100vh - 64px);
   min-height: 0;
@@ -2568,6 +2727,28 @@ html[data-theme='light'] .pdf-studio__result {
 
 .file-explorer__form-field--wide {
   grid-column: 1 / -1;
+}
+
+.file-explorer__drive-destination {
+  align-content: center;
+  min-height: 40px;
+  padding: 8px 11px;
+  background: rgba(42, 116, 76, .12);
+  border: 1px solid rgba(77, 166, 108, .38);
+  border-radius: 8px;
+}
+
+.file-explorer__drive-destination strong {
+  overflow: hidden;
+  color: #ccebd5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-explorer__drive-destination small {
+  color: #8cb49a;
+  font-size: 10px;
+  font-weight: 400;
 }
 
 .file-explorer__checkbox {

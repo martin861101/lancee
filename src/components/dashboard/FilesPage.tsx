@@ -96,10 +96,10 @@ function ExplorerIcon({ name, size = 18 }: { name: ExplorerIconName; size?: numb
 
 type GooglePickerApi = {
   Action: { PICKED: string; CANCEL: string }
-  Feature: { MULTISELECT_ENABLED: string }
   ViewId: { DOCS: string }
   DocsView: new (viewId?: string) => {
     setIncludeFolders(value: boolean): unknown
+    setMimeTypes(value: string): unknown
     setSelectFolderEnabled(value: boolean): unknown
   }
   PickerBuilder: new () => {
@@ -247,6 +247,8 @@ export default function FilesPage({
   const [notice, setNotice] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [driveFiles, setDriveFiles] = useState<GoogleDriveFile[]>([])
+  const [driveRootFolder, setDriveRootFolder] = useState<GoogleDriveFile | null>(null)
+  const [driveFolderTrail, setDriveFolderTrail] = useState<GoogleDriveFile[]>([])
   const [driveChildren, setDriveChildren] = useState<Record<string, GoogleDriveFile[]>>({})
   const [expandedDriveFolders, setExpandedDriveFolders] = useState<Set<string>>(new Set())
   const [loadingDriveFolders, setLoadingDriveFolders] = useState<Set<string>>(new Set())
@@ -254,6 +256,7 @@ export default function FilesPage({
     useState<GoogleDriveFile | null>(null)
   const [selectedDriveResource, setSelectedDriveResource] =
     useState<GoogleDriveFile | null>(null)
+  const [driveToolsOpen, setDriveToolsOpen] = useState(false)
   const [clients, setClients] = useState<Client[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [resourceLinks, setResourceLinks] = useState<GoogleDriveResourceLink[]>([])
@@ -310,10 +313,16 @@ export default function FilesPage({
     setError('')
     setDriveLoading(true)
     try {
-      const files = await api.googleDrive.list()
+      const rootItems = await api.googleDrive.list()
+      const rootFolder = rootItems.find(isDriveFolder) || null
+      const files = rootFolder
+        ? await api.googleDrive.list(rootFolder.id)
+        : rootItems
+      setDriveRootFolder(rootFolder)
+      setDriveFolderTrail(rootFolder ? [rootFolder] : [])
       setDriveFiles(files)
-      setDriveChildren({})
-      setExpandedDriveFolders(new Set())
+      setDriveChildren(rootFolder ? { [rootFolder.id]: files } : {})
+      setExpandedDriveFolders(rootFolder ? new Set([rootFolder.id]) : new Set())
       setLoadingDriveFolders(new Set())
       setSelectedDriveFile(null)
       setSelectedDriveResource(null)
@@ -321,6 +330,8 @@ export default function FilesPage({
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to load Drive files')
       setDriveFiles([])
+      setDriveRootFolder(null)
+      setDriveFolderTrail([])
       setDriveChildren({})
       setExpandedDriveFolders(new Set())
       setLoadingDriveFolders(new Set())
@@ -339,6 +350,31 @@ export default function FilesPage({
     },
     [fetchDriveFiles],
   )
+
+  const openDriveFolder = async (
+    folder: GoogleDriveFile,
+    nextTrail: GoogleDriveFile[] = [...driveFolderTrail, folder],
+  ) => {
+    if (!isDriveFolder(folder) || driveLoading) return
+    setError('')
+    setDriveLoading(true)
+    try {
+      const children = driveChildren[folder.id] || await api.googleDrive.list(folder.id)
+      setDriveChildren((current) => ({ ...current, [folder.id]: children }))
+      setDriveFolderTrail(nextTrail)
+      setDriveFiles(children)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to open this Drive folder.')
+    } finally {
+      setDriveLoading(false)
+    }
+  }
+
+  const openDriveFolderAt = async (index: number) => {
+    const target = driveFolderTrail[index]
+    if (!target || index === driveFolderTrail.length - 1) return
+    await openDriveFolder(target, driveFolderTrail.slice(0, index + 1))
+  }
 
   const toggleDriveFolder = async (folder: GoogleDriveFile) => {
     if (driveLoading || !isDriveFolder(folder)) return
@@ -383,12 +419,12 @@ export default function FilesPage({
       ])
       const docsView = new picker.DocsView(picker.ViewId.DOCS)
       docsView.setIncludeFolders(true)
+      docsView.setMimeTypes('application/vnd.google-apps.folder')
       docsView.setSelectFolderEnabled(true)
       let pickedDocuments: GooglePickerDocument[] | null = null
       await new Promise<void>((resolve) => {
         const instance = new picker.PickerBuilder()
           .addView(docsView)
-          .enableFeature(picker.Feature.MULTISELECT_ENABLED)
           .setOAuthToken(config.accessToken)
           .setDeveloperKey(config.developerKey)
           .setAppId(config.appId)
@@ -406,16 +442,18 @@ export default function FilesPage({
       })
       const selectedDocuments = pickedDocuments as GooglePickerDocument[] | null
       if (selectedDocuments !== null) {
-        await api.googleDrive.replaceSelections(
-          selectedDocuments
-            .map((document) => ({
-              driveFileId: String(document.id || '').trim(),
-              name: String(document.name || '').trim(),
-              mimeType: String(document.mimeType || 'application/octet-stream'),
-              webViewLink: document.url || null,
-            }))
-            .filter((document) => document.driveFileId && document.name),
+        const folder = selectedDocuments.find(
+          (document) => document.mimeType === 'application/vnd.google-apps.folder',
         )
+        if (selectedDocuments.length !== 1 || !folder) {
+          throw new Error('Choose one Google Drive folder for this workspace.')
+        }
+        await api.googleDrive.replaceSelections([{
+          driveFileId: String(folder.id || '').trim(),
+          name: String(folder.name || '').trim(),
+          mimeType: 'application/vnd.google-apps.folder',
+          webViewLink: folder.url || null,
+        }])
       }
       await fetchDriveFiles()
     } catch (caught) {
@@ -484,6 +522,14 @@ export default function FilesPage({
       `${document.name} ${document.mimeType}`.toLowerCase().includes(needle),
     )
   }, [documents, query])
+
+  const filteredDriveFiles = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return driveFiles
+    return driveFiles.filter((file) =>
+      `${file.name} ${file.mimeType}`.toLowerCase().includes(needle),
+    )
+  }, [driveFiles, query])
 
   const linksByProvider = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -621,7 +667,13 @@ export default function FilesPage({
     setError('')
     try {
       await api.googleDrive.trash(file.id)
-      setDriveFiles((current) => current.filter((item) => item.id !== file.id))
+      if (driveRootFolder?.id === file.id) {
+        setDriveRootFolder(null)
+        setDriveFolderTrail([])
+        setDriveFiles([])
+      } else {
+        setDriveFiles((current) => current.filter((item) => item.id !== file.id))
+      }
       setDriveChildren((current) => {
         const next: Record<string, GoogleDriveFile[]> = {}
         for (const [folderId, children] of Object.entries(current)) {
@@ -648,6 +700,10 @@ export default function FilesPage({
   const handleDocumentUpload = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!documentFile) return
+    if (documentDestination === 'drive' && !driveRootFolder) {
+      setError('Choose a Google Drive folder before uploading to Drive.')
+      return
+    }
     if (documentFile.size <= 0 || documentFile.size > 10 * 1024 * 1024) {
       setError('Documents must be non-empty and no larger than 10 MB.')
       return
@@ -658,7 +714,7 @@ export default function FilesPage({
       const result = await api.documents.upload(
         documentFile,
         documentDestination,
-        undefined,
+        documentDestination === 'drive' ? driveRootFolder?.id : undefined,
         documentDestination === 'local' ? undefined : documentStoragePointId || undefined,
       )
       if (result.document) {
@@ -667,6 +723,7 @@ export default function FilesPage({
           ...current.filter((item) => item.id !== result.document?.id),
         ])
       }
+      if (documentDestination === 'drive') await refreshDriveFiles()
       setDocumentFile(null)
       setUploadOpen(false)
       const storagePoint = links.find((link) => link.id === documentStoragePointId)
@@ -685,8 +742,12 @@ export default function FilesPage({
   }
 
   const handleSyncDocument = async (document: WorkspaceDocument) => {
+    if (!driveRootFolder) {
+      setError('Choose a Google Drive folder before syncing this document.')
+      return
+    }
     try {
-      const result = await api.documents.syncToDrive(document.id)
+      const result = await api.documents.syncToDrive(document.id, driveRootFolder.id)
       if (result.document) {
         setDocuments((current) =>
           current.map((item) =>
@@ -976,8 +1037,8 @@ export default function FilesPage({
         <div className="file-explorer__content">
           <header className="file-explorer__title-row">
             <div>
-              <h1>All files</h1>
-              <p>Your files, organized and easy to find.</p>
+              <h1>Files</h1>
+              <p>Work from your selected Google Drive folder or your lancee library.</p>
             </div>
             <div className="file-explorer__title-actions">
               <div className="file-explorer__view-toggle" aria-label="File layout">
@@ -1012,6 +1073,119 @@ export default function FilesPage({
               <option>Largest first</option>
             </select>
           </div>
+
+          <section className="file-explorer__section drive-folder-section" aria-labelledby="drive-folder-heading">
+            <div className="file-explorer__section-heading drive-folder-section__heading">
+              <div>
+                <h2 id="drive-folder-heading">Google Drive folder</h2>
+                <p className="drive-folder-section__hint">
+                  {driveRootFolder
+                    ? 'Files here open and save directly in Google Drive.'
+                    : 'Choose one folder to make it the workspace file location.'}
+                </p>
+              </div>
+              <div className="drive-folder-section__actions">
+                {driveRootFolder?.webViewLink && (
+                  <a className="button button--secondary button--small" href={driveRootFolder.webViewLink} target="_blank" rel="noreferrer">
+                    Open in Drive ↗
+                  </a>
+                )}
+                <button type="button" className="button button--primary button--small" onClick={() => void openDrivePicker(driveConnected)}>
+                  {driveConnected ? (driveRootFolder ? 'Change folder' : 'Choose folder') : 'Connect Google Drive'}
+                </button>
+              </div>
+            </div>
+            {!driveConnected ? (
+              <div className="drive-folder-section__empty">
+                <strong>Connect Google Drive to use a cloud file folder.</strong>
+                <span>Files can be viewed and edited here after you choose a folder.</span>
+              </div>
+            ) : !driveRootFolder ? (
+              <div className="drive-folder-section__empty">
+                <strong>No Google Drive folder selected.</strong>
+                <span>Choose a folder once and the dashboard will remember it for this workspace.</span>
+              </div>
+            ) : (
+              <div className="drive-folder-browser">
+                <div className="drive-folder-browser__bar">
+                  <nav className="drive-folder-browser__breadcrumbs" aria-label="Google Drive folder path">
+                    {driveFolderTrail.map((folder, index) => (
+                      <span key={folder.id}>
+                        {index > 0 && <span aria-hidden="true">/</span>}
+                        <button type="button" disabled={index === driveFolderTrail.length - 1} onClick={() => void openDriveFolderAt(index)}>
+                          {folder.name}
+                        </button>
+                      </span>
+                    ))}
+                  </nav>
+                  <span className="drive-folder-browser__count">
+                    {filteredDriveFiles.length} of {driveFiles.length} item{driveFiles.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+                {driveLoading ? (
+                  <div className="drive-folder-section__empty">Loading the Google Drive folder…</div>
+                ) : (
+                  <div className="file-explorer__file-table-wrap">
+                    <table className="file-explorer__file-table drive-folder-table">
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Type</th>
+                          <th>Updated</th>
+                          <th>Size</th>
+                          <th aria-label="Actions" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredDriveFiles.map((file) => {
+                          const folder = isDriveFolder(file)
+                          const fileType = explorerFileType(file.name, file.mimeType)
+                          const mode = driveWorkspaceMode(file)
+                          return (
+                            <tr key={file.id}>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="file-explorer__file-name"
+                                  onClick={() => folder ? void openDriveFolder(file) : mode !== 'unsupported' && setSelectedDriveFile(file)}
+                                >
+                                  <span className={folder ? 'drive-folder-table__folder-icon' : 'file-explorer__file-icon file-explorer__file-icon--' + fileType.className}>
+                                    {folder ? <ExplorerIcon name="folder" size={20} /> : fileType.label}
+                                  </span>
+                                  <span>
+                                    <strong>{file.name}</strong>
+                                    <small>{folder ? 'Folder' : fileType.label + (file.canEdit ? ' · Editable' : ' · View only')}</small>
+                                  </span>
+                                </button>
+                              </td>
+                              <td>{folder ? 'Folder' : fileType.label}</td>
+                              <td>{explorerDate(file.modifiedTime || '')}</td>
+                              <td>{file.size === null ? '—' : explorerFileSize(file.size)}</td>
+                              <td>
+                                <details className="file-item-menu">
+                                  <summary aria-label={'Actions for ' + file.name}><ExplorerIcon name="more" size={18} /></summary>
+                                  <div>
+                                    {folder && <button type="button" onClick={() => void openDriveFolder(file)}>Open folder</button>}
+                                    {!folder && mode !== 'unsupported' && <button type="button" onClick={() => setSelectedDriveFile(file)}>{file.canEdit && !['pdf', 'image'].includes(mode) ? 'Edit in lancee' : 'View in lancee'}</button>}
+                                    {!folder && <button type="button" onClick={() => { setSelectedDriveResource(file); setDriveToolsOpen(true) }}>Link to client or project</button>}
+                                    {file.webViewLink && <a href={file.webViewLink} target="_blank" rel="noreferrer">Open in Drive ↗</a>}
+                                    {file.canDelete && <button type="button" className="file-item-menu__danger" disabled={removingDriveFileId !== null} onClick={() => void handleTrashDriveFile(file)}>{removingDriveFileId === file.id ? 'Moving to trash…' : 'Move to Drive trash'}</button>}
+                                  </div>
+                                </details>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                        {filteredDriveFiles.length === 0 && (
+                          <tr><td colSpan={5} className="file-explorer__empty-row">This Google Drive folder is empty.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
 
           <section className="file-explorer__section" aria-labelledby="quick-access-heading">
             <div className="file-explorer__section-heading">
@@ -1127,23 +1301,10 @@ export default function FilesPage({
                   {filteredDocuments.map((document) => {
                     const fileType = explorerFileType(document.name, document.mimeType)
                     const storagePoint = storagePointForDocument(document)
-                    const driveFile = {
-                      id: document.id,
-                      name: document.name,
-                      mimeType: document.mimeType,
-                      webViewLink: null,
-                      modifiedTime: document.updatedAt,
-                      size: document.size,
-                      canEdit: true,
-                      canDownload: true,
-                      canListChildren: false,
-                      canDelete: false,
-                    }
-                    const canOpen = driveWorkspaceMode(driveFile) !== 'unsupported'
                     return (
                       <tr key={document.id}>
                         <td>
-                          <button type="button" className="file-explorer__file-name" onClick={() => canOpen && setSelectedLocalDocument(document)}>
+                          <button type="button" className="file-explorer__file-name" onClick={() => setSelectedLocalDocument(document)}>
                             <span className={'file-explorer__file-icon file-explorer__file-icon--' + fileType.className}>{fileType.label}</span>
                             <span>
                               <strong>{document.name}</strong>
@@ -1165,9 +1326,9 @@ export default function FilesPage({
                           <details className="file-item-menu">
                             <summary aria-label={'Actions for ' + document.name}><ExplorerIcon name="more" size={18} /></summary>
                             <div>
-                              {canOpen && <button type="button" onClick={() => setSelectedLocalDocument(document)}>View in lancee</button>}
+                              <button type="button" onClick={() => setSelectedLocalDocument(document)}>View in lancee</button>
                               <a href={api.documents.downloadUrl(document.id)}>Download</a>
-                              {driveConnected && (
+                              {driveConnected && driveRootFolder && (
                                 <button type="button" onClick={() => void handleSyncDocument(document)}>Sync to Google Drive</button>
                               )}
                               <button
@@ -1204,7 +1365,7 @@ export default function FilesPage({
                 <div>
                   <span className="file-explorer__eyebrow">Add a file</span>
                   <h2>Upload to a storage option</h2>
-                  <p>Files are kept in lancee for editing and assigned to your selected storage point.</p>
+                  <p>Choose a Drive folder for cloud uploads, or keep the file in the lancee library for local editing.</p>
                 </div>
                 <button type="button" className="file-explorer__close" onClick={() => setUploadOpen(false)}>×</button>
               </div>
@@ -1228,12 +1389,19 @@ export default function FilesPage({
                   }}
                 >
                   <option value="local">Local workspace</option>
-                  <option value="drive" disabled={!driveConnected || !links.some((link) => link.provider === 'drive')}>Google Drive</option>
+                  <option value="drive" disabled={!driveConnected || !driveRootFolder}>Google Drive folder</option>
                   <option value="dropbox" disabled={!links.some((link) => link.provider === 'dropbox')}>Dropbox</option>
                   <option value="onedrive" disabled={!links.some((link) => link.provider === 'onedrive')}>OneDrive</option>
                 </select>
               </label>
-              {documentDestination !== 'local' && (
+              {documentDestination === 'drive' && driveRootFolder && (
+                <div className="file-explorer__form-field file-explorer__drive-destination">
+                  Google Drive folder
+                  <strong>{driveRootFolder.name}</strong>
+                  <small>Uploads are saved directly to this folder.</small>
+                </div>
+              )}
+              {documentDestination !== 'local' && documentDestination !== 'drive' && (
                 <label className="file-explorer__form-field">
                   Storage point
                   <select value={documentStoragePointId} onChange={(event) => setDocumentStoragePointId(event.target.value)} required>
@@ -1244,7 +1412,7 @@ export default function FilesPage({
                   </select>
                 </label>
               )}
-              <button type="submit" className="button button--primary" disabled={!documentFile || uploadingDocument}>
+              <button type="submit" className="button button--primary" disabled={!documentFile || uploadingDocument || (documentDestination === 'drive' && !driveRootFolder)}>
                 {uploadingDocument ? 'Uploading…' : 'Add file'}
               </button>
             </form>
@@ -1327,16 +1495,16 @@ export default function FilesPage({
             </section>
           )}
 
-          <details className="file-explorer__advanced">
-            <summary>Google Drive file selection (optional)</summary>
+          <details className="file-explorer__advanced" open={driveToolsOpen} onToggle={(event) => setDriveToolsOpen(event.currentTarget.open)}>
+            <summary>Google Drive tools and resource links</summary>
             <div>
-              <p>Storage points are the default workflow. Open the Drive browser only when you intentionally need to select an existing external file.</p>
+              <p>The selected folder is the primary workspace. Use these tools to change it or link a Drive item to a client or project.</p>
               <button type="button" className="button button--secondary button--small" onClick={() => void openDrivePicker(driveConnected)}>
-                {driveConnected ? 'Choose Drive files' : 'Connect Google Drive'}
+                {driveConnected ? 'Change Google Drive folder' : 'Connect Google Drive'}
               </button>
               {driveListLoaded && (
                 <div className="drive-tree">
-                  {driveFiles.length > 0 ? renderDriveRows(driveFiles) : <div className="drive-tree__empty">No Drive files selected.</div>}
+                  {driveRootFolder ? renderDriveRows([driveRootFolder]) : driveFiles.length > 0 ? renderDriveRows(driveFiles) : <div className="drive-tree__empty">No Google Drive folder selected.</div>}
                 </div>
               )}
               {selectedDriveResource && (

@@ -40,8 +40,19 @@ workspace records the destination and does not browse, mirror, or claim access
 to the provider. Provider API upload/browse work can be added later without
 changing the workspace document or storage-point contract.
 
-Google Drive file selection remains an explicitly optional advanced workflow.
-It is not automatically opened when the Files page loads.
+Google Drive has a dedicated workspace-folder workflow. The Files page opens
+the Google Picker in folder-only mode and stores one selected folder as the
+workspace's Drive root. On later visits, the page loads that folder's direct
+children automatically, supports nested-folder breadcrumbs, and keeps the
+folder's Drive URL available as an escape hatch. The selected folder is also
+used as the destination for Drive uploads and local-document syncs.
+
+Supported Drive documents open in the existing in-app workspace: Markdown and
+Word-compatible documents can be edited and saved back to Drive, while PDFs
+and images open as previews. Unsupported formats remain available through the
+Open in Drive action. The existing resource-link tools remain available below
+the primary browser for associating Drive files or folders with clients and
+projects.
 
 Saved Drive selections are resolved independently. If Google reports that a
 selected file no longer exists or is no longer accessible, the Files endpoint
@@ -50,10 +61,11 @@ document sync pointer. Other available files continue to load, and local
 document content is retained.
 
 The primary explorer UI follows the dark reference layout: a storage sidebar,
-top utility bar, large search and filter controls, four-column quick access,
-aligned folder metadata, and a full document table. Controls use inline SVG
-icons instead of font-dependent text glyphs, and the layout reduces to two
-quick-access columns before switching to a single mobile column.
+top utility bar, large search and filter controls, a selected-folder Drive
+browser, quick access, aligned folder metadata, and a full local-document
+table. Cloud rows expose View/Edit, Open in Drive, and file actions in one
+compact menu. Controls use inline SVG icons instead of font-dependent text
+glyphs, and the layout reduces to a compact mobile table.
 
 ## Desktop navigation
 

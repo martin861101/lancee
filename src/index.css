@@ -8254,6 +8254,103 @@ kbd {
 .workspace-chat__message--assistant {
   color: #dce6f8;
   background: #1a2332;
+  white-space: normal;
+}
+
+.workspace-chat__markdown > :first-child {
+  margin-top: 0;
+}
+
+.workspace-chat__markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.workspace-chat__markdown h1,
+.workspace-chat__markdown h2,
+.workspace-chat__markdown h3 {
+  margin: 10px 0 5px;
+  color: #f1f6ff;
+  line-height: 1.25;
+}
+
+.workspace-chat__markdown h1 { font-size: 15px; }
+.workspace-chat__markdown h2 { font-size: 13px; }
+.workspace-chat__markdown h3 { font-size: 12px; }
+
+.workspace-chat__markdown p,
+.workspace-chat__markdown ul,
+.workspace-chat__markdown ol,
+.workspace-chat__markdown blockquote,
+.workspace-chat__markdown pre {
+  margin: 5px 0;
+}
+
+.workspace-chat__markdown ul,
+.workspace-chat__markdown ol {
+  padding-left: 18px;
+}
+
+.workspace-chat__markdown a {
+  color: #8db6ff;
+}
+
+.workspace-chat__markdown code {
+  padding: 1px 3px;
+  background: #0e1724;
+  border-radius: 3px;
+}
+
+.workspace-chat__markdown table {
+  width: 100%;
+  margin: 7px 0;
+  border-collapse: collapse;
+}
+
+.workspace-chat__markdown th,
+.workspace-chat__markdown td {
+  padding: 4px 5px;
+  border: 1px solid #35445c;
+  text-align: left;
+  vertical-align: top;
+}
+
+.workspace-chat__attachment {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 9px;
+  padding: 8px 9px;
+  color: #eaf2ff;
+  background: #101a29;
+  border: 1px solid #3f5f8c;
+  border-radius: 8px;
+  text-decoration: none;
+}
+
+.workspace-chat__attachment > span:first-child {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  color: #fff;
+  background: #315fc1;
+  border-radius: 6px;
+  font-weight: 800;
+}
+
+.workspace-chat__attachment > span:last-child {
+  display: grid;
+  min-width: 0;
+}
+
+.workspace-chat__attachment strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-chat__attachment small {
+  color: #9fb0c8;
 }
 
 .workspace-chat__action {
