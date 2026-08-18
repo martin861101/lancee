@@ -185,19 +185,22 @@ in [`docs/FILES_CONTEXT_AND_STORAGE.md`](docs/FILES_CONTEXT_AND_STORAGE.md).
 The current production build uses first-party server sessions rather than
 Firebase:
 
-- The initial administrator is configured with `ADMIN_EMAIL`.
+- The initial workspace owner is configured with `ADMIN_EMAIL`.
+- Platform administration is restricted to `martin@hookitupservices.com`; that
+  account alone receives the **Admin** sidebar option and access to the global
+  administration API.
 - Passwords are verified with Node.js `scrypt`; only the salt and hash are kept.
 - The browser receives a signed `HttpOnly`, `Secure`, `SameSite=Lax` cookie.
 - Session bootstrap, login, and logout use `/api/auth/*`.
-- Public authentication has dedicated `/signin` and `/signup` routes. Signup
-  is enabled in the public UI, collects the account details first, sends a 24-hour email confirmation link,
-  and only creates the workspace after the link is used at
+- Public authentication has dedicated `/signin` and `/signup` routes. When
+  enabled, signup collects the account details first, sends a 24-hour email
+  confirmation link, and only creates the workspace after the link is used at
   `/signup/confirm?token=…` to choose a password.
 - Login is rate-limited to five failed attempts per 15-minute window.
 - Mutating requests validate the request origin.
-- Production registration is controlled by `ALLOW_REGISTRATION` and is enabled
-  by default. Set `ALLOW_REGISTRATION=false` to disable signup; the base Docker
-  Compose service explicitly enables it.
+- Production registration defaults to `ALLOW_REGISTRATION` and can then be
+  enabled or disabled persistently from **Admin → Overview → Public signups**.
+  Disabling public signups does not block existing users or invited members.
 - Email confirmation requires the existing SMTP notification settings to be
   enabled and configured (`SMTP_ENABLED=true`, `SMTP_HOST`, `SMTP_PORT`, and
   `SMTP_FROM_EMAIL`).
@@ -213,9 +216,15 @@ See [`docs/AUTH_AND_NOTIFICATIONS.md`](docs/AUTH_AND_NOTIFICATIONS.md) for the s
 model and SMTP setup. The administrator password is never stored in source or
 documentation.
 
-Administrator access starts at
+Initial workspace-owner access starts at
 [https://lancee.hookitupservices.com](https://lancee.hookitupservices.com) using the
 configured `ADMIN_EMAIL` and its corresponding password.
+
+The platform admin dashboard provides global user and workspace directories,
+API request/error analytics, recent agent/worker/automation logs, runtime
+metrics, and database health. See
+[`docs/ADMIN_DASHBOARD.md`](docs/ADMIN_DASHBOARD.md) for its authorization,
+data, and signup-control behavior.
 
 ## Adaptive Workspace Builder
 

@@ -23,6 +23,7 @@ export type CachedSessionUser = {
   workspaceId: string
   workspace: string
   role: 'owner' | 'collaborator'
+  isAdmin: boolean
   initials: string
 }
 
@@ -133,7 +134,11 @@ export async function getCachedSession() {
   )
   await completed
   return record?.user
-    ? { ...record.user, avatarUrl: record.user.avatarUrl || '' }
+    ? {
+        ...record.user,
+        avatarUrl: record.user.avatarUrl || '',
+        isAdmin: record.user.isAdmin === true,
+      }
     : null
 }
 

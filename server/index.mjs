@@ -154,10 +154,11 @@ const databasePath = configuredDatabasePath
 const port = Number.parseInt(process.env.PORT || '5177', 10)
 const production =
   process.env.APP_ENV === 'production' || process.env.NODE_ENV === 'production'
-const registrationEnabled =
+const registrationEnabledByDefault =
   process.env.ALLOW_REGISTRATION !== 'false'
 const publicOrigin = process.env.PUBLIC_ORIGIN || 'https://lancee.hookitupservices.com'
 const publicHostname = new URL(publicOrigin).hostname
+const platformAdminEmail = 'martin@hookitupservices.com'
 const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase()
 const adminName = (process.env.ADMIN_NAME || 'Workspace Admin').trim()
 const workspaceId = (process.env.WORKSPACE_ID || 'wsp_primary').trim()
@@ -377,6 +378,7 @@ function userResponse(context) {
     workspaceId: context.workspace.id,
     workspace: context.workspace.name,
     role: context.membership.role,
+    isAdmin: context.user.email.trim().toLowerCase() === platformAdminEmail,
     initials: initialsFor(context.user.name),
   }
 }
@@ -532,6 +534,17 @@ async function requireAuth(request, response, next) {
 function requireOwner(request, response, next) {
   if (request.auth?.context?.membership?.role !== 'owner') {
     response.status(403).json({ error: 'Workspace owner access is required.' })
+    return
+  }
+  next()
+}
+
+function requirePlatformAdmin(request, response, next) {
+  if (
+    request.auth?.context?.user?.email?.trim().toLowerCase() !==
+    platformAdminEmail
+  ) {
+    response.status(403).json({ error: 'Platform administrator access is required.' })
     return
   }
   next()
@@ -1793,7 +1806,7 @@ app.use((_request, response, next) => {
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
     'Content-Security-Policy':
-      "default-src 'self'; script-src 'self' https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; frame-src https://apis.google.com https://docs.google.com https://drive.google.com https://accounts.google.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+      "default-src 'self'; script-src 'self' https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self'; frame-src 'self' blob: https://apis.google.com https://docs.google.com https://drive.google.com https://accounts.google.com; object-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
   })
   next()
 })
@@ -2183,9 +2196,13 @@ app.post(
   },
 )
 
-app.get('/api/auth/config', (_request, response) => {
+app.get('/api/auth/config', async (_request, response) => {
   response.set('Cache-Control', 'no-store')
-  response.json({ registrationEnabled })
+  response.json({
+    registrationEnabled: await database.getRegistrationEnabled(
+      registrationEnabledByDefault,
+    ),
+  })
 })
 
 app.get('/api/auth/invitations/:token', rateLimitLogin, async (request, response) => {
@@ -2221,6 +2238,38 @@ app.get('/api/auth/session', async (request, response) => {
   }
   response.json({ user: userResponse(session.context) })
 })
+
+app.get(
+  '/api/admin/dashboard',
+  requireAuth,
+  requirePlatformAdmin,
+  async (_request, response) => {
+    const [dashboard, registrationEnabled] = await Promise.all([
+      database.getAdminDashboard(),
+      database.getRegistrationEnabled(registrationEnabledByDefault),
+    ])
+    response.json({
+      ...dashboard,
+      settings: { registrationEnabled },
+    })
+  },
+)
+
+app.patch(
+  '/api/admin/settings/registration',
+  secureMutations,
+  requireAuth,
+  requirePlatformAdmin,
+  async (request, response) => {
+    if (typeof request.body?.enabled !== 'boolean') {
+      throw new HttpError(400, 'A boolean enabled value is required.')
+    }
+    const registrationEnabled = await database.setRegistrationEnabled(
+      request.body.enabled,
+    )
+    response.json({ registrationEnabled })
+  },
+)
 
 const profileImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
 
@@ -2375,7 +2424,7 @@ app.post('/api/auth/login', secureMutations, rateLimitLogin, async (request, res
 
 app.post('/api/auth/register/start', secureMutations, rateLimitLogin, async (request, response) => {
   response.set('Cache-Control', 'no-store')
-  if (!registrationEnabled) {
+  if (!(await database.getRegistrationEnabled(registrationEnabledByDefault))) {
     throw new HttpError(
       403,
       'New workspace registration is disabled. Ask a workspace owner for an invitation.',
@@ -2434,6 +2483,12 @@ app.post('/api/auth/register/start', secureMutations, rateLimitLogin, async (req
 
 app.post('/api/auth/register/confirm', secureMutations, rateLimitLogin, async (request, response) => {
   response.set('Cache-Control', 'no-store')
+  if (!(await database.getRegistrationEnabled(registrationEnabledByDefault))) {
+    throw new HttpError(
+      403,
+      'New workspace registration is disabled. Ask a workspace owner for an invitation.',
+    )
+  }
   const token = String(request.body?.token || '').trim()
   const password = String(request.body?.password || '')
   if (!/^[A-Za-z0-9_-]{32,128}$/.test(token)) {
@@ -2558,7 +2613,7 @@ app.post('/api/auth/register', secureMutations, rateLimitLogin, async (request, 
     return
   }
 
-  if (!registrationEnabled) {
+  if (!(await database.getRegistrationEnabled(registrationEnabledByDefault))) {
     throw new HttpError(
       403,
       'New workspace registration is disabled. Ask a workspace owner for an invitation.',

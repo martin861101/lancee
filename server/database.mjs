@@ -829,6 +829,11 @@ export async function openDatabase({
 
   // Define PostgreSQL Schema
   const schemaSqls = [
+    `CREATE TABLE IF NOT EXISTS platform_settings (
+      setting_key TEXT PRIMARY KEY,
+      setting_value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS workspaces (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -2467,6 +2472,165 @@ export async function openDatabase({
             ? Math.round((totalQueryDurationMs / queryCount) * 100) / 100
             : probeLatencyMs,
         queryCount,
+      }
+    },
+
+    async getRegistrationEnabled(defaultValue = true) {
+      const rows = await query(
+        `SELECT setting_value FROM platform_settings WHERE setting_key = 'registration_enabled' LIMIT 1`,
+      )
+      return rows[0] ? rows[0].setting_value === 'true' : Boolean(defaultValue)
+    },
+
+    async setRegistrationEnabled(enabled) {
+      await query(
+        `INSERT INTO platform_settings (setting_key, setting_value, updated_at)
+         VALUES ('registration_enabled', $1, $2)
+         ON CONFLICT (setting_key) DO UPDATE SET
+           setting_value = EXCLUDED.setting_value,
+           updated_at = EXCLUDED.updated_at`,
+        [enabled ? 'true' : 'false', nowIso()],
+      )
+      return Boolean(enabled)
+    },
+
+    async getAdminDashboard() {
+      const thirtyDaysAgo = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10)
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+        .toISOString()
+
+      const [userRows, workspaceRows, apiRows, logRows, runRows, databaseInfo] =
+        await Promise.all([
+          query(
+            `SELECT users.id, users.email, users.name, users.created_at, users.disabled_at,
+                    workspace_members.workspace_id, workspace_members.role,
+                    workspaces.name AS workspace_name
+             FROM users
+             LEFT JOIN workspace_members ON workspace_members.user_id = users.id
+             LEFT JOIN workspaces ON workspaces.id = workspace_members.workspace_id
+             ORDER BY users.created_at DESC`,
+          ),
+          query(
+            `SELECT workspaces.id, workspaces.name, workspaces.created_at,
+                    (SELECT COUNT(*) FROM workspace_members WHERE workspace_id = workspaces.id) AS member_count,
+                    (SELECT COUNT(*) FROM clients WHERE workspace_id = workspaces.id) AS client_count,
+                    (SELECT COUNT(*) FROM projects WHERE workspace_id = workspaces.id) AS project_count,
+                    (SELECT COALESCE(SUM(request_count), 0) FROM api_request_metrics WHERE workspace_id = workspaces.id) AS api_calls
+             FROM workspaces
+             ORDER BY workspaces.created_at DESC`,
+          ),
+          query(
+            `SELECT metric_date,
+                    COALESCE(SUM(request_count), 0) AS request_count,
+                    COALESCE(SUM(error_count), 0) AS error_count
+             FROM api_request_metrics
+             WHERE metric_date >= $1
+             GROUP BY metric_date
+             ORDER BY metric_date ASC`,
+            [thirtyDaysAgo],
+          ),
+          query(
+            `SELECT * FROM (
+               SELECT agent_run_events.id, agent_run_events.workspace_id,
+                      workspaces.name AS workspace_name, 'Agent' AS source,
+                      agent_run_events.level, agent_run_events.event_type,
+                      agent_run_events.message, agent_run_events.created_at
+               FROM agent_run_events
+               LEFT JOIN workspaces ON workspaces.id = agent_run_events.workspace_id
+               UNION ALL
+               SELECT execution_job_events.id, execution_job_events.workspace_id,
+                      workspaces.name AS workspace_name, 'Worker' AS source,
+                      execution_job_events.level, execution_job_events.event_type,
+                      execution_job_events.message, execution_job_events.created_at
+               FROM execution_job_events
+               LEFT JOIN workspaces ON workspaces.id = execution_job_events.workspace_id
+               UNION ALL
+               SELECT automation_run_events.id, automation_run_events.workspace_id,
+                      workspaces.name AS workspace_name, 'Automation' AS source,
+                      automation_run_events.level, automation_run_events.event_type,
+                      automation_run_events.message, automation_run_events.created_at
+               FROM automation_run_events
+               LEFT JOIN workspaces ON workspaces.id = automation_run_events.workspace_id
+             ) AS platform_logs
+             ORDER BY created_at DESC
+             LIMIT 100`,
+          ),
+          query(
+            `SELECT
+               (SELECT COUNT(*) FROM agent_runs) AS agent_runs,
+               (SELECT COUNT(*) FROM agent_runs WHERE status = 'completed') AS completed_agent_runs,
+               (SELECT COUNT(*) FROM automation_runs) AS automation_runs,
+               (SELECT COUNT(*) FROM execution_jobs WHERE status IN ('queued', 'running')) AS active_jobs,
+               (SELECT COUNT(*) FROM users WHERE created_at >= $1) AS new_users,
+               (SELECT COALESCE(SUM(request_count), 0) FROM api_request_metrics) AS api_calls,
+               (SELECT COALESCE(SUM(error_count), 0) FROM api_request_metrics) AS api_errors`,
+            [sevenDaysAgo],
+          ),
+          this.getDatabaseInfo(),
+        ])
+
+      const usersById = new Map()
+      for (const row of userRows) {
+        const user = usersById.get(row.id) || {
+          id: row.id,
+          email: row.email,
+          name: row.name,
+          createdAt: row.created_at,
+          disabledAt: row.disabled_at || null,
+          workspaces: [],
+        }
+        if (row.workspace_id) {
+          user.workspaces.push({
+            id: row.workspace_id,
+            name: row.workspace_name,
+            role: row.role,
+          })
+        }
+        usersById.set(row.id, user)
+      }
+
+      const totals = runRows[0] || {}
+      return {
+        generatedAt: nowIso(),
+        summary: {
+          users: usersById.size,
+          workspaces: workspaceRows.length,
+          newUsers: Number(totals.new_users || 0),
+          apiCalls: Number(totals.api_calls || 0),
+          apiErrors: Number(totals.api_errors || 0),
+          agentRuns: Number(totals.agent_runs || 0),
+          completedAgentRuns: Number(totals.completed_agent_runs || 0),
+          automationRuns: Number(totals.automation_runs || 0),
+          activeJobs: Number(totals.active_jobs || 0),
+        },
+        users: [...usersById.values()],
+        workspaces: workspaceRows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          createdAt: row.created_at,
+          memberCount: Number(row.member_count || 0),
+          clientCount: Number(row.client_count || 0),
+          projectCount: Number(row.project_count || 0),
+          apiCalls: Number(row.api_calls || 0),
+        })),
+        apiUsage: apiRows.map((row) => ({
+          date: row.metric_date,
+          calls: Number(row.request_count || 0),
+          errors: Number(row.error_count || 0),
+        })),
+        logs: logRows.map((row) => ({
+          id: row.id,
+          workspaceId: row.workspace_id,
+          workspace: row.workspace_name || 'Unknown workspace',
+          source: row.source,
+          level: row.level,
+          eventType: row.event_type,
+          message: row.message,
+          createdAt: row.created_at,
+        })),
+        system: databaseInfo,
       }
     },
 

@@ -66,9 +66,9 @@ const StorefrontPage = lazy(() => import('./components/StorefrontPage'))
 const ReviewPage = lazy(() => import('./components/annotations/ReviewPage'))
 const PricingPage = lazy(() => import('./components/pricing/PricingPage'))
 const PricingLanding = lazy(() => import('./components/pricing/PricingLanding'))
+const AdminPage = lazy(() => import('./components/admin/AdminPage'))
 import FeaturesPage from './components/FeaturesPage'
 
-const SIGNUPS_PAUSED = false
 const SIDEBAR_STORAGE_KEY = 'lancee:sidebar-collapsed'
 
 function getStoredSidebarState() {
@@ -99,6 +99,7 @@ type Page =
   | 'api'
   | 'pricing'
   | 'settings'
+  | 'admin'
 const pageIds = new Set<Page>([
   'overview',
   'clients',
@@ -119,6 +120,7 @@ const pageIds = new Set<Page>([
   'api',
   'pricing',
   'settings',
+  'admin',
 ])
 type ModalName =
   | 'automation'
@@ -179,7 +181,7 @@ type IconName =
   | 'user'
   | 'wallet'
 
-const navItems: { id: Page; label: string; icon: IconName; section: string; modules?: string[] }[] = [
+const navItems: { id: Page; label: string; icon: IconName; section: string; modules?: string[]; adminOnly?: boolean }[] = [
   { id: 'overview', label: 'Home', icon: 'grid', section: 'Your work' },
   { id: 'clients', label: 'Clients', icon: 'user', section: 'Your work', modules: ['clients', 'client-portal'] },
   { id: 'work', label: 'Projects', icon: 'briefcase', section: 'Your work', modules: ['projects', 'tasks', 'calendar'] },
@@ -198,6 +200,7 @@ const navItems: { id: Page; label: string; icon: IconName; section: string; modu
   { id: 'pricing', label: 'Pricing', icon: 'credit-card', section: 'Platform' },
   { id: 'builder', label: 'Workspace builder', icon: 'sparkles', section: 'Platform' },
   { id: 'settings', label: 'Settings', icon: 'settings', section: 'Platform' },
+  { id: 'admin', label: 'Admin', icon: 'shield', section: 'Platform', adminOnly: true },
 ]
 
 function Icon({
@@ -3461,6 +3464,17 @@ function LandingPage({
   const [policyView, setPolicyView] = useState<'landing' | 'terms' | 'privacy' | 'refund'>('landing')
   const [featuresOpen, setFeaturesOpen] = useState(false)
   const [signupNotice, setSignupNotice] = useState(false)
+  const [registrationEnabled, setRegistrationEnabled] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    void api.auth.getConfig()
+      .then((config) => {
+        if (active) setRegistrationEnabled(config.registrationEnabled)
+      })
+      .catch(() => undefined)
+    return () => { active = false }
+  }, [])
 
   useEffect(() => {
     if (!signupNotice) return
@@ -3469,7 +3483,7 @@ function LandingPage({
   }, [signupNotice])
 
   const handleSignUp = () => {
-    if (SIGNUPS_PAUSED) {
+    if (!registrationEnabled) {
       setSignupNotice(true)
       return
     }
@@ -3565,7 +3579,7 @@ if (policyView !== 'landing') {
         onBack={() => setFeaturesOpen(false)}
         onSignIn={onSignIn}
         onSignUp={handleSignUp}
-        signupsPaused={SIGNUPS_PAUSED}
+        signupsPaused={!registrationEnabled}
       />
     )
   }
@@ -4118,14 +4132,18 @@ function AuthScreen({
       void api.auth
         .getConfig()
         .then((config) => {
-          if (active) setRegistrationEnabled(config.registrationEnabled)
+          if (!active) return
+          setRegistrationEnabled(config.registrationEnabled)
+          if (!config.registrationEnabled && initialMode === 'register') {
+            setMode('login')
+          }
         })
         .catch(() => undefined)
     }
     return () => {
       active = false
     }
-  }, [invitationToken])
+  }, [initialMode, invitationToken])
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -4277,7 +4295,7 @@ function AuthScreen({
             {!busy && !invitationLoading && <Icon name="arrow-right" size={16} />}
           </button>
           {!invitationToken && <p className="auth-signup">
-            {mode === 'login' && SIGNUPS_PAUSED ? (
+            {mode === 'login' && !registrationEnabled ? (
               <span className="auth-signup__paused">Sign-ups are temporarily paused. Existing members can sign in above.</span>
             ) : mode === 'login' && registrationEnabled ? (
               <button type="button" onClick={() => { setMode('register'); setError(''); onNavigate('register') }}>
@@ -4738,19 +4756,23 @@ function SecretModal({
 
 function CommandPalette({
   open,
+  isAdmin,
   onClose,
   onNavigate,
   onCreateAutomation,
 }: {
   open: boolean
+  isAdmin: boolean
   onClose: () => void
   onNavigate: (page: Page) => void
   onCreateAutomation: () => void
 }) {
   const [query, setQuery] = useState('')
-  const filtered = navItems.filter((item) =>
-    `${item.label} ${item.section}`.toLowerCase().includes(query.toLowerCase()),
-  )
+  const filtered = navItems
+    .filter((item) => !item.adminOnly || isAdmin)
+    .filter((item) =>
+      `${item.label} ${item.section}`.toLowerCase().includes(query.toLowerCase()),
+    )
   if (!open) return null
 
   return (
@@ -4868,6 +4890,7 @@ function Sidebar({
               <span className="nav-label">{section}</span>
               {navItems
                 .filter((item) => item.section === section)
+                .filter((item) => !item.adminOnly || user.isAdmin)
                 .filter((item) => !enabledModules || !item.modules || item.modules.some((moduleId) => enabledModules.includes(moduleId)))
                 .map((item) => (
                   <button
@@ -5793,7 +5816,10 @@ function WorkspaceApp() {
   const [settingsSection, setSettingsSection] =
     useState<'profile' | 'general' | 'dev'>('general')
 
-  const navigatePage = (nextPage: Page, replace = false) => {
+  const navigatePage = (requestedPage: Page, replace = false) => {
+    const nextPage = requestedPage === 'admin' && !user?.isAdmin
+      ? 'overview'
+      : requestedPage
     setActivePage(nextPage)
     setMobileOpen(false)
     setNotificationsOpen(false)
@@ -5867,7 +5893,10 @@ function WorkspaceApp() {
   useEffect(() => {
     if (!user || deviceUserCode) return
 
-    const requestedPage = dashboardPageFromLocation() ?? activePage
+    const locationPage = dashboardPageFromLocation() ?? activePage
+    const requestedPage = locationPage === 'admin' && !user.isAdmin
+      ? 'overview'
+      : locationPage
     setActivePage(requestedPage)
 
     const params = new URLSearchParams(window.location.search)
@@ -6705,7 +6734,7 @@ function WorkspaceApp() {
         onRegister={register}
         onRegisterStart={startRegistration}
         onNavigate={(view) => navigateAuth(view)}
-        initialMode={authView === 'register' && SIGNUPS_PAUSED ? 'login' : authView}
+        initialMode={authView}
         onBack={() => navigateAuth('landing')}
       />
     )
@@ -6988,6 +7017,13 @@ function WorkspaceApp() {
             initialSection={settingsSection}
           />
         )
+        break
+      case 'admin':
+        page = user.isAdmin ? (
+          <Suspense fallback={<EmptySkeleton />}>
+            <AdminPage />
+          </Suspense>
+        ) : <EmptySkeleton />
         break
     }
   }
@@ -7322,6 +7358,7 @@ function WorkspaceApp() {
       )}
       <CommandPalette
         open={commandOpen}
+        isAdmin={user.isAdmin}
         onClose={() => setCommandOpen(false)}
         onNavigate={navigatePage}
         onCreateAutomation={() => setModal('automation')}

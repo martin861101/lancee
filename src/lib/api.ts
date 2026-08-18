@@ -15,7 +15,61 @@ export type User = {
   workspaceId: string
   workspace: string
   role: 'owner' | 'collaborator'
+  isAdmin: boolean
   initials: string
+}
+
+export type AdminDashboard = {
+  generatedAt: string
+  summary: {
+    users: number
+    workspaces: number
+    newUsers: number
+    apiCalls: number
+    apiErrors: number
+    agentRuns: number
+    completedAgentRuns: number
+    automationRuns: number
+    activeJobs: number
+  }
+  users: Array<{
+    id: string
+    email: string
+    name: string
+    createdAt: string
+    disabledAt: string | null
+    workspaces: Array<{ id: string; name: string; role: string }>
+  }>
+  workspaces: Array<{
+    id: string
+    name: string
+    createdAt: string
+    memberCount: number
+    clientCount: number
+    projectCount: number
+    apiCalls: number
+  }>
+  apiUsage: Array<{ date: string; calls: number; errors: number }>
+  logs: Array<{
+    id: string
+    workspaceId: string
+    workspace: string
+    source: string
+    level: 'info' | 'warning' | 'error'
+    eventType: string
+    message: string
+    createdAt: string
+  }>
+  system: {
+    provider: string
+    mode: string
+    version: string
+    status: string
+    tablesCount: number
+    averageQueryLatencyMs: number
+    queryCount: number
+  }
+  settings: { registrationEnabled: boolean }
 }
 
 export type Automation = {
@@ -871,6 +925,34 @@ const mutationHeaders = (json = false) => ({
 })
 
 export const api = {
+  admin: {
+    async getDashboard() {
+      const response = await fetch('/api/admin/dashboard', {
+        credentials: 'same-origin',
+      })
+      const payload = (await response.json()) as AdminDashboard & { error?: string }
+      if (!response.ok) {
+        throw new Error(payload.error || 'Unable to load the admin dashboard.')
+      }
+      return payload
+    },
+    async setRegistrationEnabled(enabled: boolean) {
+      const response = await fetch('/api/admin/settings/registration', {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify({ enabled }),
+      })
+      const payload = (await response.json()) as {
+        registrationEnabled?: boolean
+        error?: string
+      }
+      if (!response.ok || typeof payload.registrationEnabled !== 'boolean') {
+        throw new Error(payload.error || 'Unable to update signup access.')
+      }
+      return payload.registrationEnabled
+    },
+  },
   auth: {
     async getConfig() {
       const response = await fetch('/api/auth/config', { credentials: 'same-origin' })
