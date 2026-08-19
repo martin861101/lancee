@@ -1042,6 +1042,103 @@ function validatePaystackInvoiceInput(body) {
   }
 }
 
+function validateInvoicePdfInput(body) {
+  const text = (value, maximum = 160) => String(value || '').trim().slice(0, maximum)
+  const documentType = text(body?.documentType, 20).toLowerCase()
+  const template = text(body?.template, 20).toLowerCase()
+  const accentColor = text(body?.accentColor, 7).toLowerCase()
+  const invoiceNumber = text(body?.invoiceNumber, 80)
+  const clientName = text(body?.clientName, 120)
+  const clientEmail = text(body?.clientEmail, 254).toLowerCase()
+  const projectName = text(body?.projectName, 160)
+  const description = text(body?.description || projectName, 500)
+  const amountMinor = Number(body?.amountMinor)
+  const currency = text(body?.currency || 'ZAR', 3).toUpperCase()
+  const dueDate = body?.dueDate ? text(body.dueDate, 10) : null
+  const createdAt = text(body?.createdAt, 40)
+  const paymentUrl = body?.paymentUrl ? text(body.paymentUrl, 2_000) : null
+
+  if (!['invoice', 'estimate', 'receipt'].includes(documentType)) {
+    throw new HttpError(400, 'Select a valid document type.')
+  }
+  if (!['modern', 'classic', 'studio', 'minimal'].includes(template)) {
+    throw new HttpError(400, 'Select a valid invoice style.')
+  }
+  if (!/^#[0-9a-f]{6}$/.test(accentColor)) {
+    throw new HttpError(400, 'Select a valid six-digit brand colour.')
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{2,79}$/.test(invoiceNumber)) {
+    throw new HttpError(400, 'A valid document number is required.')
+  }
+  if (clientName.length < 2 || clientEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail)) {
+    throw new HttpError(400, 'Valid client details are required.')
+  }
+  if (projectName.length < 2 || description.length < 2) {
+    throw new HttpError(400, 'Valid project and description details are required.')
+  }
+  if (!Number.isSafeInteger(amountMinor) || amountMinor < 100 || amountMinor > 100_000_000_00) {
+    throw new HttpError(400, 'Amount must be a valid value in currency subunits.')
+  }
+  if (!['ZAR', 'USD', 'EUR', 'GBP', 'NGN', 'KES', 'AUD', 'CAD'].includes(currency)) {
+    throw new HttpError(400, 'Select a supported invoice currency.')
+  }
+  if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
+    throw new HttpError(400, 'Due date must use YYYY-MM-DD.')
+  }
+  if (!createdAt || Number.isNaN(Date.parse(createdAt))) {
+    throw new HttpError(400, 'A valid issue date is required.')
+  }
+  if (paymentUrl) {
+    let parsedPaymentUrl
+    try {
+      parsedPaymentUrl = new URL(paymentUrl)
+    } catch {
+      throw new HttpError(400, 'The payment URL is invalid.')
+    }
+    if (parsedPaymentUrl.protocol !== 'https:') {
+      throw new HttpError(400, 'The payment URL must use HTTPS.')
+    }
+  }
+
+  const customFields = Array.isArray(body?.customFields)
+    ? body.customFields.slice(0, 9).map((field) => ({
+        label: text(field?.label, 60),
+        value: text(field?.value, 160),
+      })).filter((field) => field.label && field.value)
+    : []
+  const rawBank = body?.bankDetails
+  const bankDetails = rawBank
+    ? {
+        accountHolder: text(rawBank.accountHolder, 120),
+        bankName: text(rawBank.bankName, 120),
+        accountNumber: text(rawBank.accountNumber, 80),
+        branchCode: text(rawBank.branchCode, 40),
+        swiftCode: text(rawBank.swiftCode, 40),
+      }
+    : null
+  if (bankDetails && (!bankDetails.accountHolder || !bankDetails.bankName || !bankDetails.accountNumber)) {
+    throw new HttpError(400, 'Account holder, bank name, and account number are required for bank transfer.')
+  }
+
+  return {
+    documentType,
+    template,
+    accentColor,
+    invoiceNumber,
+    clientName,
+    clientEmail,
+    projectName,
+    description,
+    amountMinor,
+    currency,
+    dueDate,
+    createdAt,
+    paymentUrl,
+    customFields,
+    bankDetails,
+  }
+}
+
 function paymentLinkResponse(paymentLink) {
   return {
     invoice: {
@@ -3588,6 +3685,30 @@ app.get('/api/money/invoices', requireAuth, async (request, response) => {
 })
 
 app.post(
+  '/api/money/invoice-pdf',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const invoice = validateInvoicePdfInput(request.body)
+    let pdf
+    try {
+      pdf = await browserWorker.renderInvoicePdf({
+        ...invoice,
+        senderName: request.auth.context.workspace.name,
+        senderEmail: request.auth.context.user.email,
+      })
+    } catch (error) {
+      throw new HttpError(error?.status || 503, error?.message || 'The invoice renderer is unavailable.')
+    }
+    response.status(200).set({
+      'Cache-Control': 'no-store',
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${invoice.invoiceNumber}.pdf"`,
+    }).send(pdf)
+  },
+)
+
+app.post(
   '/api/money/paystack/payment-links',
   secureMutations,
   requireAuth,
@@ -4431,10 +4552,10 @@ app.get('/api/openconnector/status', requireAuth, async (_request, response) => 
 })
 
 app.get('/api/openconnector/providers', requireAuth, async (request, response) => {
-  const limit = Number.parseInt(String(request.query.limit || '50'), 10)
+  const limit = Number.parseInt(String(request.query.limit || '2000'), 10)
   const providers = await integrationGateway.providers(request.auth.context, {
     query: String(request.query.q || ''),
-    limit: Number.isFinite(limit) ? limit : 50,
+    limit: Number.isFinite(limit) ? limit : 2_000,
   })
   response.json({ enabled: integrationGateway.enabled, providers })
 })

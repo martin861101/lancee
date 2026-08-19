@@ -492,50 +492,177 @@ function LandingToolLogo({ name }: { name: LandingTool }) {
       aria-label={labels[name]}
       role="img"
     >
-      {name === 'gmail' && (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path fill="#4285f4" d="M3 19V8.1l4 3V19Z" />
-          <path fill="#34a853" d="M17 19v-7.9l4-3V19Z" />
-          <path fill="#fbbc04" d="M3 8.1V6.5c0-1.5 1.7-2.3 2.9-1.4L12 9.7 18.1 5c1.2-.9 2.9 0 2.9 1.4v1.6l-9 6.8Z" />
-          <path fill="#ea4335" d="m3.7 5.3 8.3 6.3 8.3-6.3c.4.3.7.7.7 1.2v1.6l-9 6.8-9-6.8V6.5c0-.5.3-1 .7-1.2Z" />
-        </svg>
-      )}
-      {name === 'calendar' && (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path fill="#4285f4" d="M5 2h14a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3Z" />
-          <path fill="#fff" d="M7 8h10v9H7z" />
-          <path fill="#34a853" d="M2 8h5v9H2z" />
-          <path fill="#fbbc04" d="M7 17h10v5H7z" />
-          <path fill="#ea4335" d="M17 8h5v9h-5z" />
-          <path fill="#4285f4" d="M9.2 11.4v1.3h2.1c-.2 1-1 1.5-2.1 1.5a2.2 2.2 0 1 1 0-4.4c.6 0 1.1.2 1.5.6l1-1a3.6 3.6 0 1 0-2.5 6.2c2.1 0 3.5-1.5 3.5-3.5 0-.3 0-.5-.1-.7Z" />
-        </svg>
-      )}
-      {name === 'drive' && (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path fill="#0f9d58" d="M8.2 3h7.6l6.1 10.6h-7.6Z" />
-          <path fill="#f4b400" d="m8.2 3 3.8 6.6-6.1 10.6-3.8-6.6Z" />
-          <path fill="#4285f4" d="M5.9 20.2 9.7 13h12.2l-3.8 7.2Z" />
-        </svg>
-      )}
-      {name === 'slack' && (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect fill="#36c5f0" x="10.2" y="2" width="3.7" height="9" rx="1.8" />
-          <rect fill="#2eb67d" x="13" y="10.2" width="9" height="3.7" rx="1.8" />
-          <rect fill="#ecb22e" x="10.2" y="13" width="3.7" height="9" rx="1.8" />
-          <rect fill="#e01e5a" x="2" y="10.2" width="9" height="3.7" rx="1.8" />
-        </svg>
-      )}
-      {name === 'zoom' && (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect fill="#2d8cff" x="2" y="4" width="20" height="16" rx="5" />
-          <path fill="#fff" d="M6 8h7.5A2.5 2.5 0 0 1 16 10.5V16H8.5A2.5 2.5 0 0 1 6 13.5Zm10 3 3-2v6l-3-2Z" />
-        </svg>
-      )}
-      {name === 'stripe' && <strong>stripe</strong>}
-      {name === 'paypal' && <strong><i>P</i>P</strong>}
-      {name === 'paystack' && <strong><i />paystack</strong>}
+      <BrandIcon name={name} />
     </span>
   )
+}
+
+type BrandName = 'gmail' | 'calendar' | 'drive' | 'docs' | 'sheets' | 'slack' | 'zoom' | 'stripe' | 'paypal' | 'paystack' | 'github' | 'outlook' | 'notion' | 'onedrive' | 'dropbox' | 'linear' | 'figma' | 'asana' | 'trello' | 'teams'
+
+const BRAND_ALIASES: Record<string, BrandName> = {
+  gmail: 'gmail',
+  'google-mail': 'gmail',
+  calendar: 'calendar',
+  gcal: 'calendar',
+  'google-calendar': 'calendar',
+  google_calendar: 'calendar',
+  drive: 'drive',
+  'google-drive': 'drive',
+  google_drive: 'drive',
+  docs: 'docs',
+  'google-docs': 'docs',
+  google_docs: 'docs',
+  sheets: 'sheets',
+  'google-sheets': 'sheets',
+  google_sheets: 'sheets',
+  slack: 'slack',
+  zoom: 'zoom',
+  stripe: 'stripe',
+  paypal: 'paypal',
+  paystack: 'paystack',
+  github: 'github',
+  outlook: 'outlook',
+  notion: 'notion',
+  onedrive: 'onedrive',
+  'one-drive': 'onedrive',
+  one_drive: 'onedrive',
+  'microsoft-onedrive': 'onedrive',
+  dropbox: 'dropbox',
+  linear: 'linear',
+  figma: 'figma',
+  asana: 'asana',
+  trello: 'trello',
+  teams: 'teams',
+  'microsoft-teams': 'teams',
+  'ms-teams': 'teams',
+  microsoft_teams: 'teams',
+}
+
+const BRAND_MARKS: Record<BrandName, ReactNode> = {
+  gmail: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#4285f4" d="M3 19V8.1l4 3V19Z" />
+      <path fill="#34a853" d="M17 19v-7.9l4-3V19Z" />
+      <path fill="#fbbc04" d="M3 8.1V6.5c0-1.5 1.7-2.3 2.9-1.4L12 9.7 18.1 5c1.2-.9 2.9 0 2.9 1.4v1.6l-9 6.8Z" />
+      <path fill="#ea4335" d="m3.7 5.3 8.3 6.3 8.3-6.3c.4.3.7.7.7 1.2v1.6l-9 6.8-9-6.8V6.5c0-.5.3-1 .7-1.2Z" />
+    </svg>
+  ),
+  calendar: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#4285f4" d="M5 2h14a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3Z" />
+      <path fill="#fff" d="M7 8h10v9H7z" />
+      <path fill="#34a853" d="M2 8h5v9H2z" />
+      <path fill="#fbbc04" d="M7 17h10v5H7z" />
+      <path fill="#ea4335" d="M17 8h5v9h-5z" />
+      <path fill="#4285f4" d="M9.2 11.4v1.3h2.1c-.2 1-1 1.5-2.1 1.5a2.2 2.2 0 1 1 0-4.4c.6 0 1.1.2 1.5.6l1-1a3.6 3.6 0 1 0-2.5 6.2c2.1 0 3.5-1.5 3.5-3.5 0-.3 0-.5-.1-.7Z" />
+    </svg>
+  ),
+  drive: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#0f9d58" d="M8.2 3h7.6l6.1 10.6h-7.6Z" />
+      <path fill="#f4b400" d="m8.2 3 3.8 6.6-6.1 10.6-3.8-6.6Z" />
+      <path fill="#4285f4" d="M5.9 20.2 9.7 13h12.2l-3.8 7.2Z" />
+    </svg>
+  ),
+  docs: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect width="24" height="24" rx="5" fill="#4285f4" />
+      <path fill="#fff" d="M7.5 6h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1 0-1Zm0 3h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1 0-1Zm0 3h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1 0-1Zm0 3h5.5a.5.5 0 0 1 0 1H7.5a.5.5 0 0 1 0-1Z" />
+    </svg>
+  ),
+  sheets: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect width="24" height="24" rx="5" fill="#34a853" />
+      <path fill="#fff" d="M7.5 7h9v10h-9V7Zm1.2 1.2v2.3h3.1V8.2H8.7Zm4.3 0v2.3h3.1V8.2h-3.1ZM8.7 11.6v2.3h3.1v-2.3H8.7Zm4.3 0v2.3h3.1v-2.3h-3.1ZM8.7 15v1.9h3.1V15H8.7Zm4.3 0v1.9h3.1V15h-3.1Z" />
+    </svg>
+  ),
+  slack: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect fill="#36c5f0" x="10.2" y="2" width="3.7" height="9" rx="1.8" />
+      <rect fill="#2eb67d" x="13" y="10.2" width="9" height="3.7" rx="1.8" />
+      <rect fill="#ecb22e" x="10.2" y="13" width="3.7" height="9" rx="1.8" />
+      <rect fill="#e01e5a" x="2" y="10.2" width="9" height="3.7" rx="1.8" />
+    </svg>
+  ),
+  zoom: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect fill="#2d8cff" x="2" y="4" width="20" height="16" rx="5" />
+      <path fill="#fff" d="M6 8h7.5A2.5 2.5 0 0 1 16 10.5V16H8.5A2.5 2.5 0 0 1 6 13.5Zm10 3 3-2v6l-3-2Z" />
+    </svg>
+  ),
+  stripe: <strong className="brand-wordmark brand-wordmark--stripe">stripe</strong>,
+  paypal: <strong className="brand-wordmark brand-wordmark--paypal"><i>P</i>P</strong>,
+  paystack: <strong className="brand-wordmark brand-wordmark--paystack"><i />paystack</strong>,
+  github: (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path fill="#181717" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+    </svg>
+  ),
+  outlook: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect width="24" height="24" rx="6" fill="#0078d4" />
+      <path fill="#fff" d="M12 6.2a5.8 5.8 0 1 1 0 11.6 5.8 5.8 0 0 1 0-11.6Zm0 2.5a3.3 3.3 0 1 0 0 6.6 3.3 3.3 0 0 0 0-6.6Z" />
+    </svg>
+  ),
+  notion: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect width="24" height="24" rx="5.5" fill="#1f1f1f" />
+      <path fill="#fff" d="M8.6 7h1.7v6.9l4.3-5.2h1.7v8.5h-1.7v-6.9l-4.3 5.2H8.6V7Z" />
+    </svg>
+  ),
+  onedrive: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect width="24" height="24" rx="5.5" fill="#fff" />
+      <path fill="#0364b8" d="M12 8.3c-1.8 0-3.3 1.3-3.8 3a3.5 3.5 0 0 0-2 3.2 3.6 3.6 0 0 0 3.6 3.5h6.7a3 3 0 0 0 3-2.9c0-1.5-1.1-2.7-2.5-3a4 4 0 0 0-4-3.8Z" />
+    </svg>
+  ),
+  dropbox: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#0061ff" d="M6.5 2 12 5.5 6.5 9 1 5.5 6.5 2Zm11 0 5.5 3.5-5.5 3.5L12 5.5 17.5 2ZM1 11.5l5.5-3.5 5.5 3.5-5.5 3.5-5.5-3.5Zm16.5-3.5 5.5 3.5-5.5 3.5-5.5-3.5 5.5-3.5ZM6.5 16.5 12 13l5.5 3.5L12 20l-5.5-3.5Z" />
+    </svg>
+  ),
+  linear: <span className="logo-linear" />,
+  figma: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#f24e1e" d="M9.34 1H4.93a3.4 3.4 0 0 0 0 6.8h4.41V1Z" />
+      <path fill="#ff7262" d="M15.07 1h-4.41v6.8h4.41a3.4 3.4 0 0 0 0-6.8Z" />
+      <path fill="#a259ff" d="M4.93 8.93h4.41v4.41H4.93a3.41 3.41 0 1 1 0-6.82Z" />
+      <path fill="#1abcfe" d="M15.07 8.93h-4.41v4.41h4.41a3.41 3.41 0 1 0 0-6.82Z" />
+      <path fill="#0acf83" d="M9.34 15.28v3.31a3.41 3.41 0 1 0 6.82 0v-3.31H9.34Z" />
+    </svg>
+  ),
+  asana: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="6.4" r="3.1" fill="#f06a6a" />
+      <circle cx="6.4" cy="17.6" r="3.1" fill="#f8a51b" />
+      <circle cx="17.6" cy="17.6" r="3.1" fill="#2684ff" />
+    </svg>
+  ),
+  trello: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect width="24" height="24" rx="5.5" fill="#fff" />
+      <rect x="5" y="5" width="6.2" height="14" rx="1.3" fill="#0079bf" />
+      <rect x="12.8" y="5" width="6.2" height="9" rx="1.3" fill="#0079bf" />
+    </svg>
+  ),
+  teams: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect width="24" height="24" rx="5.5" fill="#fff" />
+      <rect x="3.6" y="3.6" width="7.4" height="7.4" rx="1.6" fill="#5059c9" />
+      <rect x="13" y="3.6" width="7.4" height="7.4" rx="1.6" fill="#7b83eb" />
+      <rect x="3.6" y="13" width="7.4" height="7.4" rx="1.6" fill="#464eb8" />
+      <rect x="13" y="13" width="7.4" height="7.4" rx="1.6" fill="#7b83eb" />
+    </svg>
+  ),
+}
+
+function BrandIcon({ name }: { name: BrandName }) {
+  return BRAND_MARKS[name]
+}
+
+function brandIcon(provider: string): ReactNode | null {
+  const name = BRAND_ALIASES[String(provider).toLowerCase()]
+  return name ? BRAND_MARKS[name] : null
 }
 
 function StatusPill({ status }: { status: Automation['status'] | Run['status'] }) {
@@ -1532,6 +1659,26 @@ function IntegrationLogo({ integration }: { integration: Integration }) {
   )
 }
 
+function OpenConnectorLogo({ provider }: { provider: OpenConnectorProvider }) {
+  const [failed, setFailed] = useState(false)
+  const mark = brandIcon(provider.provider)
+  return (
+    <span className="integration-logo" aria-hidden="true">
+      {provider.iconUrl && !failed ? (
+        <img
+          src={provider.iconUrl}
+          alt=""
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+        />
+      ) : mark || (
+        <span className="logo-letter">{provider.displayName.slice(0, 2).toUpperCase()}</span>
+      )}
+    </span>
+  )
+}
+
 function IntegrationsPage({
   integrations,
   externalProviders,
@@ -1579,7 +1726,7 @@ function IntegrationsPage({
 }) {
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('All')
-  const categories = ['All', 'Payments', 'Design', 'Storage', 'Automation', 'Communication', 'Other']
+  const [externalLimit, setExternalLimit] = useState(60)
   const connectionCatalog: Integration[] = [
     {
       id: 'general-ai',
@@ -1603,15 +1750,27 @@ function IntegrationsPage({
       accent: '#786bff',
     })),
   ]
+  const categories = [
+    'All',
+    ...Array.from(new Set([
+      ...connectionCatalog.map((integration) => integration.category),
+      ...externalProviders.flatMap((provider) => provider.categories.length ? provider.categories : ['Other']),
+    ])).sort((left, right) => left.localeCompare(right)),
+  ]
   const filtered = connectionCatalog.filter(
     (integration) =>
       (category === 'All' || integration.category === category) &&
       `${integration.name} ${integration.description}`.toLowerCase().includes(query.toLowerCase()),
   )
   const externalFiltered = externalProviders.filter((provider) =>
-    (category === 'All' || provider.categories.some((item) => item.toLowerCase().includes(category.toLowerCase().replace(/s$/, ''))))
+    (category === 'All' || (provider.categories.length ? provider.categories : ['Other']).includes(category))
       && `${provider.displayName} ${provider.provider} ${provider.categories.join(' ')}`.toLowerCase().includes(query.toLowerCase()),
   )
+  const visibleExternalProviders = externalFiltered.slice(0, externalLimit)
+
+  useEffect(() => {
+    setExternalLimit(60)
+  }, [category, query])
 
   return (
     <div className="page">
@@ -1675,23 +1834,24 @@ function IntegrationsPage({
           <div className="section-heading-row">
             <div>
               <span className="micro-label">External integration gateway</span>
-              <h2 id="external-integrations-title">Connected SaaS providers</h2>
+              <h2 id="external-integrations-title">
+                OpenConnector catalog <small>{externalFiltered.length} providers</small>
+              </h2>
             </div>
             <button className="button button--secondary" onClick={onRefreshExternal}>
               Refresh status
             </button>
           </div>
           <div className="integration-grid">
-            {externalFiltered.map((provider) => {
+            {visibleExternalProviders.map((provider) => {
               const connection = provider.connection
               const connected = connection?.status === 'connected'
               const connecting = connection?.status === 'connecting'
+              const oauthReady = provider.authTypes.includes('oauth2')
               return (
                 <article className="integration-card" key={`openconnector:${provider.provider}`}>
                   <div className="integration-card__top">
-                    <span className="integration-logo" aria-hidden="true">
-                      <span className="logo-letter">{provider.displayName.slice(0, 2).toUpperCase()}</span>
-                    </span>
+                    <OpenConnectorLogo provider={provider} />
                     {connection && (
                       <span className={connected ? 'connected-label' : 'platform-label'}>
                         {connected ? <Icon name="check" size={12} /> : null}
@@ -1699,32 +1859,49 @@ function IntegrationsPage({
                       </span>
                     )}
                   </div>
-                  <span className="integration-category">{provider.categories[0] || 'Other'}</span>
+                  <span className="integration-category">{(provider.categories.length ? provider.categories : ['Other']).join(' · ')}</span>
                   <h3>{provider.displayName}</h3>
                   <p>{connected
                     ? `${connection.displayName}${connection.scopes.length ? ` · ${connection.scopes.length} scopes` : ''}`
-                    : 'Connect through the workspace-scoped OpenConnector gateway.'}</p>
+                    : provider.description || 'Connect through the workspace-scoped OpenConnector gateway.'}</p>
                   {connected && (
                     <small>Connected {new Date(connection.createdAt).toLocaleDateString()}</small>
+                  )}
+                  {provider.homepageUrl && (
+                    <a className="provider-link" href={provider.homepageUrl} target="_blank" rel="noreferrer">
+                      Provider site <Icon name="arrow-up-right" size={11} />
+                    </a>
                   )}
                   <div className="protocol-badges">
                     <span>OpenConnector</span>
                     {provider.authTypes.map((type) => <span key={type}>{type}</span>)}
+                    {provider.authorizationUrl && provider.tokenUrl && <small title={`${provider.authorizationUrl}\n${provider.tokenUrl}`}>Auth URLs set</small>}
                   </div>
                   <button
                     className={`button ${connected ? 'button--secondary' : 'button--dark'}`}
-                    disabled={!canManage || busyId === `openconnector:${provider.provider}` || connecting || !provider.authTypes.includes('oauth2')}
+                    disabled={!canManage || busyId === `openconnector:${provider.provider}` || connecting || !oauthReady}
                     onClick={() => connected ? onDisconnectExternal(provider) : onConnectExternal(provider)}
                   >
                     {busyId === `openconnector:${provider.provider}`
                       ? <span className="spinner" />
                       : <Icon name={connected ? 'plug' : 'plus'} size={15} />}
-                    {connected ? 'Disconnect' : connecting ? 'Connecting…' : connection ? 'Reconnect' : 'Connect'}
+                    {connected
+                      ? 'Disconnect'
+                      : connecting
+                        ? 'Connecting…'
+                        : !oauthReady
+                          ? provider.authTypes.includes('no_auth') ? 'No authentication needed' : 'Configure in OpenConnector'
+                          : connection ? 'Reconnect' : 'Connect'}
                   </button>
                 </article>
               )
             })}
           </div>
+          {externalLimit < externalFiltered.length && (
+            <button className="button button--secondary connector-load-more" onClick={() => setExternalLimit((current) => current + 60)}>
+              Show more connectors ({externalFiltered.length - externalLimit} remaining)
+            </button>
+          )}
         </section>
       )}
 
@@ -3463,6 +3640,7 @@ function LandingPage({
   const landingRef = useRef<HTMLElement>(null)
   const [policyView, setPolicyView] = useState<'landing' | 'terms' | 'privacy' | 'refund'>('landing')
   const [featuresOpen, setFeaturesOpen] = useState(false)
+  const [navOpen, setNavOpen] = useState(false)
   const [signupNotice, setSignupNotice] = useState(false)
   const [registrationEnabled, setRegistrationEnabled] = useState(false)
 
@@ -3591,17 +3769,26 @@ if (policyView !== 'landing') {
           <BrandMark />
           <span>lancee</span>
         </a>
-        <nav aria-label="Public navigation">
-          <a href="#platform">What it does</a>
-          <a href="#workflow">How it works</a>
-          <a href="#integrations">Connections</a>
-          <a href="/pricing" onClick={(event) => { event.preventDefault(); onPricing() }}>
+        <nav id="landing-navigation" className={navOpen ? 'is-open' : ''} aria-label="Public navigation">
+          <a href="#platform" onClick={() => setNavOpen(false)}>What it does</a>
+          <a href="#workflow" onClick={() => setNavOpen(false)}>How it works</a>
+          <a href="#integrations" onClick={() => setNavOpen(false)}>Connections</a>
+          <a href="/pricing" onClick={(event) => { event.preventDefault(); setNavOpen(false); onPricing() }}>
             Pricing
           </a>
-          <button className="landing-nav-features" onClick={() => setFeaturesOpen(true)}>
+          <button className="landing-nav-features" onClick={() => { setNavOpen(false); setFeaturesOpen(true) }}>
             Features
           </button>
         </nav>
+        <button
+          className="landing-menu-toggle"
+          aria-controls="landing-navigation"
+          aria-expanded={navOpen}
+          aria-label={navOpen ? 'Close navigation menu' : 'Open navigation menu'}
+          onClick={() => setNavOpen((current) => !current)}
+        >
+          <Icon name={navOpen ? 'close' : 'menu'} size={19} />
+        </button>
         <div>
           <button className="landing-sign-in" onClick={onSignIn}>
             Sign in
@@ -6048,7 +6235,7 @@ function WorkspaceApp() {
   useEffect(() => {
     if (!user) return
     let active = true
-    void Promise.all([api.openConnector.status(), api.openConnector.providers('', 100), api.openConnector.connections()])
+    void Promise.all([api.openConnector.status(), api.openConnector.providers(), api.openConnector.connections()])
       .then(([status, catalog, connections]) => {
         if (!active) return
         const byProvider = new Map(connections.map((connection) => [connection.provider, connection]))

@@ -12,6 +12,7 @@
     "auth:hash": "node scripts/hash-password.mjs",
     "verify:durability": "node scripts/verify-durable-foundation.mjs",
     "verify:paystack": "node scripts/verify-paystack-flow.mjs",
+    "verify:invoice-pdf": "node scripts/verify-invoice-pdf.mjs",
     "verify:n8n": "node scripts/verify-n8n-bridge.mjs",
     "verify:core-edge": "node scripts/verify-core-edge.mjs",
     "verify:mail-automation": "node scripts/verify-mail-automation.mjs",

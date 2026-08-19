@@ -1,4 +1,5 @@
 const MAX_RESPONSE_BYTES = 1_048_576
+const MAX_CATALOG_RESPONSE_BYTES = 8_388_608
 
 export class OpenConnectorAdapterError extends Error {
   constructor(code, message, status = 502, { retryable = false, upstreamCode = null } = {}) {
@@ -67,6 +68,7 @@ export function createOpenConnectorAdapter({
     signal,
     idempotencyKey,
     retries = method === 'GET' ? 2 : 0,
+    maxResponseBytes = MAX_RESPONSE_BYTES,
   } = {}) {
     if (!enabled) {
       throw new OpenConnectorAdapterError('INTEGRATION_GATEWAY_UNAVAILABLE', 'External integrations are disabled.', 503)
@@ -90,7 +92,7 @@ export function createOpenConnectorAdapter({
           signal: controller.signal,
         })
         const raw = await response.text()
-        if (Buffer.byteLength(raw) > MAX_RESPONSE_BYTES) {
+        if (Buffer.byteLength(raw) > maxResponseBytes) {
           throw new OpenConnectorAdapterError('INTEGRATION_PROVIDER_ERROR', 'The integration gateway response was too large.', 502)
         }
         let payload = null
@@ -155,7 +157,7 @@ export function createOpenConnectorAdapter({
       }
     },
     async listProviders(options = {}) {
-      return runtimeData(await request('/v1/providers', options))
+      return runtimeData(await request('/v1/providers', { ...options, maxResponseBytes: MAX_CATALOG_RESPONSE_BYTES }))
     },
     async listConnections(provider, options = {}) {
       const path = provider

@@ -97,7 +97,7 @@ Configure these Lancee variables:
 
 | Variable | Purpose |
 | --- | --- |
-| `OPENCONNECTOR_ENABLED` | Feature flag; must be `true` to register gateway tools and UI providers. |
+| `OPENCONNECTOR_ENABLED` | Feature flag; Compose defaults to `true`. Set `false` to remove gateway tools and UI providers. |
 | `OPENCONNECTOR_URL` | Internal gateway origin; Compose uses `http://openconnector:3000`. |
 | `OPENCONNECTOR_TIMEOUT_MS` | Per-request timeout, clamped to 500–30,000 ms. |
 | `OPENCONNECTOR_RUNTIME_TOKEN` | Bearer token for `/v1/*` discovery and execution. |
@@ -132,6 +132,21 @@ the provider URL in a popup and Lancee polls safe connection summaries.
 Because only Lancee knows the alias-to-workspace mapping, an alias supplied by
 an AI or another workspace cannot select a connection. Disconnect is owner-only
 and removes the upstream credential before deleting Lancee metadata.
+
+The Connections page requests the complete catalog, capped at 2,000 providers,
+and renders it in batches of 60. Search always covers the full loaded catalog.
+Category options come from OpenConnector metadata, and providers without a
+category are placed in `Other`. Cards use the upstream official `iconUrl` when
+present, link to the provider homepage, list advertised auth types, and retain
+the public OAuth authorization/token URLs for setup visibility. A failed or
+missing icon falls back to a local brand mark for well-known providers (Gmail,
+Slack, GitHub, Notion, Dropbox, Figma, and more), then to provider initials.
+
+OAuth cards can start the existing owner-authorized connection flow after the
+operator configures that provider's OAuth client in OpenConnector. API-key and
+custom-credential cards remain visibly awaiting OpenConnector setup; Lancee
+does not collect or store those provider secrets. `no_auth` providers are
+identified as requiring no authentication.
 
 Connection states are `available`, `connecting`, `connected`, `expired`,
 `error`, and `disabled`. The UI shows account label, scopes, dates, and state;
@@ -224,7 +239,7 @@ SQLite-to-PostgreSQL migration includes both tables.
 | Method and route | Purpose |
 | --- | --- |
 | `GET /api/openconnector/status` | Gateway status and latency. |
-| `GET /api/openconnector/providers` | Bounded provider metadata for the Connections UI. |
+| `GET /api/openconnector/providers` | Full provider metadata for the Connections UI, capped at 2,000 entries. |
 | `GET /api/openconnector/connections` | Workspace-safe connection list and status refresh. |
 | `POST /api/openconnector/connections/:provider/connect` | Start owner-authorized OAuth. |
 | `DELETE /api/openconnector/connections/:connectionId` | Disconnect an owned provider account. |
@@ -258,7 +273,7 @@ npm run lint
 
 | Symptom | Check |
 | --- | --- |
-| Gateway is `disabled` | Set `OPENCONNECTOR_ENABLED=true` in the Lancee service. |
+| Gateway is `disabled` | Confirm `OPENCONNECTOR_ENABLED` was not explicitly set to `false`. |
 | Gateway is `unavailable` | Check the private URL, container health, runtime token, and Compose network. |
 | OAuth client configuration required | Configure that provider's OAuth app in OpenConnector. |
 | Provider callback mismatch | Register `${PUBLIC_ORIGIN}/openconnector/oauth/callback` exactly. |
@@ -275,4 +290,3 @@ npm run lint
   Slack against non-production accounts.
 - Configure the reverse proxy to pass `/openconnector/oauth/callback` to
   Lancee; do not route any other OpenConnector path publicly.
-

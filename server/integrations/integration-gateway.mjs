@@ -143,12 +143,12 @@ export function createIntegrationGateway({ database, adapter, now = () => Date.n
     return refreshed.map(publicConnection)
   }
 
-  async function providers(context, { query = '', limit = 50 } = {}) {
+  async function providers(context, { query = '', limit = 2_000 } = {}) {
     requireContext(context)
     if (!adapter.enabled) return []
     try {
       const normalizedQuery = String(query || '').trim().toLowerCase().slice(0, 120)
-      const boundedLimit = Math.min(100, Math.max(1, Number(limit) || 50))
+      const boundedLimit = Math.min(2_000, Math.max(1, Number(limit) || 2_000))
       const [catalog, connections] = await Promise.all([
         adapter.listProviders(),
         database.listIntegrationConnections(context.workspace.id),
@@ -164,14 +164,21 @@ export function createIntegrationGateway({ database, adapter, now = () => Date.n
           || (preferred.get(left.service) ?? 1_000) - (preferred.get(right.service) ?? 1_000)
           || left.displayName.localeCompare(right.displayName))
         .slice(0, boundedLimit)
-        .map((provider) => ({
-          provider: provider.service,
-          displayName: provider.displayName,
-          iconUrl: provider.iconUrl || null,
-          categories: (provider.categories || []).map((item) => item.displayName || item.id || item),
-          authTypes: provider.authTypes || [],
-          connection: connected.has(provider.service) ? publicConnection(connected.get(provider.service)) : null,
-        }))
+        .map((provider) => {
+          const oauth = (provider.auth || []).find((item) => item.type === 'oauth2')
+          return {
+            provider: provider.service,
+            displayName: provider.displayName,
+            description: provider.description || null,
+            iconUrl: provider.iconUrl || null,
+            homepageUrl: provider.homepageUrl || null,
+            authorizationUrl: oauth?.authorizationUrl || null,
+            tokenUrl: oauth?.tokenUrl || null,
+            categories: (provider.categories || []).map((item) => item.displayName || item.id || item),
+            authTypes: provider.authTypes || [],
+            connection: connected.has(provider.service) ? publicConnection(connected.get(provider.service)) : null,
+          }
+        })
     } catch (error) {
       throw gatewayError(error)
     }

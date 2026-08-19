@@ -61,7 +61,16 @@ try {
     async health() { return { status: 'healthy', latencyMs: 1 } },
     async listProviders() {
       return [
-        { service: 'gmail', displayName: 'Gmail', iconUrl: null, categories: [{ displayName: 'Communication' }], authTypes: ['oauth2'] },
+        {
+          service: 'gmail',
+          displayName: 'Gmail',
+          description: 'Google email.',
+          iconUrl: 'https://www.gstatic.com/images/branding/product/1x/gmail_2020q4_32dp.png',
+          homepageUrl: 'https://mail.google.com',
+          categories: [{ displayName: 'Communication' }],
+          authTypes: ['oauth2'],
+          auth: [{ type: 'oauth2', authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth', tokenUrl: 'https://oauth2.googleapis.com/token' }],
+        },
         { service: 'github', displayName: 'GitHub', iconUrl: null, categories: [{ displayName: 'Developer Tools' }], authTypes: ['api_key'] },
       ]
     },
@@ -89,6 +98,10 @@ try {
 
   const catalog = await gateway.providers(contextA, { query: 'mail', limit: 5 })
   assert.equal(catalog[0].provider, 'gmail')
+  assert.equal(catalog[0].categories[0], 'Communication')
+  assert.match(catalog[0].iconUrl, /^https:/)
+  assert.match(catalog[0].authorizationUrl, /^https:/)
+  assert.match(catalog[0].tokenUrl, /^https:/)
   const authorization = await gateway.connect(contextA, 'gmail')
   assert.match(authorization.authorizationUrl, /^https:/)
   assert.equal(authorization.connection.status, 'connecting')

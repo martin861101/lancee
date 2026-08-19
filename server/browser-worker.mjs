@@ -76,6 +76,141 @@ function professionalPdfHtml({ title, content }) {
   </style></head><body><div class="page-border"></div><div class="brand">Lancee · Executive document</div><header class="title-card"><h1>${escapeHtml(safeTitle)}</h1><p>Prepared ${escapeHtml(new Date().toISOString().slice(0, 10))}</p></header><main>${body}</main></body></html>`
 }
 
+function accentTextColor(accent) {
+  const channels = accent.slice(1).match(/.{2}/g).map((channel) => Number.parseInt(channel, 16))
+  const luminance = channels.reduce((sum, channel, index) => sum + channel * [0.299, 0.587, 0.114][index], 0)
+  return luminance > 150 ? '#111827' : '#ffffff'
+}
+
+function invoicePdfHtml(invoice) {
+  const accent = invoice.accentColor
+  const accentText = accentTextColor(accent)
+  const documentLabel = invoice.documentType.charAt(0).toUpperCase() + invoice.documentType.slice(1)
+  const issued = new Date(invoice.createdAt).toLocaleDateString('en-ZA', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+  const due = invoice.dueDate
+    ? new Date(`${invoice.dueDate}T00:00:00Z`).toLocaleDateString('en-ZA', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        timeZone: 'UTC',
+      })
+    : 'On receipt'
+  const amount = new Intl.NumberFormat('en-ZA', {
+    style: 'currency',
+    currency: invoice.currency,
+    maximumFractionDigits: 2,
+  }).format(invoice.amountMinor / 100)
+  const customFields = invoice.customFields.map((field) => `
+    <div class="detail"><span>${escapeHtml(field.label)}</span><strong>${escapeHtml(field.value)}</strong></div>`).join('')
+  const bankDetails = invoice.bankDetails
+    ? `<section class="payment-card bank-card">
+        <div><span class="section-label">Payment details</span><h3>Bank transfer</h3></div>
+        <div class="bank-grid">
+          <p><span>Account holder</span><strong>${escapeHtml(invoice.bankDetails.accountHolder)}</strong></p>
+          <p><span>Bank</span><strong>${escapeHtml(invoice.bankDetails.bankName)}</strong></p>
+          <p><span>Account number</span><strong>${escapeHtml(invoice.bankDetails.accountNumber)}</strong></p>
+          ${invoice.bankDetails.branchCode ? `<p><span>Branch code</span><strong>${escapeHtml(invoice.bankDetails.branchCode)}</strong></p>` : ''}
+          ${invoice.bankDetails.swiftCode ? `<p><span>SWIFT / BIC</span><strong>${escapeHtml(invoice.bankDetails.swiftCode)}</strong></p>` : ''}
+          <p><span>Reference</span><strong>${escapeHtml(invoice.invoiceNumber)}</strong></p>
+        </div>
+      </section>`
+    : invoice.paymentUrl
+      ? `<section class="payment-card"><div><span class="section-label">Pay online</span><h3>Secure Paystack checkout</h3><p>Use the payment link below and quote ${escapeHtml(invoice.invoiceNumber)}.</p></div><a href="${escapeHtml(invoice.paymentUrl)}">${escapeHtml(invoice.paymentUrl)}</a></section>`
+      : `<section class="payment-card"><div><span class="section-label">Payment</span><h3>Payment details available on request</h3></div></section>`
+
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    @page { size: A4; margin: 0; }
+    * { box-sizing: border-box; }
+    html { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    body { --accent: ${accent}; --accent-text: ${accentText}; --accent-soft: ${accent}16; margin: 0; color: #172033; background: #fff; font: 10pt/1.45 Arial, Helvetica, sans-serif; }
+    .sheet { position: relative; min-height: 297mm; overflow: hidden; padding: 18mm 18mm 14mm; background: #fff; }
+    .top-rule { position: absolute; top: 0; right: 0; left: 0; height: 6mm; background: var(--accent); }
+    header { display: flex; align-items: flex-start; justify-content: space-between; gap: 15mm; margin-top: 3mm; }
+    .brand { display: flex; align-items: center; gap: 4mm; }
+    .brand-mark { display: grid; width: 11mm; height: 11mm; place-items: center; color: var(--accent-text); background: var(--accent); border-radius: 3mm; font-size: 16pt; font-weight: 800; }
+    .brand strong { display: block; max-width: 90mm; font-size: 12pt; letter-spacing: -.2px; }
+    .brand span, .document-id span, .detail span, .bank-grid span { color: #788193; font-size: 7.5pt; letter-spacing: .35px; }
+    .document-id { text-align: right; }
+    .document-id strong { display: block; margin-top: 1mm; color: var(--accent); font-size: 10pt; }
+    .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 16mm; margin: 20mm 0 13mm; }
+    .eyebrow, .section-label { color: var(--accent); font-size: 7.5pt; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; }
+    h1 { margin: 2mm 0 0; font-size: 35pt; line-height: .95; letter-spacing: -1.7px; }
+    .hero-total { flex: 0 0 auto; text-align: right; }
+    .hero-total span { display: block; margin-bottom: 1mm; color: #788193; font-size: 8pt; }
+    .hero-total strong { color: var(--accent); font-size: 22pt; letter-spacing: -1px; }
+    .meta { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 4mm; margin-bottom: 12mm; }
+    .meta article { min-height: 28mm; padding: 5mm; background: #f5f7fa; border-radius: 3mm; }
+    .meta span { color: #7a8495; font-size: 7pt; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; }
+    .meta h2 { margin: 2.5mm 0 1mm; font-size: 12pt; line-height: 1.2; }
+    .meta p { margin: 0; color: #626d7e; font-size: 8.5pt; overflow-wrap: anywhere; }
+    table { width: 100%; border-collapse: collapse; }
+    th { padding: 3mm 2mm; color: #7a8495; border-bottom: 1px solid #dce1e8; font-size: 7pt; letter-spacing: .8px; text-align: left; text-transform: uppercase; }
+    th:last-child, td:last-child { text-align: right; }
+    td { padding: 6mm 2mm; border-bottom: 1px solid #e4e8ee; vertical-align: top; }
+    td strong { display: block; margin-bottom: 1mm; font-size: 10pt; }
+    td span { color: #697486; font-size: 8.5pt; }
+    .totals { display: flex; justify-content: flex-end; margin: 5mm 0 11mm; }
+    .total-box { display: flex; width: 72mm; align-items: center; justify-content: space-between; padding: 5mm 0 5mm 6mm; border-bottom: 3px solid var(--accent); }
+    .total-box span { color: #667185; font-size: 8pt; font-weight: 700; text-transform: uppercase; }
+    .total-box strong { font-size: 17pt; letter-spacing: -.6px; }
+    .details { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; margin-bottom: 8mm; }
+    .detail { padding: 3.5mm; background: var(--accent-soft); border-left: 2px solid var(--accent); }
+    .detail strong { display: block; margin-top: 1mm; font-size: 8.5pt; overflow-wrap: anywhere; }
+    .payment-card { display: grid; grid-template-columns: 1fr 1.25fr; gap: 8mm; align-items: center; padding: 6mm; background: #182132; border-radius: 4mm; color: #fff; }
+    .payment-card .section-label { color: var(--accent); }
+    .payment-card h3 { margin: 1.5mm 0 0; font-size: 12pt; }
+    .payment-card p { margin: 1mm 0 0; color: #b9c1cd; font-size: 8pt; }
+    .payment-card a { color: #fff; font-size: 8pt; overflow-wrap: anywhere; text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
+    .bank-card { align-items: start; }
+    .bank-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm 6mm; }
+    .bank-grid p { margin: 0; }
+    .bank-grid span, .bank-grid strong { display: block; }
+    .bank-grid strong { margin-top: .5mm; color: #fff; font-size: 8.5pt; overflow-wrap: anywhere; }
+    footer { position: absolute; right: 18mm; bottom: 9mm; left: 18mm; display: flex; justify-content: space-between; color: #8992a2; font-size: 7pt; }
+
+    body.classic { font-family: Georgia, 'Times New Roman', serif; }
+    body.classic .sheet { margin: 7mm; min-height: 283mm; padding: 14mm; border: 1px solid var(--accent); }
+    body.classic .top-rule { top: 3mm; right: 3mm; left: 3mm; height: 1px; background: var(--accent); }
+    body.classic .brand-mark { color: var(--accent); background: transparent; border: 1px solid var(--accent); border-radius: 50%; }
+    body.classic h1 { font-weight: 400; letter-spacing: -.7px; }
+    body.classic .meta article { background: transparent; border-top: 1px solid #d6d1c8; border-radius: 0; }
+    body.classic .payment-card { background: #f6f3ee; border: 1px solid #ddd6ca; border-radius: 0; color: #172033; }
+    body.classic .payment-card p, body.classic .bank-grid strong, body.classic .payment-card a { color: #394254; }
+
+    body.studio .top-rule { width: 38mm; height: 297mm; right: auto; background: var(--accent); }
+    body.studio .sheet { padding: 14mm 15mm 10mm 52mm; }
+    body.studio .brand-mark { color: var(--accent); background: #fff; transform: rotate(-5deg); }
+    body.studio h1 { max-width: 115mm; font-size: 42pt; text-transform: uppercase; }
+    body.studio .hero { margin: 10mm 0 8mm; }
+    body.studio .meta article { background: var(--accent-soft); border-radius: 0; }
+    body.studio .meta { margin-bottom: 7mm; }
+    body.studio td { padding-top: 4mm; padding-bottom: 4mm; }
+    body.studio .totals { margin: 4mm 0 7mm; }
+    body.studio .details { margin-bottom: 5mm; }
+    body.studio .payment-card { padding: 5mm; }
+    body.studio .total-box { color: var(--accent-text); background: var(--accent); border: 0; padding: 5mm; }
+
+    body.minimal .top-rule { right: 18mm; left: 18mm; height: 1.5mm; }
+    body.minimal .brand-mark { width: 8mm; height: 8mm; color: var(--accent); background: transparent; border: 2px solid var(--accent); border-radius: 50%; font-size: 10pt; }
+    body.minimal h1 { font-size: 29pt; font-weight: 500; letter-spacing: -1px; }
+    body.minimal .meta article { padding-left: 0; background: transparent; border-radius: 0; }
+    body.minimal .payment-card { color: #172033; background: transparent; border: 1px solid #dce1e8; border-radius: 0; }
+    body.minimal .payment-card p, body.minimal .bank-grid strong, body.minimal .payment-card a { color: #394254; }
+  </style></head><body class="${escapeHtml(invoice.template)}"><main class="sheet"><div class="top-rule"></div>
+    <header><div class="brand"><i class="brand-mark">L</i><div><strong>${escapeHtml(invoice.senderName)}</strong><span>${escapeHtml(invoice.senderEmail)}</span></div></div><div class="document-id"><span>${escapeHtml(documentLabel)} number</span><strong>${escapeHtml(invoice.invoiceNumber)}</strong></div></header>
+    <section class="hero"><div><span class="eyebrow">${escapeHtml(documentLabel)}</span><h1>${escapeHtml(invoice.projectName)}</h1></div><div class="hero-total"><span>Amount due</span><strong>${escapeHtml(amount)}</strong></div></section>
+    <section class="meta"><article><span>Bill to</span><h2>${escapeHtml(invoice.clientName)}</h2><p>${escapeHtml(invoice.clientEmail)}</p></article><article><span>Issued</span><h2>${escapeHtml(issued)}</h2><p>${escapeHtml(invoice.invoiceNumber)}</p></article><article><span>Due</span><h2>${escapeHtml(due)}</h2><p>${invoice.dueDate ? 'Payment due by this date' : 'Payment due on receipt'}</p></article></section>
+    <table><thead><tr><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead><tbody><tr><td><strong>${escapeHtml(invoice.projectName)}</strong><span>${escapeHtml(invoice.description)}</span></td><td>1</td><td>${escapeHtml(amount)}</td><td><strong>${escapeHtml(amount)}</strong></td></tr></tbody></table>
+    <div class="totals"><div class="total-box"><span>Total</span><strong>${escapeHtml(amount)}</strong></div></div>
+    ${customFields ? `<section class="details">${customFields}</section>` : ''}${bankDetails}
+    <footer><span>Thank you for your business.</span><span>Created with Lancee · ${escapeHtml(invoice.invoiceNumber)}</span></footer>
+  </main></body></html>`
+}
+
 function filteredResponseHeaders(headers) {
   const allowed = new Set(['content-type', 'cache-control', 'etag', 'last-modified'])
   return Object.fromEntries(
@@ -274,6 +409,34 @@ function createLocalBrowserWorker({
         await context.close().catch(() => {})
       }
     },
+    async renderInvoicePdf(invoice) {
+      const runningBrowser = await browser()
+      const context = await runningBrowser.newContext({
+        javaScriptEnabled: false,
+        serviceWorkers: 'block',
+        acceptDownloads: false,
+        permissions: [],
+      })
+      await context.route('**/*', (route) => route.abort('blockedbyclient'))
+      const page = await context.newPage()
+      try {
+        await page.setContent(invoicePdfHtml(invoice), { waitUntil: 'domcontentloaded', timeout: 20_000 })
+        const body = await page.pdf({
+          format: 'A4',
+          printBackground: true,
+          preferCSSPageSize: true,
+        })
+        if (body.byteLength > MAX_PDF_BYTES) {
+          throw new LanceeCapabilityError('BODY_TOO_LARGE', 'The generated invoice exceeded 10 MB.', 413)
+        }
+        return body
+      } catch (error) {
+        if (error instanceof LanceeCapabilityError) throw error
+        throw new LanceeCapabilityError('BROWSER_FAILED', 'The invoice renderer could not create the PDF.', 502, { cause: error })
+      } finally {
+        await context.close().catch(() => {})
+      }
+    },
     async health() {
       try {
         return { available: Boolean(await browser()) }
@@ -386,6 +549,10 @@ function createIsolatedBrowserWorker(runAsUser) {
     pdf: (url, options) => invoke('pdf', url, options),
     async renderDocumentPdf({ title, content }) {
       const result = await invoke('renderDocumentPdf', null, { title, content })
+      return result.body
+    },
+    async renderInvoicePdf(invoice) {
+      const result = await invoke('renderInvoicePdf', null, invoice)
       return result.body
     },
     health: () => invoke('health'),

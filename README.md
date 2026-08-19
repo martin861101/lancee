@@ -121,7 +121,12 @@ The repository audit quarantine is documented in [`junk/README.md`](junk/README.
   newest run opens automatically; each completed step is shown as a readable
   outcome card, with the full returned data and execution log available on
   demand.
-- **Connections** — independent backend-managed Google Drive OAuth with
+- **Connections** — the full live OpenConnector provider catalog, categorized
+  and searchable with incremental rendering, official provider icons, provider
+  homepages, advertised auth methods, and owner-started OAuth for providers
+  whose OAuth clients have been configured in OpenConnector. API-key and custom
+  credentials remain in OpenConnector and are shown as awaiting provider setup.
+  The page also includes independent backend-managed Google Drive OAuth with
   non-sensitive per-file access through Google Picker, encrypted workspace
   Paystack credentials, signed n8n webhooks, and the application-owned Lancee
   MCP tool surface. Drive selections that were deleted or are no longer shared
@@ -138,8 +143,10 @@ The repository audit quarantine is documented in [`junk/README.md`](junk/README.
   and streamed task output.
 - **Agent device access** — explicit device-code approval for scoped access to
   the workspace AI provider and the local Lancee MCP endpoint.
-- **Money** — durable ZAR invoices, real Paystack hosted payment links, and
-  verified, duplicate-safe webhook reconciliation.
+- **Money** — four brand-colour invoice styles rendered to A4 PDF with
+  Playwright, optional bank-transfer details without provider setup, real
+  Paystack hosted payment links, and verified duplicate-safe reconciliation.
+  See [`docs/INVOICE_PDFS.md`](docs/INVOICE_PDFS.md).
 - **Notifications** — workspace-scoped activity with unread indicators, a
   readable notification popover, current mail and automation events,
   navigation to related work, and mark-as-read controls.
@@ -264,11 +271,16 @@ optional code execution. Workspace and role policy is enforced before every
 call. Destructive deletion, external API calls, and enabled code execution are
 additionally restricted to workspace owners.
 
-When `OPENCONNECTOR_ENABLED=true`, four discovery-oriented integration tools
+OpenConnector is enabled by default in the Docker Compose deployment and can be
+disabled with `OPENCONNECTOR_ENABLED=false`. When enabled, four
+discovery-oriented integration tools
 are added without expanding every provider action into the MCP catalog. Lancee
 keeps orchestration, workspace policy, approvals, and audit ownership while
 OpenConnector handles provider OAuth credentials, refresh, schemas, and
-execution. See
+execution. The Connections page loads the complete provider catalog (up to
+2,000 entries), preserves upstream categories with an `Other` fallback, and
+uses each provider's upstream official `iconUrl`, homepage, and public OAuth
+authorization/token metadata. See
 [`docs/integrations/openconnector.md`](docs/integrations/openconnector.md).
 
 See [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) and

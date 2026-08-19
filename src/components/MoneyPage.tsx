@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
 import {
   api,
   type CreatePaystackPaymentLinkInput,
+  type InvoicePdfInput,
   type MoneyInvoice,
   type PaystackConnection,
 } from '../lib/api'
@@ -113,9 +114,30 @@ function statusLabel(status: MoneyInvoice['status']) {
   }[status]
 }
 
-const emptyForm = {
+type InvoiceForm = {
+  documentType: InvoicePdfInput['documentType']
+  template: InvoicePdfInput['template']
+  accentColor: string
+  clientName: string
+  clientEmail: string
+  projectName: string
+  description: string
+  amount: string
+  currency: string
+  dueDate: string
+  payEnabled: boolean
+  paymentProvider: 'paystack' | 'bank'
+  accountHolder: string
+  bankName: string
+  accountNumber: string
+  branchCode: string
+  swiftCode: string
+}
+
+const emptyForm: InvoiceForm = {
   documentType: 'invoice',
   template: 'modern',
+  accentColor: '#31569d',
   clientName: '',
   clientEmail: '',
   projectName: '',
@@ -125,12 +147,28 @@ const emptyForm = {
   dueDate: '',
   payEnabled: true,
   paymentProvider: 'paystack',
+  accountHolder: '',
+  bankName: '',
+  accountNumber: '',
+  branchCode: '',
+  swiftCode: '',
 }
+
+const invoiceStyles = [
+  ['modern', 'Modern', 'Bold total, clean grid'],
+  ['classic', 'Classic', 'Formal and timeless'],
+  ['studio', 'Studio', 'Editorial and creative'],
+  ['minimal', 'Minimal', 'Quiet and precise'],
+] as const
+
+const invoicePalette = ['#31569d', '#6d4aff', '#0f766e', '#c2415d', '#d97706', '#202631']
 
 type BillingDraft = {
   id: string
-  documentType: string
-  template: string
+  invoiceNumber: string
+  documentType: InvoicePdfInput['documentType']
+  template: InvoicePdfInput['template']
+  accentColor: string
   clientName: string
   clientEmail: string
   projectName: string
@@ -139,6 +177,8 @@ type BillingDraft = {
   currency: string
   dueDate: string
   customFields: Array<{ label: string; value: string }>
+  bankDetails: InvoicePdfInput['bankDetails']
+  paymentUrl: string | null
   createdAt: string
 }
 
@@ -146,20 +186,23 @@ const billingDraftStorageKey = 'lancee:billing-drafts'
 
 function readBillingDrafts(): BillingDraft[] {
   try {
-    return JSON.parse(localStorage.getItem(billingDraftStorageKey) || '[]')
+    const drafts = JSON.parse(localStorage.getItem(billingDraftStorageKey) || '[]') as BillingDraft[]
+    return drafts.map((draft) => ({
+      ...draft,
+      invoiceNumber: draft.invoiceNumber || `DRAFT-${draft.id.slice(0, 8).toUpperCase()}`,
+      accentColor: draft.accentColor || (draft.template === 'studio' ? '#b44885' : draft.template === 'classic' ? '#222831' : '#31569d'),
+      bankDetails: draft.bankDetails || null,
+      paymentUrl: draft.paymentUrl || null,
+    }))
   } catch {
     return []
   }
 }
 
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (character) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#039;',
-  })[character] || character)
+function createDocumentNumber(documentType: InvoiceForm['documentType']) {
+  const prefix = documentType === 'estimate' ? 'EST' : documentType === 'receipt' ? 'RCT' : 'INV'
+  const date = new Date().toISOString().slice(0, 10).replaceAll('-', '')
+  return `${prefix}-${date}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`
 }
 
 export default function MoneyPage() {
@@ -170,6 +213,7 @@ export default function MoneyPage() {
   const [invoices, setInvoices] = useState<MoneyInvoice[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [generatingDraftId, setGeneratingDraftId] = useState<string | null>(null)
   const [formError, setFormError] = useState('')
   const [form, setForm] = useState(emptyForm)
   const [customFields, setCustomFields] = useState<Array<{ label: string; value: string }>>([])
@@ -217,6 +261,44 @@ export default function MoneyPage() {
     setForm((current) => ({ ...current, [field]: value }))
   }
 
+  const storeDraft = (draft: BillingDraft) => {
+    setDrafts((current) => {
+      const nextDrafts = [draft, ...current]
+      localStorage.setItem(billingDraftStorageKey, JSON.stringify(nextDrafts))
+      return nextDrafts
+    })
+  }
+
+  const draftFromForm = (
+    amount: number,
+    options: Pick<BillingDraft, 'invoiceNumber' | 'paymentUrl'>,
+  ): BillingDraft => ({
+    id: crypto.randomUUID(),
+    invoiceNumber: options.invoiceNumber,
+    documentType: form.documentType,
+    template: form.template,
+    accentColor: form.accentColor,
+    clientName: form.clientName,
+    clientEmail: form.clientEmail,
+    projectName: form.projectName,
+    description: form.description || form.projectName,
+    amount,
+    currency: form.currency,
+    dueDate: form.dueDate,
+    customFields: customFields.filter((field) => field.label.trim() && field.value.trim()),
+    bankDetails: form.payEnabled && form.paymentProvider === 'bank'
+      ? {
+          accountHolder: form.accountHolder,
+          bankName: form.bankName,
+          accountNumber: form.accountNumber,
+          branchCode: form.branchCode,
+          swiftCode: form.swiftCode,
+        }
+      : null,
+    paymentUrl: options.paymentUrl,
+    createdAt: new Date().toISOString(),
+  })
+
   const createPaymentLink = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setFormError('')
@@ -225,32 +307,23 @@ export default function MoneyPage() {
       setFormError('Enter an amount of at least R 1.00.')
       return
     }
-    if (!form.payEnabled) {
-      const draft: BillingDraft = {
-        id: crypto.randomUUID(),
-        documentType: form.documentType,
-        template: form.template,
-        clientName: form.clientName,
-        clientEmail: form.clientEmail,
-        projectName: form.projectName,
-        description: form.description,
-        amount,
-        currency: form.currency,
-        dueDate: form.dueDate,
-        customFields: customFields.filter((field) => field.label.trim() || field.value.trim()),
-        createdAt: new Date().toISOString(),
-      }
-      const nextDrafts = [draft, ...drafts]
-      setDrafts(nextDrafts)
-      localStorage.setItem(billingDraftStorageKey, JSON.stringify(nextDrafts))
-      setForm(emptyForm)
-      setCustomFields([])
-      setNotice(`${form.documentType} draft saved with the ${form.template} template.`)
-      setShowInvoice(false)
+    if (form.payEnabled && form.paymentProvider === 'bank' && (
+      !form.accountHolder.trim() || !form.bankName.trim() || !form.accountNumber.trim()
+    )) {
+      setFormError('Add the account holder, bank name, and account number.')
       return
     }
-    if (form.paymentProvider !== 'paystack') {
-      setFormError(`Connect ${form.paymentProvider === 'stripe' ? 'Stripe' : 'PayPal'} in Connections before adding its Pay me button.`)
+    if (!form.payEnabled || form.paymentProvider === 'bank') {
+      const draft = draftFromForm(amount, {
+        invoiceNumber: createDocumentNumber(form.documentType),
+        paymentUrl: null,
+      })
+      storeDraft(draft)
+      setForm(emptyForm)
+      setCustomFields([])
+      setNotice(`${draft.invoiceNumber} is ready. Your PDF download is being generated.`)
+      setShowInvoice(false)
+      void downloadDraft(draft)
       return
     }
     if (form.currency !== 'ZAR') {
@@ -274,13 +347,19 @@ export default function MoneyPage() {
         result.invoice,
         ...current.filter((invoice) => invoice.id !== result.invoice.id),
       ])
+      const draft = draftFromForm(amount, {
+        invoiceNumber: result.invoice.invoiceNumber,
+        paymentUrl: result.paymentLink.authorizationUrl,
+      })
+      storeDraft(draft)
       setShowInvoice(false)
       setForm(emptyForm)
       setCustomFields([])
       setPaymentUrl(result.paymentLink.authorizationUrl)
       setNotice(
-        `${result.invoice.invoiceNumber} is ready. The payment link has not been sent.`,
+        `${result.invoice.invoiceNumber} is ready. Your PDF download is being generated; the payment link has not been sent.`,
       )
+      void downloadDraft(draft)
     } catch (error) {
       setFormError(
         error instanceof Error
@@ -292,19 +371,38 @@ export default function MoneyPage() {
     }
   }
 
-  const downloadDraft = (draft: BillingDraft) => {
-    const accent = draft.template === 'studio' ? '#b44885' : draft.template === 'classic' ? '#222831' : '#31569d'
-    const fields = draft.customFields
-      .map((field) => `<div><span>${escapeHtml(field.label)}</span><strong>${escapeHtml(field.value)}</strong></div>`)
-      .join('')
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(draft.documentType)} · ${escapeHtml(draft.clientName)}</title><style>
-body{font-family:Arial,sans-serif;margin:0;color:#20242c;background:#eef1f5}.sheet{width:760px;min-height:980px;margin:30px auto;padding:60px;background:#fff;box-sizing:border-box;border-top:12px solid ${accent}}header{display:flex;justify-content:space-between;align-items:start}h1{margin:0;text-transform:uppercase;letter-spacing:.12em;color:${accent}}small,span{color:#737b88}.meta{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:55px 0}.amount{margin:40px 0;padding:25px;background:#f4f6f9;text-align:right}.amount strong{display:block;font-size:34px;color:${accent}}.fields>div{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #e4e7ec}footer{margin-top:90px;color:#737b88}</style></head><body><main class="sheet"><header><div><small>${escapeHtml(draft.template)} template</small><h1>${escapeHtml(draft.documentType)}</h1></div><strong>${new Date(draft.createdAt).toLocaleDateString()}</strong></header><section class="meta"><div><span>Prepared for</span><h2>${escapeHtml(draft.clientName)}</h2><p>${escapeHtml(draft.clientEmail)}</p></div><div><span>Project</span><h2>${escapeHtml(draft.projectName)}</h2><p>Due ${escapeHtml(draft.dueDate || 'on receipt')}</p></div></section><p>${escapeHtml(draft.description || draft.projectName)}</p><div class="amount"><span>Total</span><strong>${escapeHtml(new Intl.NumberFormat('en', { style: 'currency', currency: draft.currency }).format(draft.amount))}</strong></div><section class="fields">${fields}</section><footer>Created with lancee</footer></main></body></html>`
-    const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `${draft.documentType}-${draft.clientName.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.html`
-    anchor.click()
-    URL.revokeObjectURL(url)
+  async function downloadDraft(draft: BillingDraft) {
+    setGeneratingDraftId(draft.id)
+    try {
+      const pdf = await api.money.createInvoicePdf({
+        documentType: draft.documentType,
+        template: draft.template,
+        accentColor: draft.accentColor,
+        invoiceNumber: draft.invoiceNumber,
+        clientName: draft.clientName,
+        clientEmail: draft.clientEmail,
+        projectName: draft.projectName,
+        description: draft.description || draft.projectName,
+        amountMinor: Math.round(draft.amount * 100),
+        currency: draft.currency,
+        dueDate: draft.dueDate || null,
+        customFields: draft.customFields,
+        bankDetails: draft.bankDetails,
+        paymentUrl: draft.paymentUrl,
+        createdAt: draft.createdAt,
+      })
+      const url = URL.createObjectURL(pdf)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `${draft.invoiceNumber}.pdf`
+      anchor.click()
+      URL.revokeObjectURL(url)
+      setNotice(`${draft.invoiceNumber}.pdf downloaded.`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to generate the invoice PDF.')
+    } finally {
+      setGeneratingDraftId(null)
+    }
   }
 
   const removeDraft = (id: string) => {
@@ -367,10 +465,10 @@ body{font-family:Arial,sans-serif;margin:0;color:#20242c;background:#eef1f5}.she
             </small>
           </article>
           <article>
-            <span>Provider</span>
-            <strong>{connection?.configured ? 'Paystack' : 'Not configured'}</strong>
+            <span>Payment options</span>
+            <strong>{connection?.configured ? 'Paystack + bank' : 'Bank transfer'}</strong>
             <small>
-              {connection?.configured ? `${connection.mode} mode · ZAR` : 'Server setup required'}
+              {connection?.configured ? `${connection.mode} mode · direct bank details` : 'No provider setup required'}
             </small>
           </article>
         </div>
@@ -438,7 +536,7 @@ body{font-family:Arial,sans-serif;margin:0;color:#20242c;background:#eef1f5}.she
               <div className="money-empty">
                 <Icon name="link" />
                 <strong>No live invoices yet</strong>
-                <p>Create a Paystack payment link when you are ready to bill real work.</p>
+                <p>Create a branded PDF with bank details, or add Paystack checkout when you need it.</p>
               </div>
             )}
           </div>
@@ -562,17 +660,17 @@ body{font-family:Arial,sans-serif;margin:0;color:#20242c;background:#eef1f5}.she
       {drafts.length > 0 && (
         <section className="money-card billing-drafts">
           <div className="money-card__head">
-            <div><h2>Document drafts</h2><p>Estimates, receipts, and invoices without hosted payment links.</p></div>
+            <div><h2>Invoice documents</h2><p>Playwright-rendered PDFs with your chosen style and payment details.</p></div>
           </div>
           <div className="billing-draft-grid">
             {drafts.map((draft) => (
-              <article className={`billing-draft billing-draft--${draft.template}`} key={draft.id}>
+              <article className={`billing-draft billing-draft--${draft.template}`} key={draft.id} style={{ borderTopColor: draft.accentColor }}>
                 <span>{draft.documentType}</span>
                 <h3>{draft.clientName}</h3>
                 <p>{draft.projectName}</p>
                 <strong>{new Intl.NumberFormat('en', { style: 'currency', currency: draft.currency }).format(draft.amount)}</strong>
-                <small>{draft.template} · {draft.customFields.length} custom fields</small>
-                <div><button type="button" onClick={() => downloadDraft(draft)}>Download</button><button type="button" onClick={() => removeDraft(draft.id)}>Remove</button></div>
+                <small>{draft.invoiceNumber} · {draft.template} · {draft.bankDetails ? 'bank transfer' : draft.paymentUrl ? 'Paystack' : 'no payment method'}</small>
+                <div><button type="button" disabled={generatingDraftId === draft.id} onClick={() => void downloadDraft(draft)}>{generatingDraftId === draft.id ? 'Generating…' : 'Download PDF'}</button><button type="button" onClick={() => removeDraft(draft.id)}>Remove</button></div>
               </article>
             ))}
           </div>
@@ -603,8 +701,8 @@ body{font-family:Arial,sans-serif;margin:0;color:#20242c;background:#eef1f5}.she
             <span className="workflow-kicker">Professional billing document</span>
             <h2 id="invoice-modal-title">Create an invoice, estimate, or receipt</h2>
             <p>
-              This initializes a hosted Paystack checkout. It does not email or message
-              the client.
+              Pick a look, apply your brand colour, and generate a polished PDF. Add
+              either secure online checkout or direct bank-transfer details.
             </p>
             <form onSubmit={(event) => void createPaymentLink(event)}>
               <div className="invoice-type-row">
@@ -620,22 +718,38 @@ body{font-family:Arial,sans-serif;margin:0;color:#20242c;background:#eef1f5}.she
                 ))}
               </div>
               <div className="invoice-template-picker" aria-label="Invoice template">
-                {[
-                  ['modern', 'Modern', 'Bold total, clean grid'],
-                  ['classic', 'Classic', 'Formal and timeless'],
-                  ['studio', 'Studio', 'Editorial and creative'],
-                ].map(([id, name, note]) => (
+                {invoiceStyles.map(([id, name, note]) => (
                   <button
                     type="button"
                     className={`invoice-template invoice-template--${id}${form.template === id ? ' is-active' : ''}`}
                     key={id}
                     onClick={() => updateForm('template', id)}
+                    style={{ '--invoice-accent': form.accentColor } as CSSProperties}
                   >
                     <i><b /><span /><span /></i>
                     <strong>{name}</strong><small>{note}</small>
                   </button>
                 ))}
               </div>
+              <section className="invoice-colour-picker">
+                <div><strong>Brand colour</strong><small>Used across the PDF accent, totals, and payment panel.</small></div>
+                <div className="invoice-palette" aria-label="Brand colour palette">
+                  {invoicePalette.map((colour) => (
+                    <button
+                      type="button"
+                      key={colour}
+                      className={form.accentColor === colour ? 'is-active' : ''}
+                      style={{ backgroundColor: colour, '--invoice-accent': colour } as CSSProperties}
+                      onClick={() => updateForm('accentColor', colour)}
+                      aria-label={`Use ${colour}`}
+                    />
+                  ))}
+                  <label className="invoice-custom-colour" aria-label="Choose a custom brand colour">
+                    <input type="color" value={form.accentColor} onChange={(event) => updateForm('accentColor', event.target.value)} />
+                    <span>Custom</span>
+                  </label>
+                </div>
+              </section>
               <div className="money-form-grid">
                 <label>
                   Client name
@@ -735,11 +849,12 @@ body{font-family:Arial,sans-serif;margin:0;color:#20242c;background:#eef1f5}.she
                     checked={form.payEnabled}
                     onChange={(event) => updateForm('payEnabled', event.target.checked)}
                   />
-                  <span><strong>Add a “Pay me” button</strong><small>Give the client a direct hosted payment option.</small></span>
+                  <span><strong>Include payment details</strong><small>Choose online checkout or put your bank details directly on the PDF.</small></span>
                 </label>
                 {form.payEnabled && (
-                  <div>
-                    {(['stripe', 'paypal', 'paystack'] as const).map((provider) => (
+                  <>
+                    <div>
+                    {(['paystack', 'bank'] as const).map((provider) => (
                       <label key={provider} className={form.paymentProvider === provider ? 'is-active' : ''}>
                         <input
                           type="radio"
@@ -748,10 +863,20 @@ body{font-family:Arial,sans-serif;margin:0;color:#20242c;background:#eef1f5}.she
                           checked={form.paymentProvider === provider}
                           onChange={(event) => updateForm('paymentProvider', event.target.value)}
                         />
-                        {provider === 'paystack' ? 'Paystack' : provider === 'paypal' ? 'PayPal' : 'Stripe'}
+                        {provider === 'paystack' ? 'Paystack checkout' : 'Bank transfer'}
                       </label>
                     ))}
-                  </div>
+                    </div>
+                    {form.paymentProvider === 'bank' && (
+                      <div className="invoice-bank-fields">
+                        <label>Account holder<input value={form.accountHolder} onChange={(event) => updateForm('accountHolder', event.target.value)} placeholder="Your business name" required /></label>
+                        <label>Bank name<input value={form.bankName} onChange={(event) => updateForm('bankName', event.target.value)} placeholder="e.g. First National Bank" required /></label>
+                        <label>Account number<input value={form.accountNumber} onChange={(event) => updateForm('accountNumber', event.target.value)} placeholder="000 000 0000" required /></label>
+                        <label>Branch code<input value={form.branchCode} onChange={(event) => updateForm('branchCode', event.target.value)} placeholder="Optional" /></label>
+                        <label>SWIFT / BIC<input value={form.swiftCode} onChange={(event) => updateForm('swiftCode', event.target.value)} placeholder="Optional for international payments" /></label>
+                      </div>
+                    )}
+                  </>
                 )}
               </section>
               {formError && <p className="money-form-error">{formError}</p>}
@@ -759,7 +884,7 @@ body{font-family:Arial,sans-serif;margin:0;color:#20242c;background:#eef1f5}.she
                 <Icon name="check" />
                 <span>
                   <strong>You remain in control</strong>
-                  <small>Review and share the resulting link yourself.</small>
+                  <small>The PDF downloads to your device; Lancee never sends it automatically.</small>
                 </span>
               </div>
               <div className="money-modal__actions">
@@ -767,7 +892,7 @@ body{font-family:Arial,sans-serif;margin:0;color:#20242c;background:#eef1f5}.she
                   Cancel
                 </button>
                 <button type="submit" className="money-primary" disabled={submitting}>
-                  {submitting ? 'Creating…' : form.payEnabled ? 'Create document & payment link' : 'Create draft'}{' '}
+                  {submitting ? 'Creating…' : form.payEnabled && form.paymentProvider === 'paystack' ? 'Create PDF & payment link' : 'Generate PDF'}{' '}
                   {!submitting && <Icon name="arrow" />}
                 </button>
               </div>

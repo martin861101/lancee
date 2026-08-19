@@ -161,7 +161,11 @@ export type OpenConnectorConnection = {
 export type OpenConnectorProvider = {
   provider: string
   displayName: string
+  description: string | null
   iconUrl: string | null
+  homepageUrl: string | null
+  authorizationUrl: string | null
+  tokenUrl: string | null
   categories: string[]
   authTypes: string[]
   connection: OpenConnectorConnection | null
@@ -509,6 +513,30 @@ export type PaystackPaymentLinkResult = {
     updatedAt: string
     paidAt: string | null
   }
+}
+
+export type InvoicePdfInput = {
+  documentType: 'invoice' | 'estimate' | 'receipt'
+  template: 'modern' | 'classic' | 'studio' | 'minimal'
+  accentColor: string
+  invoiceNumber: string
+  clientName: string
+  clientEmail: string
+  projectName: string
+  description: string
+  amountMinor: number
+  currency: string
+  dueDate: string | null
+  customFields: Array<{ label: string; value: string }>
+  bankDetails: {
+    accountHolder: string
+    bankName: string
+    accountNumber: string
+    branchCode: string
+    swiftCode: string
+  } | null
+  paymentUrl: string | null
+  createdAt: string
 }
 
 export type WorkspaceSettings = {
@@ -1752,7 +1780,7 @@ export const api = {
       if (!response.ok || !payload.status) throw new Error(payload.error || 'Unable to load the integration gateway status.')
       return payload
     },
-    async providers(query = '', limit = 100) {
+    async providers(query = '', limit = 2000) {
       const params = new URLSearchParams({ limit: String(limit) })
       if (query) params.set('q', query)
       const response = await fetch(`/api/openconnector/providers?${params}`, { credentials: 'same-origin' })
@@ -2181,6 +2209,19 @@ export const api = {
         throw new Error(payload.error || 'Unable to load invoices.')
       }
       return payload.invoices
+    },
+    async createInvoicePdf(input: InvoicePdfInput) {
+      const response = await fetch('/api/money/invoice-pdf', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify(input),
+      })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({})) as { error?: string }
+        throw new Error(payload.error || 'Unable to generate the invoice PDF.')
+      }
+      return await response.blob()
     },
     async createPaystackPaymentLink(input: CreatePaystackPaymentLinkInput) {
       const response = await fetch('/api/money/paystack/payment-links', {

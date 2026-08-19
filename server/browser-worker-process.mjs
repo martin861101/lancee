@@ -22,6 +22,9 @@ async function handle(message) {
     } else if (message.method === 'renderDocumentPdf') {
       const body = await worker.renderDocumentPdf(message.options || {})
       result = { bodyBase64: body.toString('base64') }
+    } else if (message.method === 'renderInvoicePdf') {
+      const body = await worker.renderInvoicePdf(message.options || {})
+      result = { bodyBase64: body.toString('base64') }
     } else if (message.method === 'health') result = await worker.health()
     else if (message.method === 'close') {
       closing = true
