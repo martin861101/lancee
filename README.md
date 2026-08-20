@@ -743,6 +743,12 @@ decision/outcome writes and canonical read/list/compare results. See
 [`docs/DECISION_INTELLIGENCE_PHASE1.md`](docs/DECISION_INTELLIGENCE_PHASE1.md)
 and [`docs/DECISION_INTELLIGENCE_SEMANTIC.md`](docs/DECISION_INTELLIGENCE_SEMANTIC.md).
 
+The public landing page includes a Decision Intelligence section that explains
+this flow in business language: remember the choice, measure what changed, and
+compare past decisions with their context and evidence intact. Its atmospheric
+midnight-blue background is shared by the workflow and final call-to-action
+sections for a consistent landing-page rhythm across both themes.
+
 Verify the foundation with:
 
 ```bash

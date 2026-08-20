@@ -3676,7 +3676,7 @@ function LandingPage({
 
     const headings = Array.from(
       landing.querySelectorAll<HTMLElement>(
-        '.landing-section h2, .landing-section h3, .landing-workflow h2, .landing-security h2, .landing-cta h2',
+        '.landing-section h2, .landing-section h3, .landing-workflow h2, .landing-intelligence h2, .landing-security h2, .landing-cta h2',
       ),
     )
     const heroLines = Array.from(
@@ -4117,6 +4117,98 @@ if (policyView !== 'landing') {
             </div>
             <Icon name="arrow-up-right" size={17} />
           </article>
+        </div>
+      </section>
+
+      <section
+        className="landing-intelligence"
+        id="decision-intelligence"
+        aria-labelledby="decision-intelligence-title"
+      >
+        <div className="landing-intelligence__copy">
+          <span className="landing-eyebrow">
+            <i /> Decision intelligence
+          </span>
+          <h2 id="decision-intelligence-title">
+            Make the next call with the last one in view.
+          </h2>
+          <p>
+            lancee keeps the decision, why you made it, what happened, and the evidence
+            around it. When a similar choice comes up, it brings back the closest lessons
+            and shows where the context matches—or doesn&apos;t.
+          </p>
+          <div className="landing-intelligence__principles">
+            <article>
+              <span aria-hidden="true"><Icon name="layers" size={18} /></span>
+              <div>
+                <h3>Remember the decision</h3>
+                <p>Keep the original choice, rationale, and business context together.</p>
+              </div>
+            </article>
+            <article>
+              <span aria-hidden="true"><Icon name="activity" size={18} /></span>
+              <div>
+                <h3>Measure what changed</h3>
+                <p>Attach observed outcomes, supporting evidence, and known confounders.</p>
+              </div>
+            </article>
+            <article>
+              <span aria-hidden="true"><Icon name="target" size={18} /></span>
+              <div>
+                <h3>Compare with context</h3>
+                <p>See the shared factors and material differences before acting.</p>
+              </div>
+            </article>
+          </div>
+          <p className="landing-intelligence__boundary">
+            <span aria-hidden="true"><Icon name="shield" size={15} /></span>
+            Measured outcomes stay authoritative. AI interprets context; it never rewrites
+            the facts.
+          </p>
+        </div>
+
+        <div
+          className="landing-intelligence__visual"
+          role="group"
+          aria-label="Example decision comparison"
+        >
+          <div className="landing-intelligence__visual-header">
+            <small>EXAMPLE COMPARISON</small>
+            <span><i /> Context checked</span>
+          </div>
+          <article className="landing-decision-card">
+            <small>NEW DECISION</small>
+            <h3>Adjust the retainer offer</h3>
+            <p>Give the client more flexibility without changing the service mix.</p>
+          </article>
+          <div className="landing-decision-path" aria-hidden="true">
+            <span />
+            <Icon name="chevron-down" size={14} />
+            <span />
+          </div>
+          <article className="landing-decision-match">
+            <small>CLOSEST PAST DECISION</small>
+            <h3>Revised a similar proposal</h3>
+            <div className="landing-decision-factors">
+              <div>
+                <strong><Icon name="check-circle" size={14} /> Shared context</strong>
+                <ul>
+                  <li>Same service mix</li>
+                  <li>Client asked for flexibility</li>
+                </ul>
+              </div>
+              <div>
+                <strong><Icon name="layers" size={14} /> Material difference</strong>
+                <ul>
+                  <li>Different contract length</li>
+                </ul>
+              </div>
+            </div>
+          </article>
+          <div className="landing-decision-status">
+            <span><Icon name="target" size={15} /> Comparable, with context</span>
+            <small>Evidence stays attached</small>
+          </div>
         </div>
       </section>
 

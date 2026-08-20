@@ -5239,6 +5239,7 @@ kbd {
 
 .landing-section__heading h2,
 .landing-workflow h2,
+.landing-intelligence h2,
 .landing-security h2,
 .landing-cta h2 {
   margin: 16px 0 18px;
@@ -5413,9 +5414,6 @@ kbd {
   gap: clamp(65px, 9vw, 130px);
   padding: 118px max(24px, calc((100vw - 1120px) / 2));
   color: #edf1e9;
-  background:
-    radial-gradient(circle at 90% 20%, rgba(135, 111, 255, 0.11), transparent 27rem),
-    #161a13;
 }
 
 .landing-workflow .landing-eyebrow {
@@ -5621,6 +5619,244 @@ kbd {
   color: #92998f;
 }
 
+.landing-workflow,
+.landing-intelligence,
+.landing-cta {
+  background:
+    radial-gradient(circle at 8% 12%, rgba(72, 124, 237, 0.19), transparent 28rem),
+    radial-gradient(circle at 92% 84%, rgba(124, 92, 238, 0.13), transparent 25rem),
+    #111722;
+}
+
+.landing-intelligence {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(420px, 0.8fr);
+  align-items: center;
+  gap: clamp(56px, 8vw, 112px);
+  padding: 116px max(24px, calc((100vw - 1120px) / 2));
+  color: #f3f6fb;
+  scroll-margin-top: 76px;
+}
+
+.landing-intelligence .landing-eyebrow {
+  color: #a9bde4;
+}
+
+.landing-intelligence h2 {
+  max-width: 680px;
+}
+
+.landing-intelligence__copy > p:not(.landing-intelligence__boundary) {
+  max-width: 650px;
+  margin: 0;
+  color: #b9c3d2;
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.landing-intelligence__principles {
+  display: grid;
+  gap: 10px;
+  margin-top: 31px;
+}
+
+.landing-intelligence__principles article {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 13px;
+  padding: 13px 15px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(143, 162, 197, 0.2);
+  border-radius: 13px;
+}
+
+.landing-intelligence__principles article > span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  color: #a9c4ff;
+  background: rgba(75, 123, 226, 0.18);
+  border-radius: 10px;
+}
+
+.landing-intelligence__principles h3 {
+  margin: 0 0 3px;
+  color: #f3f6fb;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.landing-intelligence__principles p {
+  margin: 0;
+  color: #9eabbc;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.landing-intelligence__boundary {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 20px 0 0;
+  color: #aeb9c8;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.landing-intelligence__boundary span {
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #9ebcff;
+}
+
+.landing-intelligence__visual {
+  padding: 25px;
+  background: linear-gradient(145deg, rgba(31, 41, 59, 0.95), rgba(16, 23, 35, 0.97));
+  border: 1px solid rgba(143, 162, 197, 0.25);
+  border-radius: 22px;
+  box-shadow: 0 34px 80px rgba(0, 0, 0, 0.32);
+}
+
+.landing-intelligence__visual-header,
+.landing-decision-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.landing-intelligence__visual-header {
+  margin-bottom: 17px;
+}
+
+.landing-intelligence__visual-header small,
+.landing-decision-card > small,
+.landing-decision-match > small,
+.landing-decision-status small {
+  color: #8e9bad;
+  font-family: 'DM Mono', monospace;
+  font-size: 7px;
+  letter-spacing: 0.1em;
+}
+
+.landing-intelligence__visual-header > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #c9d6eb;
+  font-size: 8px;
+}
+
+.landing-intelligence__visual-header i {
+  width: 6px;
+  height: 6px;
+  background: #80aeff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px rgba(83, 137, 238, 0.14);
+}
+
+.landing-decision-card,
+.landing-decision-match {
+  padding: 18px;
+  border-radius: 14px;
+}
+
+.landing-decision-card {
+  background: rgba(10, 16, 27, 0.72);
+  border: 1px solid rgba(135, 155, 190, 0.2);
+}
+
+.landing-decision-card h3,
+.landing-decision-match h3 {
+  margin: 7px 0 6px;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.landing-decision-card p {
+  margin: 0;
+  color: #aeb9c8;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.landing-decision-path {
+  display: flex;
+  height: 49px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #8caef1;
+}
+
+.landing-decision-path span {
+  width: 1px;
+  height: 12px;
+  background: rgba(143, 166, 209, 0.35);
+}
+
+.landing-decision-match {
+  color: #1d2634;
+  background: #eef3f9;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+}
+
+.landing-decision-match > small {
+  color: #66748a;
+}
+
+.landing-decision-factors {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.landing-decision-factors > div {
+  min-height: 98px;
+  padding: 11px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid #dbe3ed;
+  border-radius: 10px;
+}
+
+.landing-decision-factors strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #425675;
+  font-size: 8px;
+}
+
+.landing-decision-factors ul {
+  margin: 9px 0 0;
+  padding-left: 14px;
+  color: #667184;
+  font-size: 8px;
+  line-height: 1.7;
+}
+
+.landing-decision-status {
+  margin-top: 15px;
+}
+
+.landing-decision-status > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #dce6f8;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.landing-decision-status > span svg {
+  color: #8eb1f8;
+}
+
 .landing-security {
   display: grid;
   grid-template-columns: 70px minmax(0, 1fr) minmax(270px, 0.55fr);
@@ -5683,10 +5919,6 @@ kbd {
   padding: 80px 24px;
   color: #eef2e9;
   text-align: center;
-  background:
-    radial-gradient(circle at 40% 110%, rgba(238, 69, 170, 0.13), transparent 28rem),
-    radial-gradient(circle at 62% 110%, rgba(67, 189, 244, 0.14), transparent 28rem),
-    #131710;
 }
 
 .landing-cta > .brand-mark {
@@ -8009,7 +8241,15 @@ kbd {
     grid-template-columns: 1fr;
   }
 
+  .landing-intelligence {
+    grid-template-columns: 1fr;
+  }
+
   .landing-workflow__visual {
+    width: min(100%, 620px);
+  }
+
+  .landing-intelligence__visual {
     width: min(100%, 620px);
   }
 
@@ -8180,6 +8420,7 @@ kbd {
 
   .landing-section__heading h2,
   .landing-workflow h2,
+  .landing-intelligence h2,
   .landing-security h2,
   .landing-cta h2 {
     font-size: clamp(35px, 10vw, 49px);
@@ -8210,6 +8451,23 @@ kbd {
 
   .landing-workflow__visual {
     padding: 17px;
+  }
+
+  .landing-intelligence {
+    gap: 46px;
+    padding: 82px 18px;
+  }
+
+  .landing-intelligence__copy > p:not(.landing-intelligence__boundary) {
+    font-size: 16px;
+  }
+
+  .landing-intelligence__visual {
+    padding: 17px;
+  }
+
+  .landing-decision-factors {
+    grid-template-columns: 1fr;
   }
 
   .workflow-automation-card {
@@ -10041,9 +10299,7 @@ html[data-theme='dark'] .landing .landing-nav {
 }
 
 html[data-theme='dark'] .landing :is(.landing-hero,
-html[data-theme='dark'] .landing-workflow,
-html[data-theme='dark'] .landing-security,
-html[data-theme='dark'] .landing-cta) {
+html[data-theme='dark'] .landing-security) {
   background: transparent;
 }
 
