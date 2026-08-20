@@ -710,6 +710,49 @@ The Hermes runtime implementation and verification records are in
 [`docs/HERMES.md`](docs/HERMES.md) and
 [`changelog_20260820_000803.md`](changelog_20260820_000803.md).
 
+## Memory, Signal Engine, and Decision Dynamics
+
+Lancee now enforces the basic three-state memory boundary: the current Session
+holds temporary conversation/task context, Hermes memory holds only stable
+personal preferences and working conventions, and workspace business knowledge
+is persisted through authoritative Lancee records. Ambiguous information stays
+in Session. Business decisions, evidence, outcomes, and organisational learning
+are never stored as Hermes preferences.
+
+Decision Intelligence Phase 1A records authorized workspace activity in the
+activity ledger, applies deterministic relevance and decision-language filters,
+and creates auditable decision candidates behind a versioned confidence gate.
+Connected communications require a workspace-owned active connection and retain
+their source provenance. High-confidence complete candidates can promote into
+the Phase 1 Decision Dynamics slice; medium-confidence candidates wait for
+human review, while low-confidence interpretations leave the source event only.
+
+Decision Dynamics persists normalized vectors, expected reactions, deterministic
+baseline/observed metrics, evidence, confounders, outcomes, and bounded
+structural comparisons. Metric arithmetic and all Phase 1 scoring are performed
+by Lancee—not Hermes—and causal confidence remains separate from measured and
+comparison confidence. Phase 1 is frozen after verification against Lancee's
+deployed PostgreSQL 16 server in an isolated temporary database.
+
+For structurally eligible candidates, Lancee now builds a capped, workspace-
+scoped evidence pack and asks Hermes only whether the contexts are realistically
+comparable. Lancee validates the five-field semantic response, retains authority
+over all metrics and final confidence, and records an explicit unavailable state
+when Hermes fails or times out. The MCP surface preserves the existing approved
+decision/outcome writes and canonical read/list/compare results. See
+[`docs/DECISION_INTELLIGENCE_PHASE1.md`](docs/DECISION_INTELLIGENCE_PHASE1.md)
+and [`docs/DECISION_INTELLIGENCE_SEMANTIC.md`](docs/DECISION_INTELLIGENCE_SEMANTIC.md).
+
+Verify the foundation with:
+
+```bash
+npm run verify:memory
+npm run verify:signals
+npm run verify:dynamics
+npm run verify:decision-semantic
+npm run verify:mcp-contracts
+```
+
 AI providers are an internal deployment detail. The workspace assistant passes
 the same validated Lancee tool definitions to any supported tool-capable
 provider (Gemini, OpenAI, Anthropic, or Hermes). Customer-facing UI describes

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { completeChat } from '../server/ai.mjs'
+import { completeChat, completeHermes } from '../server/ai.mjs'
 
 const originalFetch = globalThis.fetch
 const originalEnvironment = {
@@ -136,6 +136,18 @@ try {
   assert.equal(calls[4].url, 'https://hermes.example/v1/chat/completions')
   assert.equal(calls[4].headers.Authorization, 'Bearer hermes-test-key')
   assert.equal(calls[4].body.model, 'hermes-agent')
+
+  process.env.AI_PROVIDER = 'openai'
+  process.env.AI_MODEL = 'primary-model-that-must-not-be-used'
+  process.env.HERMES_MODEL = 'hermes-semantic-model'
+  const directHermesStart = calls.length
+  const directHermes = await completeHermes({
+    systemPrompt: 'Perform a bounded semantic assessment.',
+    messages: [{ role: 'user', content: '{"evidence_pack":{}}' }],
+  })
+  assert.equal(directHermes.content, 'Hermes ready')
+  assert.equal(calls[directHermesStart].url, 'https://hermes.example/v1/chat/completions')
+  assert.equal(calls[directHermesStart].body.model, 'hermes-semantic-model')
 
   process.env.AI_PROVIDER = 'openai'
   process.env.AI_API_KEY = 'primary-test-key'

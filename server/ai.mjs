@@ -369,6 +369,23 @@ export async function completeChat({ messages, systemPrompt, tools }) {
   throw lastError || new AiError('AI_REQUEST_FAILED', 'AI provider request failed.', 502)
 }
 
+export async function completeHermes({ messages, systemPrompt }) {
+  const config = getProviderConfig('hermes')
+  if (!config.configured) {
+    throw new AiError(
+      'AI_NOT_CONFIGURED',
+      config.configurationError || 'Hermes is not configured.',
+      503,
+    )
+  }
+  const normalizedMessages = validateMessages(messages)
+  const normalizedSystemPrompt = String(systemPrompt || '').trim()
+  if (normalizedSystemPrompt.length > 20_000) {
+    throw new AiError('AI_INVALID_SYSTEM_PROMPT', 'System prompt is too long.', 400)
+  }
+  return completeWithProvider(config, normalizedMessages, normalizedSystemPrompt, [])
+}
+
 export function getAiStatus() {
   const config = getAiConfig()
   return {

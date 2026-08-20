@@ -75,6 +75,13 @@ const resultContracts = Object.freeze({
   'system.execute-javascript': { mode: 'terminal' },
   'job.schedule-automation': { mode: 'single', resourceKey: 'schedule', resourceType: 'schedule' },
   'automation.logs': { mode: 'list', collection: 'logs', resourceType: 'automation-event' },
+  'decision.create': { mode: 'single', resourceKey: 'decision', resourceType: 'decision' },
+  'decision.list': { mode: 'list', collection: 'decisions', resourceType: 'decision' },
+  'decision.get': { mode: 'single', resourceKey: 'decision', resourceType: 'decision' },
+  'decision.record-outcome': { mode: 'single', resourceKey: 'outcome', resourceType: 'decision-outcome' },
+  'decision.get-outcome': { mode: 'single', resourceKey: 'outcome', resourceType: 'decision-outcome' },
+  'decision.get-evidence': { mode: 'list', collection: 'evidence', resourceType: 'decision-evidence' },
+  'decision.compare': { mode: 'list', collection: 'candidates', resourceType: 'decision-comparison' },
   'workspace.query': { mode: 'dashboard' },
 })
 

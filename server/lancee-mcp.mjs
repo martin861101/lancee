@@ -12,6 +12,8 @@ import {
   mcpOutputSchema,
   normalizeCapabilityResult,
 } from './capabilities/result-contract.mjs'
+import { createDecisionDynamicsService } from './decision-dynamics.mjs'
+import { recordWorkspaceEvent } from './workspace-events.mjs'
 
 export const lanceeMcpScope = 'mcp:invoke'
 
@@ -328,6 +330,142 @@ export const lanceeMcpToolDefinitions = [
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
   {
+    name: 'create_decision',
+    title: 'Create decision',
+    description: 'Create a structured workspace decision and normalized Decision Vector after human approval.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', minLength: 1, maxLength: 200 },
+        decision_text: { type: 'string', minLength: 1, maxLength: 5000 },
+        rationale: { type: 'string', maxLength: 5000 },
+        intent: { type: 'string', minLength: 1, maxLength: 2000 },
+        object_type: { type: 'string', minLength: 1, maxLength: 120 },
+        object_id: { type: 'string', maxLength: 240 },
+        decided_at: { type: 'string', format: 'date-time' },
+        vector: {
+          type: 'object',
+          properties: {
+            action_type: { type: 'string', minLength: 1, maxLength: 120 },
+            target_type: { type: 'string', minLength: 1, maxLength: 120 },
+            source_state: { type: 'string', maxLength: 120 },
+            destination_state: { type: 'string', maxLength: 120 },
+            intent_type: { type: 'string', minLength: 1, maxLength: 120 },
+            expected_direction: { type: 'string', minLength: 1, maxLength: 120 },
+          },
+          required: ['action_type', 'target_type', 'intent_type', 'expected_direction'],
+          additionalProperties: false,
+        },
+        expected_reaction: {
+          type: 'object',
+          properties: {
+            metric_key: { type: 'string', minLength: 1, maxLength: 120 },
+            direction: { type: 'string', minLength: 1, maxLength: 120 },
+            expected_change: { type: 'number' },
+            confidence: { type: 'number', minimum: 0, maximum: 1 },
+          },
+          required: ['metric_key', 'direction', 'confidence'],
+          additionalProperties: false,
+        },
+      },
+      required: ['title', 'decision_text', 'intent', 'object_type', 'vector'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  {
+    name: 'list_decisions',
+    title: 'List decisions',
+    description: 'List bounded structured decisions in the authorized workspace.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['draft', 'active', 'reviewed', 'archived'] },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'get_decision',
+    title: 'Get decision',
+    description: 'Read one workspace decision with its normalized vector and expected reaction.',
+    inputSchema: {
+      type: 'object',
+      properties: { decision_id: { type: 'string', pattern: '^dec_[a-f0-9]{32}$' } },
+      required: ['decision_id'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'record_outcome',
+    title: 'Record decision outcome',
+    description: 'Record deterministic baseline and observed metrics plus separate evidence and causal confidence after human approval.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        decision_id: { type: 'string', pattern: '^dec_[a-f0-9]{32}$' },
+        metric_key: { type: 'string', minLength: 1, maxLength: 120 },
+        unit: { type: 'string', maxLength: 80 },
+        baseline_value: { type: 'number' },
+        baseline_window_start: { type: 'string', format: 'date-time' },
+        baseline_window_end: { type: 'string', format: 'date-time' },
+        observed_value: { type: 'number' },
+        observation_window_start: { type: 'string', format: 'date-time' },
+        observation_window_end: { type: 'string', format: 'date-time' },
+        outcome_class: { type: 'string', maxLength: 120 },
+        observed_reason: { type: 'string', maxLength: 5000 },
+        evidence_confidence: { type: 'number', minimum: 0, maximum: 1 },
+        causal_confidence: { type: 'number', minimum: 0, maximum: 1 },
+      },
+      required: ['decision_id', 'metric_key', 'evidence_confidence'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'get_decision_outcome',
+    title: 'Get decision outcome',
+    description: 'Read measured outcome, deterministic metric changes, expected-versus-actual result, and confounders.',
+    inputSchema: {
+      type: 'object',
+      properties: { decision_id: { type: 'string', pattern: '^dec_[a-f0-9]{32}$' } },
+      required: ['decision_id'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'get_decision_evidence',
+    title: 'Get decision evidence',
+    description: 'List provenance records attached to a workspace decision.',
+    inputSchema: {
+      type: 'object',
+      properties: { decision_id: { type: 'string', pattern: '^dec_[a-f0-9]{32}$' } },
+      required: ['decision_id'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'compare_decision',
+    title: 'Compare decision',
+    description: 'Compare bounded deterministic candidates, add a Hermes contextual reality check when available, and return Lancee-scored results.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        decision_id: { type: 'string', pattern: '^dec_[a-f0-9]{32}$' },
+        limit: { type: 'integer', minimum: 1, maximum: 5 },
+        threshold: { type: 'number', minimum: 0, maximum: 1 },
+      },
+      required: ['decision_id'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
     name: 'call_external_api',
     title: 'Call external API',
     description: 'Call a public HTTP API with bounded time, body, and response size. Redirects, private hosts, cookies, and authorization headers are blocked.',
@@ -362,6 +500,13 @@ const platformCapabilityMetadata = Object.freeze({
   execute_javascript: { permissions: ['system:execute-code'], risk: 'administrative', approval: true, tags: ['system', 'code', 'javascript'] },
   schedule_job: { permissions: ['automations:schedule'], risk: 'internal-write', approval: true, tags: ['job', 'automation', 'schedule'] },
   get_logs: { permissions: ['automations:read'], risk: 'read', approval: false, tags: ['automation', 'logs'] },
+  create_decision: { permissions: ['decisions:write'], risk: 'internal-write', approval: true, tags: ['decision', 'create'] },
+  list_decisions: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'list'] },
+  get_decision: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'read'] },
+  record_outcome: { permissions: ['decisions:write'], risk: 'internal-write', approval: true, tags: ['decision', 'outcome'] },
+  get_decision_outcome: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'outcome'] },
+  get_decision_evidence: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'evidence'] },
+  compare_decision: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'comparison'] },
 })
 
 function createPlatformCapabilityDefinitions(executePlatform) {
@@ -530,10 +675,15 @@ export function createLanceeMcpRuntime({
   executionWorker,
   sharpImpl,
   integrationGateway,
+  semanticDecisionAssessor,
   authorize,
   audit,
 }) {
   const availableCoreTools = new Set(coreToolIds)
+  const decisionDynamics = createDecisionDynamicsService({
+    database,
+    semanticAssessor: semanticDecisionAssessor || null,
+  })
   let schedulerTimer = null
   let schedulerBusy = false
 
@@ -607,6 +757,17 @@ export function createLanceeMcpRuntime({
       scope,
       due,
       status,
+    })
+    await recordWorkspaceEvent({
+      database,
+      context,
+      eventType: 'project.created',
+      entityType: 'project',
+      entityId: project.id,
+      clientId: project.clientId,
+      projectId: project.id,
+      payload: { name: project.name, status: project.status, source: 'lancee_mcp' },
+      importance: 70,
     })
     return { project }
   }
@@ -887,6 +1048,84 @@ export function createLanceeMcpRuntime({
       if (!['all', 'info', 'warning', 'error'].includes(level)) throw new LanceeMcpError('MCP_INVALID_ARGUMENTS', 'Use all, info, warning, or error for level.')
       const logs = (run.events || []).filter((event) => (level === 'all' || event.level === level) && (!eventType || event.eventType === eventType))
       return { runId: selectedRunId, logs: logs.slice(0, limit), total: logs.length }
+    }
+    if (name === 'create_decision') {
+      const expectedReaction = args.expected_reaction
+        ? [{
+            metricKey: args.expected_reaction.metric_key,
+            direction: args.expected_reaction.direction,
+            expectedChange: args.expected_reaction.expected_change,
+            confidence: args.expected_reaction.confidence,
+          }]
+        : []
+      const decision = await decisionDynamics.createDecision(context, {
+        title: args.title,
+        decisionText: args.decision_text,
+        rationale: args.rationale,
+        intent: args.intent,
+        objectType: args.object_type,
+        objectId: args.object_id,
+        decidedAt: args.decided_at,
+        vector: {
+          objectType: args.object_type,
+          actionType: args.vector.action_type,
+          targetType: args.vector.target_type,
+          sourceState: args.vector.source_state,
+          destinationState: args.vector.destination_state,
+          intentType: args.vector.intent_type,
+          expectedDirection: args.vector.expected_direction,
+        },
+        expectedReactions: expectedReaction,
+      })
+      return { decision }
+    }
+    if (name === 'list_decisions') {
+      const decisions = await decisionDynamics.listDecisions(context, {
+        status: args.status || null,
+        limit: args.limit,
+      })
+      return { decisions, total: decisions.length }
+    }
+    if (name === 'get_decision') {
+      const decision = await decisionDynamics.getDecision(context, args.decision_id)
+      if (!decision) throw new LanceeMcpError('MCP_RESOURCE_NOT_FOUND', 'Decision not found.', 404)
+      return { decision }
+    }
+    if (name === 'record_outcome') {
+      const result = await decisionDynamics.recordOutcome(context, args.decision_id, {
+        metric: {
+          metricKey: args.metric_key,
+          unit: args.unit,
+          baselineValue: args.baseline_value,
+          baselineWindowStart: args.baseline_window_start,
+          baselineWindowEnd: args.baseline_window_end,
+          observedValue: args.observed_value,
+          observationWindowStart: args.observation_window_start,
+          observationWindowEnd: args.observation_window_end,
+        },
+        outcomeClass: args.outcome_class,
+        observedReason: args.observed_reason,
+        evidenceConfidence: args.evidence_confidence,
+        causalConfidence: args.causal_confidence,
+      })
+      return { outcome: { id: args.decision_id, ...result } }
+    }
+    if (name === 'get_decision_outcome') {
+      const result = await decisionDynamics.getDecisionOutcome(context, args.decision_id)
+      if (!result) throw new LanceeMcpError('MCP_RESOURCE_NOT_FOUND', 'Decision not found.', 404)
+      return { outcome: { id: args.decision_id, ...result } }
+    }
+    if (name === 'get_decision_evidence') {
+      const evidence = await decisionDynamics.getDecisionEvidence(context, args.decision_id)
+      if (!evidence) throw new LanceeMcpError('MCP_RESOURCE_NOT_FOUND', 'Decision not found.', 404)
+      return { evidence, total: evidence.length }
+    }
+    if (name === 'compare_decision') {
+      const result = await decisionDynamics.compareDecision(context, args.decision_id, {
+        limit: args.limit,
+        threshold: args.threshold,
+      })
+      return result
     }
     throw new LanceeMcpError('MCP_TOOL_NOT_FOUND', `Unknown Lancee MCP tool: ${name}.`, 404)
   }

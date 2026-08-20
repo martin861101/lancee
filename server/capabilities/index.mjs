@@ -55,6 +55,13 @@ export const lanceeMcpCapabilityBindings = Object.freeze({
   execute_javascript: 'system.execute-javascript',
   schedule_job: 'job.schedule-automation',
   get_logs: 'automation.logs',
+  create_decision: 'decision.create',
+  list_decisions: 'decision.list',
+  get_decision: 'decision.get',
+  record_outcome: 'decision.record-outcome',
+  get_decision_outcome: 'decision.get-outcome',
+  get_decision_evidence: 'decision.get-evidence',
+  compare_decision: 'decision.compare',
   call_external_api: 'integration.http.request',
 })
 

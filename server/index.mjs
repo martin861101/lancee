@@ -22,6 +22,7 @@ import {
 } from './agents/agent-provider.mjs'
 import { createHermesAgentProvider } from './agents/hermes-agent-provider.mjs'
 import { createLanceeAgentProvider } from './agents/lancee-agent-provider.mjs'
+import { recordWorkspaceEvent } from './workspace-events.mjs'
 import { createBrowserWorker } from './browser-worker.mjs'
 import { createExecutionWorker } from './execution-worker.mjs'
 import {
@@ -55,6 +56,7 @@ import {
   getAiStatus,
   AiError,
 } from './ai.mjs'
+import { createHermesDecisionAssessor } from './decision-semantic-assessor.mjs'
 import {
   automationById,
   buildWorkspaceRecommendation,
@@ -6502,6 +6504,17 @@ app.post('/api/projects', secureMutations, requireAuth, async (request, response
         workspaceId: request.auth.context.workspace.id,
         projectId: project.id,
       })
+      await recordWorkspaceEvent({
+        database,
+        context: request.auth.context,
+        eventType: 'project.created',
+        entityType: 'project',
+        entityId: project.id,
+        clientId: project.clientId,
+        projectId: project.id,
+        payload: { name: project.name, status: project.status, source: 'dashboard' },
+        importance: 70,
+      })
       const created = { project, jobCardId: jobCard?.id || null, draftInvoice }
       return {
         status: 201,
@@ -6788,21 +6801,29 @@ app.post(
         size: request.body.length,
         contentSha256,
       },
-      operation: async () => ({
-        status: 201,
-        response: {
-          file: await database.createProjectFile({
-            workspaceId: request.auth.context.workspace.id,
-            projectId,
-            name,
-            mimeType,
-            size: request.body.length,
-            storageKey,
-            contentBase64: request.body.toString('base64'),
-            contentSha256,
-          }),
-        },
-      }),
+      operation: async () => {
+        const file = await database.createProjectFile({
+          workspaceId: request.auth.context.workspace.id,
+          projectId,
+          name,
+          mimeType,
+          size: request.body.length,
+          storageKey,
+          contentBase64: request.body.toString('base64'),
+          contentSha256,
+        })
+        await recordWorkspaceEvent({
+          database,
+          context: request.auth.context,
+          eventType: 'file.uploaded',
+          entityType: 'project_file',
+          entityId: file.id,
+          projectId,
+          payload: { name: file.name, mimeType: file.mimeType, size: file.size, source: 'project' },
+          importance: 60,
+        })
+        return { status: 201, response: { file } }
+      },
     })
     sendMutationResponse(response, result)
   },
@@ -7191,6 +7212,15 @@ app.post(
       body: request.body,
       storagePointId,
       folderId: localFolderId,
+    })
+    await recordWorkspaceEvent({
+      database,
+      context: request.auth.context,
+      eventType: 'file.uploaded',
+      entityType: 'workspace_document',
+      entityId: document.id,
+      payload: { name: document.name, mimeType: document.mimeType, size: document.size, source: 'files' },
+      importance: 60,
     })
     if (destination === 'drive' || destination === 'both') {
       const accessToken = await resolveGoogleDriveAccessToken(selectedWorkspaceId)
@@ -8100,6 +8130,7 @@ const browserWorker = createBrowserWorker()
 const executionWorker = createExecutionWorker({ database })
 const lanceeMcp = createLanceeMcpRuntime({
   database,
+  semanticDecisionAssessor: createHermesDecisionAssessor(),
   browserWorker,
   executionWorker,
   integrationGateway,

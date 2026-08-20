@@ -297,7 +297,7 @@ try {
   assert.equal(servicesResponse.status, 200)
   const builtInService = (await servicesResponse.json()).services.find((service) => service.id === 'lancee')
   assert.equal(builtInService.active, true)
-  assert.equal(builtInService.tools.length, 42)
+  assert.equal(builtInService.tools.length, 49)
 
   const assistantCreateResponse = await sessionRequest(
     application.origin,
@@ -646,6 +646,13 @@ try {
       'execute_javascript',
       'schedule_job',
       'get_logs',
+      'create_decision',
+      'list_decisions',
+      'get_decision',
+      'record_outcome',
+      'get_decision_outcome',
+      'get_decision_evidence',
+      'compare_decision',
       'call_external_api',
     ],
   )

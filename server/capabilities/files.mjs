@@ -1,5 +1,6 @@
 import mammoth from 'mammoth'
 import { LanceeCapabilityError, textInput } from './registry.mjs'
+import { recordWorkspaceEvent } from '../workspace-events.mjs'
 
 const MAX_FILE_CONTENT_LENGTH = 512_000
 
@@ -56,6 +57,15 @@ export function createFileCapabilities({ database }) {
         name,
         mimeType,
         body,
+      })
+      await recordWorkspaceEvent({
+        database,
+        context,
+        eventType: 'file.created',
+        entityType: 'workspace_document',
+        entityId: file.id,
+        payload: { name: file.name, mimeType: file.mimeType, size: file.size, source: 'file.write' },
+        importance: 60,
       })
       const artifact = typeof database.createArtifact === 'function'
         ? await database.createArtifact({

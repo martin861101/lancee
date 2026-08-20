@@ -851,6 +851,200 @@ export async function openDatabase({
       updated_at TEXT NOT NULL,
       disabled_at TEXT
     )`,
+    `CREATE TABLE IF NOT EXISTS hermes_user_preferences (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      preference_key TEXT NOT NULL,
+      category TEXT NOT NULL
+        CHECK (category IN ('response_preference', 'communication_style', 'approval_preference', 'working_convention')),
+      value_json TEXT NOT NULL,
+      source TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 1 CHECK (confidence >= 0 AND confidence <= 1),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, preference_key)
+    )`,
+    `CREATE TABLE IF NOT EXISTS workspace_events (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      actor_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      event_type TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT,
+      client_id TEXT,
+      project_id TEXT,
+      conversation_id TEXT,
+      connection_id TEXT,
+      source_channel TEXT,
+      source_identifier TEXT,
+      participant_refs_json TEXT NOT NULL DEFAULT '[]',
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      importance INTEGER NOT NULL DEFAULT 50 CHECK (importance >= 0 AND importance <= 100),
+      occurred_at TEXT NOT NULL,
+      processed_at TEXT,
+      created_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS decision_candidates (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      source_event_id TEXT REFERENCES workspace_events(id) ON DELETE SET NULL,
+      source_type TEXT NOT NULL,
+      source_id TEXT,
+      object_type TEXT,
+      object_id TEXT,
+      action_type TEXT,
+      target_type TEXT,
+      source_state TEXT,
+      destination_state TEXT,
+      intent_type TEXT,
+      expected_metric TEXT,
+      expected_direction TEXT,
+      candidate_text TEXT NOT NULL,
+      rationale_text TEXT,
+      detection_method TEXT NOT NULL,
+      detection_confidence REAL NOT NULL CHECK (detection_confidence >= 0 AND detection_confidence <= 1),
+      policy_version TEXT NOT NULL,
+      machine_classification TEXT NOT NULL DEFAULT 'decision_candidate',
+      machine_confidence REAL NOT NULL CHECK (machine_confidence >= 0 AND machine_confidence <= 1),
+      human_classification TEXT,
+      review_result TEXT,
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'auto_promoted', 'confirmed', 'edited', 'rejected', 'expired')),
+      promoted_decision_id TEXT,
+      reviewed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      reviewed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, source_event_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS decisions (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      actor_id TEXT NOT NULL REFERENCES users(id),
+      object_type TEXT NOT NULL,
+      object_id TEXT,
+      client_id TEXT,
+      project_id TEXT,
+      conversation_id TEXT,
+      source_candidate_id TEXT REFERENCES decision_candidates(id) ON DELETE SET NULL,
+      title TEXT NOT NULL,
+      decision_text TEXT NOT NULL,
+      rationale TEXT,
+      intent TEXT NOT NULL,
+      decided_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active'
+        CHECK (status IN ('draft', 'active', 'reviewed', 'archived')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS decision_vectors (
+      decision_id TEXT PRIMARY KEY REFERENCES decisions(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      object_type TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      target_type TEXT NOT NULL,
+      source_state TEXT,
+      destination_state TEXT,
+      intent_type TEXT NOT NULL,
+      expected_direction TEXT NOT NULL,
+      vector_version TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS decision_expected_reactions (
+      decision_id TEXT NOT NULL REFERENCES decisions(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      metric_key TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      expected_change REAL,
+      confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (decision_id, metric_key)
+    )`,
+    `CREATE TABLE IF NOT EXISTS decision_metrics (
+      decision_id TEXT NOT NULL REFERENCES decisions(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      metric_key TEXT NOT NULL,
+      unit TEXT,
+      baseline_value REAL,
+      baseline_window_start TEXT,
+      baseline_window_end TEXT,
+      observed_value REAL,
+      observation_window_start TEXT,
+      observation_window_end TEXT,
+      change_absolute REAL,
+      change_percent REAL,
+      measurement_status TEXT NOT NULL
+        CHECK (measurement_status IN ('measured', 'pending', 'inconclusive')),
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (decision_id, metric_key)
+    )`,
+    `CREATE TABLE IF NOT EXISTS decision_outcomes (
+      decision_id TEXT PRIMARY KEY REFERENCES decisions(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      outcome_direction TEXT NOT NULL
+        CHECK (outcome_direction IN ('positive', 'negative', 'neutral', 'mixed', 'pending', 'inconclusive')),
+      outcome_class TEXT NOT NULL,
+      observed_reason TEXT,
+      evidence_confidence REAL NOT NULL CHECK (evidence_confidence >= 0 AND evidence_confidence <= 1),
+      causal_confidence REAL CHECK (causal_confidence >= 0 AND causal_confidence <= 1),
+      confidence_version TEXT NOT NULL,
+      reviewed_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS decision_evidence (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      decision_id TEXT NOT NULL REFERENCES decisions(id) ON DELETE CASCADE,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      relation TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      weight REAL NOT NULL CHECK (weight >= 0 AND weight <= 1),
+      created_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS decision_confounders (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      decision_id TEXT NOT NULL REFERENCES decisions(id) ON DELETE CASCADE,
+      factor_type TEXT NOT NULL,
+      factor_value TEXT NOT NULL,
+      significance REAL NOT NULL CHECK (significance >= 0 AND significance <= 1),
+      evidence_source_id TEXT,
+      created_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS decision_comparisons (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      decision_a_id TEXT NOT NULL REFERENCES decisions(id) ON DELETE CASCADE,
+      decision_b_id TEXT NOT NULL REFERENCES decisions(id) ON DELETE CASCADE,
+      structural_similarity REAL NOT NULL CHECK (structural_similarity >= 0 AND structural_similarity <= 1),
+      contextual_similarity REAL CHECK (contextual_similarity >= 0 AND contextual_similarity <= 1),
+      evidence_confidence REAL NOT NULL CHECK (evidence_confidence >= 0 AND evidence_confidence <= 1),
+      recency_relevance REAL NOT NULL CHECK (recency_relevance >= 0 AND recency_relevance <= 1),
+      comparison_confidence REAL NOT NULL CHECK (comparison_confidence >= 0 AND comparison_confidence <= 1),
+      comparable INTEGER CHECK (comparable IN (0, 1)),
+      shared_factors_json TEXT NOT NULL DEFAULT '[]',
+      material_differences_json TEXT NOT NULL DEFAULT '[]',
+      comparison_version TEXT NOT NULL,
+      model_version TEXT,
+      semantic_status TEXT NOT NULL DEFAULT 'unavailable'
+        CHECK (semantic_status IN ('pending', 'completed', 'unavailable')),
+      semantic_explanation TEXT,
+      semantic_error_code TEXT,
+      evidence_pack_version TEXT,
+      semantic_assessment_version TEXT,
+      confidence_model_version TEXT NOT NULL DEFAULT 'comparison-confidence-v1',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, decision_a_id, decision_b_id, comparison_version)
+    )`,
+    `ALTER TABLE decision_comparisons ADD COLUMN IF NOT EXISTS semantic_status TEXT NOT NULL DEFAULT 'unavailable'
+      CHECK (semantic_status IN ('pending', 'completed', 'unavailable'))`,
+    `ALTER TABLE decision_comparisons ADD COLUMN IF NOT EXISTS semantic_explanation TEXT`,
+    `ALTER TABLE decision_comparisons ADD COLUMN IF NOT EXISTS semantic_error_code TEXT`,
+    `ALTER TABLE decision_comparisons ADD COLUMN IF NOT EXISTS evidence_pack_version TEXT`,
+    `ALTER TABLE decision_comparisons ADD COLUMN IF NOT EXISTS semantic_assessment_version TEXT`,
+    `ALTER TABLE decision_comparisons ADD COLUMN IF NOT EXISTS confidence_model_version TEXT NOT NULL DEFAULT 'comparison-confidence-v1'`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT NOT NULL DEFAULT ''`,
     `CREATE TABLE IF NOT EXISTS registration_confirmations (
       id TEXT PRIMARY KEY,
@@ -1787,6 +1981,26 @@ export async function openDatabase({
     )`,
     `CREATE INDEX IF NOT EXISTS idx_automation_runs_workspace_started
       ON automation_runs (workspace_id, started_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_workspace_events_workspace_occurred
+      ON workspace_events (workspace_id, occurred_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_hermes_preferences_user_category
+      ON hermes_user_preferences (user_id, category, updated_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_workspace_events_entity
+      ON workspace_events (workspace_id, entity_type, entity_id, occurred_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_workspace_events_unprocessed
+      ON workspace_events (workspace_id, processed_at, occurred_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_decision_candidates_workspace_status
+      ON decision_candidates (workspace_id, status, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_decisions_workspace_decided
+      ON decisions (workspace_id, decided_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_decision_vectors_structural
+      ON decision_vectors (workspace_id, action_type, object_type, target_type)`,
+    `CREATE INDEX IF NOT EXISTS idx_decision_evidence_decision
+      ON decision_evidence (workspace_id, decision_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_decision_confounders_decision
+      ON decision_confounders (workspace_id, decision_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_decision_comparisons_decision
+      ON decision_comparisons (workspace_id, decision_a_id, comparison_confidence)`,
     `CREATE INDEX IF NOT EXISTS idx_agent_runs_workspace_created
       ON agent_runs (workspace_id, created_at)`,
     `CREATE INDEX IF NOT EXISTS idx_agent_threads_workspace_updated
