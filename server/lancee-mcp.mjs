@@ -7,6 +7,11 @@ import {
   LanceeCapabilityError,
   lanceeMcpCapabilityBindings,
 } from './capabilities/index.mjs'
+import {
+  LANCEE_MCP_RESULT_CONTRACT_VERSION,
+  mcpOutputSchema,
+  normalizeCapabilityResult,
+} from './capabilities/result-contract.mjs'
 
 export const lanceeMcpScope = 'mcp:invoke'
 
@@ -924,6 +929,35 @@ export function createLanceeMcpRuntime({
     }
   }
 
+  function normalizeResult(name, result, metadata = {}) {
+    const capabilityId = lanceeMcpCapabilityBindings[name]
+    const capability = capabilityId ? capabilityRegistry.get(capabilityId) : null
+    if (!capabilityId || !capability) {
+      throw new LanceeMcpError('MCP_TOOL_NOT_FOUND', `Unknown Lancee MCP tool: ${name}.`, 404)
+    }
+    try {
+      const normalized = normalizeCapabilityResult(capabilityId, result)
+      return {
+        success: true,
+        ok: true,
+        data: normalized.data,
+        artifacts: normalized.artifacts,
+        warnings: normalized.warnings,
+        error: null,
+        metadata: {
+          contractVersion: LANCEE_MCP_RESULT_CONTRACT_VERSION,
+          tool: name,
+          capabilityId,
+          provider: capability.provider,
+          ...metadata,
+          ...normalized.diagnostics,
+        },
+      }
+    } catch (error) {
+      throw new LanceeMcpError('MCP_INVALID_RESULT', error.message || 'The tool returned an invalid result.', 502)
+    }
+  }
+
   function listTools() {
     return Object.entries(lanceeMcpCapabilityBindings).flatMap(([name, capabilityId]) => {
       const capability = capabilityRegistry.get(capabilityId)
@@ -935,6 +969,7 @@ export function createLanceeMcpRuntime({
         title: existing?.title || name.split('_').map((word) => word[0].toUpperCase() + word.slice(1)).join(' '),
         description: capability.description,
         inputSchema: capability.inputSchema,
+        outputSchema: mcpOutputSchema(),
         annotations: existing?.annotations || {
           readOnlyHint: capability.riskLevel === 'read',
           destructiveHint: ['destructive', 'administrative'].includes(capability.riskLevel),
@@ -947,6 +982,7 @@ export function createLanceeMcpRuntime({
 
   return {
     invoke,
+    normalizeResult,
     startScheduler,
     stopScheduler,
     dispatchDueSchedules,

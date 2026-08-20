@@ -288,13 +288,16 @@ let rawAccessToken
 try {
   aiProvider = await startAiProvider()
   application = await startApplication(aiProvider.url)
+  const mcpGetResponse = await fetch(`${application.origin}/mcp`)
+  assert.equal(mcpGetResponse.status, 405)
+  assert.equal(mcpGetResponse.headers.get('allow'), 'POST')
   const cookie = await login(application.origin)
 
   const servicesResponse = await sessionRequest(application.origin, cookie, '/api/mcp/services')
   assert.equal(servicesResponse.status, 200)
   const builtInService = (await servicesResponse.json()).services.find((service) => service.id === 'lancee')
   assert.equal(builtInService.active, true)
-  assert.equal(builtInService.tools.length, 40)
+  assert.equal(builtInService.tools.length, 42)
 
   const assistantCreateResponse = await sessionRequest(
     application.origin,
@@ -619,6 +622,8 @@ try {
       'browser_read',
       'browser_snapshot',
       'browser_screenshot',
+      'browser_pdf',
+      'browser_research',
       'analyze_visual',
       'extract_visual_palette',
       'create_pdf',
@@ -644,34 +649,38 @@ try {
       'call_external_api',
     ],
   )
+  for (const tool of listed.result.tools) {
+    assert.deepEqual(tool.outputSchema.required, ['success', 'ok', 'data', 'error'])
+    assert.deepEqual(tool.outputSchema.properties.data.anyOf[1].properties.results.items.required, ['id', 'type'])
+  }
 
   const workflowSearch = await connector.rpc('tools/call', {
     name: 'search_workflows',
     arguments: { limit: 10 },
   })
-  assert(Array.isArray(workflowSearch.result.structuredContent.workflows))
+  assert(Array.isArray(workflowSearch.result.structuredContent.data.results))
 
   const dashboardQuery = await connector.rpc('tools/call', {
     name: 'query_dashboard',
     arguments: { resource: 'connections', limit: 10 },
   })
-  assert(Array.isArray(dashboardQuery.result.structuredContent.rows))
+  assert(Array.isArray(dashboardQuery.result.structuredContent.data.results))
 
   const javascriptExecution = await connector.rpc('tools/call', {
     name: 'execute_javascript',
     arguments: { code: 'console.log(6 * 7)' },
   })
   assert.equal(javascriptExecution.result.isError, undefined)
-  assert.equal(javascriptExecution.result.structuredContent.exitCode, 0)
-  assert.match(javascriptExecution.result.structuredContent.stdout, /42/)
+  assert.equal(javascriptExecution.result.structuredContent.data.exitCode, 0)
+  assert.match(javascriptExecution.result.structuredContent.data.stdout, /42/)
 
   const pythonExecution = await connector.rpc('tools/call', {
     name: 'execute_python',
     arguments: { code: 'print(6 * 7)' },
   })
   assert.equal(pythonExecution.result.isError, undefined)
-  assert.equal(pythonExecution.result.structuredContent.exitCode, 0)
-  assert.match(pythonExecution.result.structuredContent.stdout, /42/)
+  assert.equal(pythonExecution.result.structuredContent.data.exitCode, 0)
+  assert.match(pythonExecution.result.structuredContent.data.stdout, /42/)
 
   const createdWorkflow = await connector.rpc('tools/call', {
     name: 'create_workflow',
@@ -681,7 +690,7 @@ try {
       prompt_template: 'Summarize this workspace.',
     },
   })
-  const workflow = createdWorkflow.result.structuredContent.workflow
+  const workflow = createdWorkflow.result.structuredContent.data.workflow
   assert.match(workflow.id, /^aut_[a-f0-9]{12}$/)
   assert.equal(workflow.status, 'active')
 
@@ -691,7 +700,7 @@ try {
       workflow_id: workflow.id,
     },
   })
-  const directRun = directRunResult.result.structuredContent.run
+  const directRun = directRunResult.result.structuredContent.data.run
   assert.match(directRun.id, /^run_[a-f0-9]{12}$/)
   const completedDirectRun = await waitForRun(application.origin, cookie, directRun.id)
   assert.equal(completedDirectRun.status, 'completed')
@@ -701,7 +710,7 @@ try {
     arguments: { run_id: directRun.id },
   })
   assert(
-    persistedLogs.result.structuredContent.logs.some(
+    persistedLogs.result.structuredContent.data.results.some(
       (entry) => entry.eventType === 'step.completed',
     ),
   )
@@ -712,7 +721,7 @@ try {
   })
   assert.equal(blockedExternalApi.result.isError, true)
   assert.equal(
-    blockedExternalApi.result.structuredContent.error,
+    blockedExternalApi.result.structuredContent.error.code,
     'MCP_HTTPS_REQUIRED',
   )
 
@@ -724,7 +733,7 @@ try {
       run_at: new Date(Date.now() + 1_200).toISOString(),
     },
   })
-  const schedule = scheduled.result.structuredContent.schedule
+  const schedule = scheduled.result.structuredContent.data.schedule
   assert.match(schedule.id, /^sch_[a-f0-9]{20}$/)
   assert.equal(schedule.status, 'scheduled')
 
@@ -733,7 +742,7 @@ try {
     arguments: { workflow_id: workflow.id, include_runs: false },
   })
   assert(
-    statusBeforeDispatch.result.structuredContent.schedules.some(
+    statusBeforeDispatch.result.structuredContent.data.schedules.some(
       (entry) => entry.id === schedule.id,
     ),
   )
@@ -743,7 +752,7 @@ try {
     name: 'get_workflow_status',
     arguments: { workflow_id: workflow.id },
   })
-  const completedSchedule = statusAfterDispatch.result.structuredContent.schedules.find(
+  const completedSchedule = statusAfterDispatch.result.structuredContent.data.schedules.find(
     (entry) => entry.id === schedule.id,
   )
   assert.equal(completedSchedule.status, 'completed')

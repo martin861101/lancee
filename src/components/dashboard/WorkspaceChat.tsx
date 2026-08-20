@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
-import { api, type ProposedMcpAction, type RunEvent } from '../../lib/api'
+import { api, type ProposedMcpAction, type RunEvent, type User } from '../../lib/api'
 
 type ChatAttachment = {
   id: string
@@ -55,14 +55,28 @@ function attachmentsFromResults(results: unknown[] = []) {
   for (const result of results) {
     const envelope = objectValue(result)
     const data = objectValue(envelope.data)
-    const file = objectValue(data.file)
-    if (typeof file.id !== 'string' || typeof file.name !== 'string') continue
-    attachments.set(file.id, {
-      id: file.id,
-      name: file.name,
-      mimeType: typeof file.mimeType === 'string' ? file.mimeType : 'application/octet-stream',
-      ...(typeof file.size === 'number' ? { size: file.size } : {}),
-    })
+    const candidates = [
+      data.file,
+      ...(Array.isArray(data.files) ? data.files : []),
+      ...(Array.isArray(data.artifacts) ? data.artifacts : []),
+      ...(Array.isArray(envelope.artifacts) ? envelope.artifacts : []),
+    ]
+    for (const candidate of candidates) {
+      const file = objectValue(candidate)
+      const id = typeof file.id === 'string'
+        ? file.id
+        : typeof file.storageDocumentId === 'string' ? file.storageDocumentId : ''
+      const name = typeof file.name === 'string' ? file.name : ''
+      if (!id || !name) continue
+      attachments.set(id, {
+        id,
+        name,
+        mimeType: typeof file.mimeType === 'string'
+          ? file.mimeType
+          : typeof file.mime_type === 'string' ? file.mime_type : 'application/octet-stream',
+        ...(typeof file.size === 'number' ? { size: file.size } : {}),
+      })
+    }
   }
   return [...attachments.values()]
 }
@@ -71,6 +85,19 @@ function attachmentLabel(attachment: ChatAttachment) {
   const type = attachment.mimeType === 'application/pdf' ? 'PDF' : 'File'
   if (!attachment.size) return type
   return `${type} · ${Math.max(1, Math.round(attachment.size / 1024))} KB`
+}
+
+function messagesFromHistory(runs: Awaited<ReturnType<typeof api.chat.history>>): Message[] {
+  return [...runs].reverse().flatMap((run) => ([
+    { role: 'user' as const, content: run.objective },
+    {
+      role: 'assistant' as const,
+      content: run.finalOutput || (run.status === 'completed'
+        ? 'The agent run completed without a text response.'
+        : `The agent run is ${readableLabel(run.status)}.`),
+      attachments: attachmentsFromResults(run.results),
+    },
+  ]))
 }
 
 function summarizeOutput(value: unknown) {
@@ -107,13 +134,51 @@ function summarizeRunOutcome(events: RunEvent[] = []) {
   return stepEvents.length > 1 ? `${stepEvents.length} steps finished · ${summary}` : summary
 }
 
-export default function WorkspaceChat() {
+export default function WorkspaceChat({ user }: { user: User }) {
   const [open, setOpen] = useState(false)
   const [message, setMessage] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [busy, setBusy] = useState(false)
   const [agentThreadId, setAgentThreadId] = useState<string | undefined>()
   const messagesElement = useRef<HTMLDivElement>(null)
+
+  const conversationStorageKey = `lancee:agent-conversation:${user.workspaceId}:${user.id}`
+
+  const persistThreadId = (threadId: string) => {
+    setAgentThreadId(threadId)
+    try {
+      window.localStorage.setItem(conversationStorageKey, threadId)
+    } catch {
+      // Conversation continuity remains server-backed for the active request.
+    }
+  }
+
+  useEffect(() => {
+    let active = true
+    let storedThreadId = ''
+    try {
+      storedThreadId = window.localStorage.getItem(conversationStorageKey) || ''
+    } catch {
+      storedThreadId = ''
+    }
+    setMessages([])
+    setAgentThreadId(storedThreadId || undefined)
+    if (!storedThreadId) return () => { active = false }
+    void api.chat.history(storedThreadId)
+      .then((runs) => {
+        if (active) setMessages(messagesFromHistory(runs))
+      })
+      .catch(() => {
+        if (!active) return
+        try {
+          window.localStorage.removeItem(conversationStorageKey)
+        } catch {
+          // Ignore unavailable browser storage.
+        }
+        setAgentThreadId(undefined)
+      })
+    return () => { active = false }
+  }, [conversationStorageKey])
 
   useEffect(() => {
     const element = messagesElement.current
@@ -130,7 +195,7 @@ export default function WorkspaceChat() {
     setBusy(true)
     try {
       const result = await api.chat.agent(content, agentThreadId)
-      setAgentThreadId(result.run.threadId)
+      persistThreadId(result.run.threadId)
       setMessages([
         ...next,
         {
@@ -159,7 +224,7 @@ export default function WorkspaceChat() {
           action.approvalId,
           'approved',
         )
-        setAgentThreadId(agentResult.run.threadId)
+        persistThreadId(agentResult.run.threadId)
         window.dispatchEvent(new Event(DASHBOARD_CHANGED_EVENT))
         setMessages((current) => current.map((item, itemIndex) => itemIndex === index
           ? {

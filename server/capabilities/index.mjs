@@ -91,6 +91,10 @@ export function createLanceeCapabilityRegistry({
           inputHash: event.inputHash,
           artifactIds: event.artifactIds || [],
           errorCode: event.errorCode,
+          resourceType: event.resourceType || null,
+          resultCount: event.resultCount ?? null,
+          canonicalIdPresent: event.canonicalIdPresent ?? null,
+          schemaValidationPassed: event.schemaValidationPassed ?? false,
         }),
       })
     : null)

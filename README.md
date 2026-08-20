@@ -79,7 +79,9 @@ The repository audit quarantine is documented in [`junk/README.md`](junk/README.
   Selecting a project opens its full Kanban workspace with stage controls,
   persistent drag-and-drop status movement, progress, deadline, owner, files,
   external links, Drive resources, persistent task checkboxes, and per-task
-  notes in any project bucket. Project work and client feedback are separate:
+  notes in any project bucket. Project actions are grouped in a compact dropdown
+  inside the project view so the workspace stays focused on delivery. Project
+  work and client feedback are separate:
   the board stays focused on delivery stages, while **Reviews** contains durable
   multi-bucket review packages, item-level approval states, linked client
   comments, image previews, deadlines, and a permanent audit history. See
@@ -92,13 +94,14 @@ The repository audit quarantine is documented in [`junk/README.md`](junk/README.
   controls, practical search and action menus, responsive mobile layouts, and
   a lancee document library. Google Drive can be connected through a
   folder-only Picker: one selected folder becomes the workspace Drive root,
-  its contents load automatically, nested folders are navigable, and supported
-  cloud files can be viewed or edited in-app and saved back to Drive. New Drive
-  uploads and local-document syncs target that selected folder. Local
-  workspace, Dropbox, and Microsoft OneDrive storage points remain available;
-  Dropbox and OneDrive are intentionally URL-backed destinations rather than
-  provider browsers. The page keeps its own scroll region so long file lists
-  remain usable on desktop and mobile.
+  its contents load automatically, nested folders are navigable, folders can be
+  created in the active Drive location, and supported cloud files can be viewed
+  or edited in-app and saved back to Drive. New Drive uploads and local-document
+  syncs target that selected folder. Local workspace storage is always available;
+  Dropbox, Google Drive, and Microsoft OneDrive controls appear only after their
+  integrations are enabled. Dropbox and OneDrive are intentionally URL-backed
+  destinations rather than provider browsers. The page keeps its own scroll
+  region so long file lists remain usable on desktop and mobile.
 - **Messages** — a workspace mail app with automatic provider discovery,
   guided manual IMAP/SMTP setup, folders, search, message reading, compose and
   reply. New incoming mail can trigger native Core automations by sender,
@@ -169,9 +172,10 @@ depth and contrast.
 
 The landing page uses native document scrolling so its hero and calls to action
 remain reliable across desktop and mobile browsers. Its desktop navigation
-stays visible as a translucent glass bar while scrolling. Hero lines and
-section headings use one-time GSAP reveals; the product summary, workspace
-marquee, progress display, and footer credit use lightweight ambient CSS
+stays visible as a translucent glass bar with a soft backdrop blur while
+scrolling, keeping the content behind it visible without sacrificing legibility.
+Hero lines and section headings use one-time GSAP reveals; the product summary,
+workspace marquee, progress display, and footer credit use lightweight ambient CSS
 motion. The connection showcase includes locally rendered brand marks for
 popular email, calendar, storage, communication, meeting, and payment tools.
 All motion is disabled when the visitor requests reduced motion. See
@@ -229,7 +233,8 @@ configured `ADMIN_EMAIL` and its corresponding password.
 
 The platform admin dashboard provides global user and workspace directories,
 API request/error analytics, recent agent/worker/automation logs, runtime
-metrics, and database health. See
+metrics, an Agent Performance snapshot with timing and run-context metrics, and
+database health. See
 [`docs/ADMIN_DASHBOARD.md`](docs/ADMIN_DASHBOARD.md) for its authorization,
 data, and signup-control behavior.
 
@@ -264,12 +269,14 @@ approval card and the server binds that one-use decision to the exact tool and
 argument hash. The built-in Lancee tools are always available to an
 authenticated workspace and execute with that user's workspace context.
 
-The base catalog exposes 40 public tools across workspace operations, web
+The base catalog exposes 42 public tools across workspace operations, web
 research, browser read/snapshot/screenshot, visual inspection, files,
 documents, artifacts, jobs, approvals, integrations, scheduling, logs, and
-optional code execution. Workspace and role policy is enforced before every
-call. Destructive deletion, external API calls, and enabled code execution are
-additionally restricted to workspace owners.
+optional code execution. The 40-to-42 increase is intentional: `browser_pdf`
+and `browser_research` are now part of the base browser capability set. Four
+additional tools are feature-gated behind OpenConnector. Workspace and role
+policy is enforced before every call. Destructive deletion, external API calls,
+and enabled code execution are additionally restricted to workspace owners.
 
 OpenConnector is enabled by default in the Docker Compose deployment and can be
 disabled with `OPENCONNECTOR_ENABLED=false`. When enabled, four
@@ -296,12 +303,40 @@ workspace-scoped public tool contracts and authorization mapping, and
 [`server/capabilities/`](server/capabilities), which owns typed local capability
 contracts and adapters.
 
-The registry dynamically maps the 40 base tools—and four optional
+The registry dynamically maps the 42 base tools—and four optional
 OpenConnector gateway tools—to typed local capabilities.
+Native MCP responses use the canonical envelope below; raw
+`/api/mcp/invoke` responses remain backward-compatible for the workspace UI.
+
+```json
+{
+  "success": true,
+  "ok": true,
+  "data": {
+    "results": [{ "id": "doc_…", "type": "file", "name": "notes.md" }],
+    "total": 1
+  },
+  "artifacts": [],
+  "warnings": [],
+  "error": null,
+  "metadata": { "contractVersion": "1.0" }
+}
+```
+
+List results are always available at `data.results`; single-resource results
+are available at `data.resource`. This makes a `search_files` result directly
+usable as the `file_id` input to `read_file` while preserving safe single-resource
+aliases such as `data.file` where existing callers need them. Failed calls return `ok: false`
+with a bounded `{code, message, retryable}` error object.
 Each contract records its provider, input/output schemas, permissions, role
 policy, risk, approval policy, timeout, cost estimate, concurrency limit, and
 tags. Calls return one normalized success/error envelope and emit one audit
 record at the registry boundary.
+
+The implementation audit, tool-by-tool chain map, and known unsupported domain
+gaps are recorded in
+[`docs/LANCEE_MCP_CONTRACT_AUDIT.json`](docs/LANCEE_MCP_CONTRACT_AUDIT.json).
+The focused verification command is `npm run verify:mcp-contracts`.
 
 Connect an MCP client to `https://lancee.hookitupservices.com/mcp` with
 `Authorization: Bearer <lancee-device-token>`. The token must have the
@@ -414,7 +449,7 @@ security, packaging, configuration, and verification details.
 
 The Lancee MCP bridge is the agent-facing surface for the platform itself. It
 uses the same device approval flow as the AI connector, but requires the
-separate `mcp:invoke` scope. Its 40 base tools expose workspace operations, web and
+separate `mcp:invoke` scope. Its 42 base tools expose workspace operations, web and
 browser research, visual analysis, file/document/artifact operations, durable
 jobs, approvals, workflow execution/status/logs/scheduling, bounded external
 API calls, and explicitly enabled Python/JavaScript execution. Enabling the
@@ -648,17 +683,32 @@ Client-first Work navigation, expandable Drive relationships, local document
 storage, in-app editing, and upload/sync behavior are documented in
 [`docs/CLIENT_FILE_WORKSPACES.md`](docs/CLIENT_FILE_WORKSPACES.md).
 
-To use an exposed Hermes Agent, set `HERMES_ENDPOINT_URL` and
-`HERMES_API_KEY` in the server environment. When another `AI_PROVIDER` is
-configured, Hermes is automatically used as a fallback if that provider fails;
-otherwise lancee uses Hermes as the primary provider. It uses Hermes’
-OpenAI-compatible chat endpoint and defaults to the `hermes-agent` model. See
+Hermes has separate completion and agent-runtime paths. For WorkspaceChat’s
+agent runtime, set `HERMES_ENDPOINT_URL` and the server-side named-profile key
+configuration (`HERMES_API_KEY` for one named route or
+`HERMES_PROFILE_API_KEYS_JSON` for multiple workspaces). Hermes is then
+selected automatically unless `AGENT_PROVIDER=lancee` is set. Each workspace
+uses the named profile `lancee_ws_<workspaceId>`; the adapter never uses
+Hermes’ default/personal profile and fails closed when a workspace profile is
+not configured. Set `HERMES_PROFILE_ENDPOINT_TEMPLATE` when the exposed
+Hermes server does not use the default `/p/{profileId}` route. The agent
+gateway uses Hermes’ native sessions and runs API, sends explicit persisted
+conversation history, restores the scoped WorkspaceChat conversation after a
+reload, and links recognized Hermes files to Lancee Files/artifacts. The
+existing Lancee runtime remains the configured fallback, and provider health is
+available at `/api/agent/status` and within `/api/ai/status`. Configure
+`AGENT_FALLBACK_PROVIDER` and `AGENT_FALLBACK_ENABLED` as needed. See
 [`docs/HERMES.md`](docs/HERMES.md).
 
-To select Hermes explicitly as the primary provider, set
-`AI_PROVIDER=hermes` and `AI_MODEL=hermes-agent`. Keep only one active
-`AI_PROVIDER` entry in production environment files so a later duplicate does
-not silently replace the intended provider.
+Bounded summaries, classifications, builders, and other completion-only flows
+continue to use `completeChat()`. To use Hermes for those completions, set
+`AI_PROVIDER=hermes`, `AI_MODEL=hermes-agent`, `HERMES_ENDPOINT_URL`, and
+`HERMES_API_KEY`; completion fallback behavior remains independent of
+`AGENT_PROVIDER`.
+
+The Hermes runtime implementation and verification records are in
+[`docs/HERMES.md`](docs/HERMES.md) and
+[`changelog_20260820_000803.md`](changelog_20260820_000803.md).
 
 AI providers are an internal deployment detail. The workspace assistant passes
 the same validated Lancee tool definitions to any supported tool-capable
@@ -762,10 +812,12 @@ pnpm verify:n8n
 pnpm verify:offline
 pnpm verify:ai
 pnpm verify:mcp
+pnpm verify:mcp-contracts
 pnpm verify:capabilities
 pnpm verify:documents
 pnpm verify:runtime-persistence
 pnpm verify:agent-runtime
+pnpm verify:agent
 pnpm verify:workers-artifacts
 pnpm verify:codex-connector
 pnpm verify:google-drive

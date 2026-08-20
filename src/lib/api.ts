@@ -873,6 +873,16 @@ export type WorkspaceDocument = {
   driveFileId: string | null
   driveWebViewLink: string | null
   syncedAt: string | null
+  folderId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type WorkspaceDocumentFolder = {
+  id: string
+  workspaceId: string
+  name: string
+  parentId: string | null
   createdAt: string
   updatedAt: string
 }
@@ -1461,6 +1471,27 @@ export const api = {
         throw new Error(payload.error || 'Unable to start the Lancee agent.')
       }
       return payload as AgentChatResponse
+    },
+    async history(threadId: string) {
+      const response = await fetch(
+        `/api/agent/runs?threadId=${encodeURIComponent(threadId)}`,
+        { credentials: 'same-origin', cache: 'no-store' },
+      )
+      const payload = (await response.json()) as {
+        runs?: Array<{
+          id: string
+          threadId: string
+          objective: string
+          status: AgentChatResponse['run']['status']
+          finalOutput?: string | null
+          results?: unknown[]
+        }>
+        error?: string
+      }
+      if (!response.ok || !payload.runs) {
+        throw new Error(payload.error || 'Unable to restore the agent conversation.')
+      }
+      return payload.runs
     },
     async decideAgent(
       runId: string,
@@ -2595,6 +2626,25 @@ export const api = {
         canDelete: file.canDelete,
       }))
     },
+    async createFolder(input: { name: string; parentId: string }) {
+      const response = await fetch('/api/google-drive/folders', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify({
+          name: input.name.trim(),
+          parentId: input.parentId,
+        }),
+      })
+      const payload = (await response.json()) as {
+        folder?: GoogleDriveFile
+        error?: string
+      }
+      if (!response.ok || !payload.folder) {
+        throw new Error(payload.error || 'Unable to create this Google Drive folder.')
+      }
+      return payload.folder
+    },
     async replaceSelections(
       selections: Array<{
         driveFileId: string
@@ -2793,6 +2843,7 @@ export const api = {
       destination: 'local' | 'drive' | 'dropbox' | 'onedrive',
       folderId?: string,
       storagePointId?: string,
+      localFolderId?: string,
     ) {
       const response = await fetch('/api/documents', {
         method: 'POST',
@@ -2804,6 +2855,7 @@ export const api = {
           'X-File-Type': file.type || 'application/octet-stream',
           'X-File-Destination': destination,
           ...(folderId ? { 'X-Drive-Folder-Id': folderId } : {}),
+          ...(localFolderId ? { 'X-Folder-Id': localFolderId } : {}),
           ...(storagePointId ? { 'X-Storage-Point-Id': storagePointId } : {}),
         },
         body: file,
@@ -2888,6 +2940,95 @@ export const api = {
     },
     downloadUrl(id: string) {
       return `/api/documents/${encodeURIComponent(id)}/download`
+    },
+    async move(id: string, folderId: string | null) {
+      const response = await fetch(
+        `/api/documents/${encodeURIComponent(id)}/folder`,
+        {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: mutationHeaders(true),
+          body: JSON.stringify({ folderId }),
+        },
+      )
+      const payload = (await response.json()) as {
+        document?: WorkspaceDocument
+        error?: string
+      }
+      if (!response.ok || !payload.document) {
+        throw new Error(payload.error || 'Unable to move this document.')
+      }
+      return payload.document
+    },
+    folders: {
+      async list() {
+        const response = await fetch('/api/documents/folders', {
+          credentials: 'same-origin',
+        })
+        const payload = (await response.json()) as {
+          folders?: WorkspaceDocumentFolder[]
+          error?: string
+        }
+        if (!response.ok || !payload.folders) {
+          throw new Error(payload.error || 'Unable to load folders.')
+        }
+        return payload.folders
+      },
+      async create(name: string, parentId?: string | null) {
+        const response = await fetch('/api/documents/folders', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: mutationHeaders(true),
+          body: JSON.stringify({ name, parentId: parentId || null }),
+        })
+        const payload = (await response.json()) as {
+          folder?: WorkspaceDocumentFolder
+          error?: string
+        }
+        if (!response.ok || !payload.folder) {
+          throw new Error(payload.error || 'Unable to create this folder.')
+        }
+        return payload.folder
+      },
+      async rename(id: string, name: string) {
+        return await api.documents.folders.update(id, { name })
+      },
+      async move(id: string, parentId: string | null) {
+        return await api.documents.folders.update(id, { parentId })
+      },
+      async update(
+        id: string,
+        fields: { name?: string; parentId?: string | null },
+      ) {
+        const response = await fetch(
+          `/api/documents/folders/${encodeURIComponent(id)}`,
+          {
+            method: 'PATCH',
+            credentials: 'same-origin',
+            headers: mutationHeaders(true),
+            body: JSON.stringify(fields),
+          },
+        )
+        const payload = (await response.json()) as {
+          folder?: WorkspaceDocumentFolder
+          error?: string
+        }
+        if (!response.ok || !payload.folder) {
+          throw new Error(payload.error || 'Unable to update this folder.')
+        }
+        return payload.folder
+      },
+      async remove(id: string) {
+        const response = await fetch(
+          `/api/documents/folders/${encodeURIComponent(id)}`,
+          {
+            method: 'DELETE',
+            credentials: 'same-origin',
+            headers: mutationHeaders(),
+          },
+        )
+        if (!response.ok) throw new Error('Unable to delete this folder.')
+      },
     },
     async remove(id: string) {
       const response = await fetch(`/api/documents/${encodeURIComponent(id)}`, {

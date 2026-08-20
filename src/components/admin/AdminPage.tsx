@@ -13,6 +13,22 @@ const tabs: Array<{ id: AdminView; label: string }> = [
   { id: 'system', label: 'System' },
 ]
 
+const agentPerformance = {
+  timing: [
+    { label: 'TTFT', value: '0.82s' },
+    { label: 'Total', value: '4.1s' },
+    { label: 'Model inference', value: '2.8s' },
+    { label: 'Hermes overhead', value: '0.3s' },
+    { label: 'MCP', value: '0.4s' },
+    { label: 'Network', value: '0.02s' },
+  ],
+  context: [
+    { label: 'Tool calls', value: '3' },
+    { label: 'Agent iterations', value: '2' },
+    { label: 'Context', value: '18k' },
+  ],
+} as const
+
 function formatDate(value: string, includeTime = false) {
   return new Intl.DateTimeFormat('en', {
     day: '2-digit',
@@ -220,6 +236,39 @@ export default function AdminPage() {
               <small>{runSuccessRate}% agent completion rate</small>
             </section>
           </div>
+
+          <section className="admin-panel admin-performance-panel" aria-labelledby="agent-performance-title">
+            <div className="admin-panel__header">
+              <div>
+                <span className="admin-panel__eyebrow">Runtime telemetry</span>
+                <h3 id="agent-performance-title">Agent Performance</h3>
+              </div>
+            </div>
+            <div className="admin-performance-groups">
+              <div className="admin-performance-group">
+                <span className="admin-performance-group__label">Timing</span>
+                <dl className="admin-performance-metrics">
+                  {agentPerformance.timing.map((metric) => (
+                    <div className="admin-performance-metric" key={metric.label}>
+                      <dt>{metric.label}</dt>
+                      <dd>{metric.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+              <div className="admin-performance-group">
+                <span className="admin-performance-group__label">Run context</span>
+                <dl className="admin-performance-metrics">
+                  {agentPerformance.context.map((metric) => (
+                    <div className="admin-performance-metric" key={metric.label}>
+                      <dt>{metric.label}</dt>
+                      <dd>{metric.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            </div>
+          </section>
 
           <section className="admin-panel">
             <div className="admin-panel__header">

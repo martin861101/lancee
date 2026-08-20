@@ -1726,6 +1726,15 @@ export async function openDatabase({
       updated_at TEXT NOT NULL
     )`,
     `ALTER TABLE workspace_documents ADD COLUMN IF NOT EXISTS storage_point_id TEXT`,
+    `CREATE TABLE IF NOT EXISTS workspace_document_folders (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      parent_id TEXT REFERENCES workspace_document_folders(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+    `ALTER TABLE workspace_documents ADD COLUMN IF NOT EXISTS folder_id TEXT REFERENCES workspace_document_folders(id) ON DELETE SET NULL`,
     `CREATE TABLE IF NOT EXISTS artifacts (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -4793,6 +4802,18 @@ export async function openDatabase({
          WHERE workspace_id = $1 AND id = $2
            ${includeDeleted ? '' : 'AND deleted_at IS NULL'}`,
         [selectedWorkspaceId, id],
+      )
+      return mapArtifact(rows[0])
+    },
+
+    async getArtifactByStorageDocumentId(selectedWorkspaceId, storageDocumentId) {
+      const rows = await query(
+        `SELECT * FROM artifacts
+         WHERE workspace_id = $1 AND storage_document_id = $2
+           AND deleted_at IS NULL
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [selectedWorkspaceId, storageDocumentId],
       )
       return mapArtifact(rows[0])
     },
@@ -7935,7 +7956,7 @@ export async function openDatabase({
     async listWorkspaceDocuments(selectedWorkspaceId) {
       const rows = await query(
          `SELECT id, workspace_id, name, mime_type, size, content_sha256,
-                storage_point_id, drive_file_id, drive_web_view_link, synced_at, created_at, updated_at
+                storage_point_id, drive_file_id, drive_web_view_link, synced_at, folder_id, created_at, updated_at
          FROM workspace_documents
          WHERE workspace_id = $1
          ORDER BY updated_at DESC`,
@@ -7952,6 +7973,7 @@ export async function openDatabase({
         driveFileId: row.drive_file_id,
         driveWebViewLink: row.drive_web_view_link,
         syncedAt: row.synced_at,
+        folderId: row.folder_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       }))
@@ -7963,6 +7985,7 @@ export async function openDatabase({
       mimeType,
       body,
       storagePointId = null,
+      folderId = null,
     }) {
       const timestamp = nowIso()
       const contentSha256 = createHash('sha256').update(body).digest('hex')
@@ -7973,8 +7996,8 @@ export async function openDatabase({
       await query(
         `INSERT INTO workspace_documents (
            id, workspace_id, name, mime_type, size, content_base64,
-           content_sha256, storage_point_id, created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+           content_sha256, storage_point_id, folder_id, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           id,
           selectedWorkspaceId,
@@ -7984,6 +8007,7 @@ export async function openDatabase({
           body.toString('base64'),
           contentSha256,
           storagePointId,
+          folderId,
           timestamp,
           timestamp,
         ],
@@ -8011,6 +8035,7 @@ export async function openDatabase({
             driveFileId: row.drive_file_id,
             driveWebViewLink: row.drive_web_view_link,
             syncedAt: row.synced_at,
+            folderId: row.folder_id,
             createdAt: row.created_at,
             updatedAt: row.updated_at,
           }
@@ -8068,6 +8093,111 @@ export async function openDatabase({
         `DELETE FROM workspace_documents WHERE workspace_id = $1 AND id = $2`,
         [selectedWorkspaceId, id],
       )
+    },
+
+    async listWorkspaceDocumentFolders(selectedWorkspaceId) {
+      const rows = await query(
+        `SELECT id, workspace_id, name, parent_id, created_at, updated_at
+         FROM workspace_document_folders
+         WHERE workspace_id = $1
+         ORDER BY LOWER(name) ASC`,
+        [selectedWorkspaceId],
+      )
+      return rows.map((row) => ({
+        id: row.id,
+        workspaceId: row.workspace_id,
+        name: row.name,
+        parentId: row.parent_id,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }))
+    },
+
+    async getWorkspaceDocumentFolder(selectedWorkspaceId, id) {
+      const rows = await query(
+        `SELECT * FROM workspace_document_folders WHERE workspace_id = $1 AND id = $2`,
+        [selectedWorkspaceId, id],
+      )
+      const row = rows[0]
+      return row
+        ? {
+            id: row.id,
+            workspaceId: row.workspace_id,
+            name: row.name,
+            parentId: row.parent_id,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+          }
+        : null
+    },
+
+    async createWorkspaceDocumentFolder({
+      workspaceId: selectedWorkspaceId,
+      name,
+      parentId = null,
+    }) {
+      const timestamp = nowIso()
+      const id = `folder_${createHash('sha256')
+        .update(`${selectedWorkspaceId}:${name}:${parentId}:${timestamp}`)
+        .digest('hex')
+        .slice(0, 16)}`
+      await query(
+        `INSERT INTO workspace_document_folders (
+           id, workspace_id, name, parent_id, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [id, selectedWorkspaceId, name, parentId, timestamp, timestamp],
+      )
+      return await this.getWorkspaceDocumentFolder(selectedWorkspaceId, id)
+    },
+
+    async renameWorkspaceDocumentFolder(selectedWorkspaceId, id, name) {
+      await query(
+        `UPDATE workspace_document_folders
+         SET name = $1, updated_at = $2
+         WHERE workspace_id = $3 AND id = $4`,
+        [name, nowIso(), selectedWorkspaceId, id],
+      )
+      return await this.getWorkspaceDocumentFolder(selectedWorkspaceId, id)
+    },
+
+    async deleteWorkspaceDocumentFolder(selectedWorkspaceId, id, parentId) {
+      const timestamp = nowIso()
+      await query(
+        `UPDATE workspace_documents
+         SET folder_id = $1, updated_at = $2
+         WHERE workspace_id = $3 AND folder_id = $4`,
+        [parentId, timestamp, selectedWorkspaceId, id],
+      )
+      await query(
+        `UPDATE workspace_document_folders
+         SET parent_id = $1, updated_at = $2
+         WHERE workspace_id = $3 AND parent_id = $4`,
+        [parentId, timestamp, selectedWorkspaceId, id],
+      )
+      await query(
+        `DELETE FROM workspace_document_folders WHERE workspace_id = $1 AND id = $2`,
+        [selectedWorkspaceId, id],
+      )
+    },
+
+    async moveWorkspaceDocumentFolder(selectedWorkspaceId, id, parentId) {
+      await query(
+        `UPDATE workspace_document_folders
+         SET parent_id = $1, updated_at = $2
+         WHERE workspace_id = $3 AND id = $4`,
+        [parentId, nowIso(), selectedWorkspaceId, id],
+      )
+      return await this.getWorkspaceDocumentFolder(selectedWorkspaceId, id)
+    },
+
+    async moveWorkspaceDocument(selectedWorkspaceId, id, folderId) {
+      await query(
+        `UPDATE workspace_documents
+         SET folder_id = $1, updated_at = $2
+         WHERE workspace_id = $3 AND id = $4`,
+        [folderId, nowIso(), selectedWorkspaceId, id],
+      )
+      return await this.getWorkspaceDocument(selectedWorkspaceId, id)
     },
 
     async clearWorkspaceDocumentDriveLink(selectedWorkspaceId, driveFileId) {

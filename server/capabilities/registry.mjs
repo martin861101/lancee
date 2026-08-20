@@ -1,4 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
+import {
+  LANCEE_MCP_RESULT_CONTRACT_VERSION,
+  normalizeCapabilityResult,
+} from './result-contract.mjs'
 
 const capabilityIdPattern = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/
 const riskLevels = new Set(['read', 'internal-write', 'external-action', 'destructive', 'administrative'])
@@ -280,6 +284,13 @@ export function createCapabilityRegistry(definitions, {
       timedOut = true
       controller.abort()
     }, definition.timeoutMs)
+    let normalizedResult = null
+    let normalizedDiagnostics = {
+      resourceType: null,
+      resultCount: null,
+      canonicalIdPresent: null,
+      schemaValidationPassed: true,
+    }
     try {
       const result = await Promise.race([
         definition.execute({ input, context, signal: controller.signal, invocation }),
@@ -300,6 +311,14 @@ export function createCapabilityRegistry(definitions, {
           502,
         )
       }
+      if (invocation.normalizeResult) {
+        try {
+          normalizedResult = normalizeCapabilityResult(definition.id, result)
+          normalizedDiagnostics = normalizedResult.diagnostics
+        } catch (error) {
+          throw new LanceeCapabilityError('INVALID_RESULT', error.message || `${definition.id} returned an invalid result.`, 502)
+        }
+      }
       const durationMs = Math.max(0, Math.round(now() - startedAt))
       await recordAudit({
         requestId,
@@ -317,8 +336,9 @@ export function createCapabilityRegistry(definitions, {
           ? result.artifacts.map((artifact) => artifact?.id).filter(Boolean)
           : [],
         errorCode: null,
+        ...normalizedDiagnostics,
       })
-      return { result, requestId, durationMs, definition }
+      return { result, normalizedResult, requestId, durationMs, definition }
     } catch (error) {
       const durationMs = Math.max(0, Math.round(now() - startedAt))
       const failure = normalizedError(error)
@@ -336,6 +356,7 @@ export function createCapabilityRegistry(definitions, {
         inputHash: inputHash(input),
         artifactIds: [],
         errorCode: failure.code,
+        ...normalizedDiagnostics,
       })
       throw error
     } finally {
@@ -385,30 +406,43 @@ export function createCapabilityRegistry(definitions, {
     },
     async invokeNormalized(id, input, context, invocation = {}) {
       try {
-        const execution = await execute(id, input, context, invocation)
+        const execution = await execute(id, input, context, { ...invocation, normalizeResult: true })
+        const normalized = execution.normalizedResult
         return {
           success: true,
-          data: execution.result,
-          artifacts: Array.isArray(execution.result?.artifacts) ? execution.result.artifacts : [],
-          warnings: Array.isArray(execution.result?.warnings) ? execution.result.warnings : [],
+          ok: true,
+          data: normalized.data,
+          artifacts: normalized.artifacts,
+          warnings: normalized.warnings,
           error: null,
           metadata: {
+            contractVersion: LANCEE_MCP_RESULT_CONTRACT_VERSION,
             tool: id,
             provider: execution.definition.provider,
             duration: execution.durationMs,
             cost: execution.definition.estimatedCost,
             request_id: execution.requestId,
+            ...normalized.diagnostics,
           },
         }
       } catch (error) {
         const failure = normalizedError(error)
         return {
           success: false,
+          ok: false,
           data: null,
           artifacts: [],
           warnings: [],
           error: failure,
-          metadata: { tool: id, provider: capabilities.get(id)?.provider || null },
+          metadata: {
+            contractVersion: LANCEE_MCP_RESULT_CONTRACT_VERSION,
+            tool: id,
+            provider: capabilities.get(id)?.provider || null,
+            resourceType: null,
+            resultCount: 0,
+            canonicalIdPresent: false,
+            schemaValidationPassed: false,
+          },
         }
       }
     },

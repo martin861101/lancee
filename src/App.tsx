@@ -7550,7 +7550,7 @@ function WorkspaceApp() {
         onNavigate={navigatePage}
         onCreateAutomation={() => setModal('automation')}
       />
-      <Suspense fallback={null}><WorkspaceChat /></Suspense>
+      <Suspense fallback={null}><WorkspaceChat user={user} /></Suspense>
       {toast && (
         <div className="toast" role="status">
           <span>

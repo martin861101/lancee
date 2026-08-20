@@ -7,6 +7,7 @@ import {
   type Integration,
   type Project,
   type WorkspaceDocument,
+  type WorkspaceDocumentFolder,
 } from '../../lib/api'
 import DriveFileWorkspace from './DriveFileWorkspace'
 import PdfStudio from './PdfStudio'
@@ -37,14 +38,20 @@ const providerLabels: Record<StorageProvider, string> = {
 type ExplorerIconName =
   | 'bell'
   | 'chevron-down'
+  | 'chevron-right'
   | 'clock'
+  | 'download'
+  | 'edit'
   | 'file'
   | 'filter'
   | 'folder'
+  | 'folder-plus'
   | 'grid'
+  | 'home'
   | 'list'
   | 'menu'
   | 'more'
+  | 'move'
   | 'plus'
   | 'search'
   | 'settings'
@@ -54,18 +61,24 @@ type ExplorerIconName =
   | 'upload'
   | 'users'
 
-function ExplorerIcon({ name, size = 18 }: { name: ExplorerIconName; size?: number }) {
+function ExplorerIcon({ name, size = 18, className }: { name: ExplorerIconName; size?: number; className?: string }) {
   const paths: Record<ExplorerIconName, ReactNode> = {
     bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>,
     'chevron-down': <path d="m7 10 5 5 5-5" />,
+    'chevron-right': <path d="m9 7 5 5-5 5" />,
     clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+    download: <><path d="M12 3v11" /><path d="m8 10 4 4 4-4" /><path d="M5 18v2h14v-2" /></>,
+    edit: <><path d="M17 3a2.83 2.83 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m14.5 6.5 3 3" /></>,
     file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" /><path d="M14 2v6h6M8 13h8M8 17h6" /></>,
     filter: <><path d="M4 6h16M7 12h10M10 18h4" /><circle cx="8" cy="6" r="1" fill="currentColor" stroke="none" /></>,
     folder: <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2h6.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5Z" />,
+    'folder-plus': <><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2h6.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5Z" /><path d="M12 11v5M9.5 13.5h5" /></>,
     grid: <><rect x="4" y="4" width="5" height="5" rx="1" /><rect x="15" y="4" width="5" height="5" rx="1" /><rect x="4" y="15" width="5" height="5" rx="1" /><rect x="15" y="15" width="5" height="5" rx="1" /></>,
+    home: <><path d="M4 11 12 4l8 7" /><path d="M6 10v10h12V10" /></>,
     list: <><path d="M9 6h11M9 12h11M9 18h11" /><circle cx="4.5" cy="6" r="1" fill="currentColor" stroke="none" /><circle cx="4.5" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="4.5" cy="18" r="1" fill="currentColor" stroke="none" /></>,
     menu: <path d="M4 7h16M4 12h16M4 17h16" />,
     more: <><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none" /></>,
+    move: <><path d="M5 9 2 12l3 3M9 5l3-3 3 3M2 12h8M22 12h-8M15 19l-3 3-3-3M12 22v-8" /></>,
     plus: <path d="M12 5v14M5 12h14" />,
     search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></>,
     settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.09A1.7 1.7 0 0 0 9 19.36a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.08 14H3v-4h.09A1.7 1.7 0 0 0 4.64 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63h.01A1.7 1.7 0 0 0 10 3.08V3h4v.09A1.7 1.7 0 0 0 15 4.64a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9v.01A1.7 1.7 0 0 0 20.92 10H21v4h-.09A1.7 1.7 0 0 0 19.4 15Z" /></>,
@@ -78,7 +91,7 @@ function ExplorerIcon({ name, size = 18 }: { name: ExplorerIconName; size?: numb
 
   return (
     <svg
-      className="file-explorer__svg-icon"
+      className={className || 'file-explorer__svg-icon'}
       width={size}
       height={size}
       viewBox="0 0 24 24"
@@ -227,6 +240,12 @@ function explorerDate(value: string) {
   }).format(date)
 }
 
+type SortKey = 'name' | 'updated' | 'size'
+
+function byName(a: string, b: string) {
+  return a.localeCompare(b, undefined, { sensitivity: 'base' })
+}
+
 export default function FilesPage({
   onOpenConnections,
   onToast,
@@ -264,6 +283,7 @@ export default function FilesPage({
   const [linkProjectId, setLinkProjectId] = useState('')
   const [linkingResource, setLinkingResource] = useState(false)
   const [documents, setDocuments] = useState<WorkspaceDocument[]>([])
+  const [folders, setFolders] = useState<WorkspaceDocumentFolder[]>([])
   const [selectedLocalDocument, setSelectedLocalDocument] =
     useState<WorkspaceDocument | null>(null)
   const [documentFile, setDocumentFile] = useState<File | null>(null)
@@ -283,16 +303,38 @@ export default function FilesPage({
   const [makeDefault, setMakeDefault] = useState(false)
   const [documentStoragePointId, setDocumentStoragePointId] = useState('')
   const [query, setQuery] = useState('')
+  const [scope, setScope] = useState<'library' | 'drive'>('library')
+  const [libraryFolderTrail, setLibraryFolderTrail] = useState<WorkspaceDocumentFolder[]>([])
+  const [expandedNavFolders, setExpandedNavFolders] = useState<Set<string>>(new Set())
+  const [view, setView] = useState<'list' | 'grid'>('list')
+  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({
+    key: 'name',
+    desc: false,
+  })
+  const [folderForm, setFolderForm] = useState<
+    { mode: 'create' } | { mode: 'rename'; folder: WorkspaceDocumentFolder } | null
+  >(null)
+  const [folderFormName, setFolderFormName] = useState('')
+  const [folderFormBusy, setFolderFormBusy] = useState(false)
+  const [deletingFolderId, setDeletingFolderId] = useState<string | null>(null)
+  const [moveTarget, setMoveTarget] = useState<
+    | { kind: 'document'; document: WorkspaceDocument }
+    | { kind: 'folder'; folder: WorkspaceDocumentFolder }
+    | null
+  >(null)
+  const [moveTargetFolderId, setMoveTargetFolderId] = useState('')
+  const [movingTarget, setMovingTarget] = useState(false)
 
   const load = useCallback(async () => {
     setError('')
-    const [linkList, integrationList, clientList, projectList, documentList, driveLinks] = await Promise.all([
+    const [linkList, integrationList, clientList, projectList, documentList, driveLinks, folderList] = await Promise.all([
       api.cloudLinks.list(),
       api.integrations.list(),
       api.clients.list(),
       api.projects.list(),
       api.documents.list(),
       api.googleDrive.resourceLinks.list(),
+      api.documents.folders.list(),
     ])
     setLinks(linkList)
     setIntegrations(integrationList)
@@ -300,6 +342,7 @@ export default function FilesPage({
     setProjects(projectList)
     setDocuments(documentList)
     setResourceLinks(driveLinks)
+    setFolders(folderList)
     const firstClient = clientList.find((client) => client.status === 'active')
     setLinkClientId((current) => current || firstClient?.id || '')
     setDocumentStoragePointId((current) =>
@@ -374,6 +417,30 @@ export default function FilesPage({
     const target = driveFolderTrail[index]
     if (!target || index === driveFolderTrail.length - 1) return
     await openDriveFolder(target, driveFolderTrail.slice(0, index + 1))
+  }
+
+  const handleCreateDriveFolder = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const name = folderFormName.trim()
+    const parentId = currentDriveFolder?.id
+    if (!name || !parentId || folderFormBusy) return
+    setFolderFormBusy(true)
+    setError('')
+    try {
+      const folder = await api.googleDrive.createFolder({ name, parentId })
+      setDriveFiles((current) => [folder, ...current])
+      setDriveChildren((current) => ({
+        ...current,
+        [parentId]: [folder, ...(current[parentId] || driveFiles)],
+      }))
+      setFolderFormName('')
+      setFolderForm(null)
+      onToast(`${folder.name} created`)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to create this folder.')
+    } finally {
+      setFolderFormBusy(false)
+    }
   }
 
   const toggleDriveFolder = async (folder: GoogleDriveFile) => {
@@ -494,6 +561,8 @@ export default function FilesPage({
   const driveConnected = integrations.some(
     (integration) => integration.id === 'drive' && integration.connected,
   )
+  const currentDriveFolder =
+    driveFolderTrail[driveFolderTrail.length - 1] || driveRootFolder
 
   useEffect(() => {
     if (loading || !driveConnected || driveListLoaded || driveLoading) return
@@ -501,9 +570,114 @@ export default function FilesPage({
   }, [driveConnected, driveListLoaded, driveLoading, fetchDriveFiles, loading])
 
   const storageIntegrations = useMemo(
-    () => integrations.filter((item) => item.category === 'Storage'),
-    [integrations],
+    () => integrations.filter((item) => {
+      const storageProvider = providerFromIntegration(item)
+      return Boolean(
+        item.category === 'Storage' &&
+        storageProvider &&
+        (item.connected || links.some((link) => link.provider === storageProvider)),
+      )
+    }),
+    [integrations, links],
   )
+  const dropboxEnabled = storageIntegrations.some((item) => providerFromIntegration(item) === 'dropbox')
+  const onedriveEnabled = storageIntegrations.some((item) => providerFromIntegration(item) === 'onedrive')
+
+  const folderById = useMemo(
+    () => new Map(folders.map((folder) => [folder.id, folder])),
+    [folders],
+  )
+
+  const currentLibraryFolder = libraryFolderTrail[libraryFolderTrail.length - 1] || null
+  const currentFolderId = currentLibraryFolder?.id ?? null
+
+  const folderPathTo = useCallback(
+    (folder: WorkspaceDocumentFolder) => {
+      const path: WorkspaceDocumentFolder[] = [folder]
+      let current = folder
+      const guard = new Set<string>()
+      while (current.parentId && !guard.has(current.parentId)) {
+        guard.add(current.parentId)
+        const parent = folderById.get(current.parentId)
+        if (!parent) break
+        path.unshift(parent)
+        current = parent
+      }
+      return path
+    },
+    [folderById],
+  )
+
+  const navigateToFolder = useCallback(
+    (folder: WorkspaceDocumentFolder) => {
+      const path = folderPathTo(folder)
+      setScope('library')
+      setLibraryFolderTrail(path)
+      setExpandedNavFolders((current) => {
+        const next = new Set(current)
+        for (const item of path.slice(0, -1)) next.add(item.id)
+        return next
+      })
+      setQuery('')
+    },
+    [folderPathTo],
+  )
+
+  const goToLibraryRoot = useCallback(() => {
+    setScope('library')
+    setLibraryFolderTrail([])
+    setQuery('')
+  }, [])
+
+  const goToDrive = useCallback(() => {
+    setScope('drive')
+    setQuery('')
+  }, [])
+
+  const toggleNavFolder = (folderId: string) => {
+    setExpandedNavFolders((current) => {
+      const next = new Set(current)
+      if (next.has(folderId)) next.delete(folderId)
+      else next.add(folderId)
+      return next
+    })
+  }
+
+  const folderItemCount = useCallback(
+    (folderId: string) => {
+      const nested = folders.filter((folder) => folder.parentId === folderId).length
+      const files = documents.filter((document) => document.folderId === folderId).length
+      return nested + files
+    },
+    [folders, documents],
+  )
+
+  const childFolders = useMemo(
+    () =>
+      folders
+        .filter((folder) => (folder.parentId ?? null) === currentFolderId)
+        .sort((a, b) => byName(a.name, b.name)),
+    [folders, currentFolderId],
+  )
+
+  const folderDocuments = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    const items = documents.filter(
+      (document) => (document.folderId ?? null) === currentFolderId,
+    )
+    const visible = needle
+      ? items.filter((document) => document.name.toLowerCase().includes(needle))
+      : items
+    const direction = sort.desc ? -1 : 1
+    return [...visible].sort((a, b) => {
+      if (sort.key === 'name') return direction * byName(a.name, b.name)
+      if (sort.key === 'size') return direction * (a.size - b.size)
+      return (
+        direction *
+        (new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime())
+      )
+    })
+  }, [documents, currentFolderId, query, sort])
 
   const filteredLinks = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -515,21 +689,26 @@ export default function FilesPage({
     )
   }, [links, query])
 
-  const filteredDocuments = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    if (!needle) return documents
-    return documents.filter((document) =>
-      `${document.name} ${document.mimeType}`.toLowerCase().includes(needle),
-    )
-  }, [documents, query])
-
   const filteredDriveFiles = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    if (!needle) return driveFiles
-    return driveFiles.filter((file) =>
-      `${file.name} ${file.mimeType}`.toLowerCase().includes(needle),
-    )
-  }, [driveFiles, query])
+    const items = needle
+      ? driveFiles.filter((file) =>
+          `${file.name} ${file.mimeType}`.toLowerCase().includes(needle),
+        )
+      : driveFiles
+    const direction = sort.desc ? -1 : 1
+    return [...items].sort((a, b) => {
+      if (sort.key === 'name') return direction * byName(a.name, b.name)
+      if (sort.key === 'size') {
+        const sizeA = a.size ?? -1
+        const sizeB = b.size ?? -1
+        return direction * (sizeA - sizeB)
+      }
+      const timeA = a.modifiedTime ? new Date(a.modifiedTime).getTime() : 0
+      const timeB = b.modifiedTime ? new Date(b.modifiedTime).getTime() : 0
+      return direction * (timeA - timeB)
+    })
+  }, [driveFiles, query, sort])
 
   const linksByProvider = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -700,7 +879,7 @@ export default function FilesPage({
   const handleDocumentUpload = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!documentFile) return
-    if (documentDestination === 'drive' && !driveRootFolder) {
+    if (documentDestination === 'drive' && !currentDriveFolder) {
       setError('Choose a Google Drive folder before uploading to Drive.')
       return
     }
@@ -714,8 +893,9 @@ export default function FilesPage({
       const result = await api.documents.upload(
         documentFile,
         documentDestination,
-        documentDestination === 'drive' ? driveRootFolder?.id : undefined,
+        documentDestination === 'drive' ? currentDriveFolder?.id : undefined,
         documentDestination === 'local' ? undefined : documentStoragePointId || undefined,
+        documentDestination === 'local' ? currentFolderId || undefined : undefined,
       )
       if (result.document) {
         setDocuments((current) => [
@@ -732,7 +912,9 @@ export default function FilesPage({
           ? 'Document uploaded to Google Drive'
           : storagePoint
             ? `Document saved to ${storagePoint.label}`
-            : 'Document saved in lancee',
+            : currentLibraryFolder
+              ? `Document saved to ${currentLibraryFolder.name}`
+              : 'Document saved in lancee',
       )
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to upload this document.')
@@ -742,12 +924,12 @@ export default function FilesPage({
   }
 
   const handleSyncDocument = async (document: WorkspaceDocument) => {
-    if (!driveRootFolder) {
+    if (!currentDriveFolder) {
       setError('Choose a Google Drive folder before syncing this document.')
       return
     }
     try {
-      const result = await api.documents.syncToDrive(document.id, driveRootFolder.id)
+      const result = await api.documents.syncToDrive(document.id, currentDriveFolder.id)
       if (result.document) {
         setDocuments((current) =>
           current.map((item) =>
@@ -788,6 +970,161 @@ export default function FilesPage({
       setError(caught instanceof Error ? caught.message : 'Unable to remove this document.')
     } finally {
       setRemovingDocumentId(null)
+    }
+  }
+
+  const openCreateFolder = () => {
+    setFolderForm({ mode: 'create' })
+    setFolderFormName('')
+    setError('')
+    window.setTimeout(() => {
+      document.querySelector<HTMLInputElement>('.file-explorer__folder-form input')?.focus()
+    }, 0)
+  }
+
+  const openRenameFolder = (folder: WorkspaceDocumentFolder) => {
+    setFolderForm({ mode: 'rename', folder })
+    setFolderFormName(folder.name)
+    setError('')
+    window.setTimeout(() => {
+      document.querySelector<HTMLInputElement>('.file-explorer__folder-form input')?.focus()
+    }, 0)
+  }
+
+  const closeFolderForm = () => {
+    setFolderForm(null)
+    setFolderFormName('')
+  }
+
+  const handleCreateLibraryFolder = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const name = folderFormName.trim()
+    if (!name || folderFormBusy) return
+    setFolderFormBusy(true)
+    setError('')
+    try {
+      const folder = await api.documents.folders.create(name, currentFolderId)
+      setFolders((current) => [...current, folder])
+      setFolderFormName('')
+      setFolderForm(null)
+      onToast(`${folder.name} created`)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to create this folder.')
+    } finally {
+      setFolderFormBusy(false)
+    }
+  }
+
+  const handleRenameLibraryFolder = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (folderForm?.mode !== 'rename') return
+    const name = folderFormName.trim()
+    if (!name || folderFormBusy) return
+    setFolderFormBusy(true)
+    setError('')
+    try {
+      const renamed = await api.documents.folders.rename(folderForm.folder.id, name)
+      setFolders((current) =>
+        current.map((folder) => (folder.id === renamed.id ? renamed : folder)),
+      )
+      setLibraryFolderTrail((trail) =>
+        trail.map((folder) => (folder.id === renamed.id ? renamed : folder)),
+      )
+      setFolderForm(null)
+      setFolderFormName('')
+      onToast('Folder renamed')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to rename this folder.')
+    } finally {
+      setFolderFormBusy(false)
+    }
+  }
+
+  const handleDeleteFolder = async (folder: WorkspaceDocumentFolder) => {
+    const contents = folderItemCount(folder.id)
+    const message =
+      contents > 0
+        ? `Delete “${folder.name}”? ${contents} item${contents === 1 ? '' : 's'} inside will move to the parent folder.`
+        : `Delete “${folder.name}”? This cannot be undone.`
+    if (!window.confirm(message)) return
+    setDeletingFolderId(folder.id)
+    setError('')
+    try {
+      await api.documents.folders.remove(folder.id)
+      const removedIds = new Set<string>([folder.id])
+      let changed = true
+      while (changed) {
+        changed = false
+        for (const candidate of folders) {
+          if (candidate.parentId && removedIds.has(candidate.parentId) && !removedIds.has(candidate.id)) {
+            removedIds.add(candidate.id)
+            changed = true
+          }
+        }
+      }
+      setFolders((current) => current.filter((item) => !removedIds.has(item.id)))
+      setDocuments((current) =>
+        current.map((document) =>
+          document.folderId === folder.id ? { ...document, folderId: null } : document,
+        ),
+      )
+      setLibraryFolderTrail((trail) =>
+        trail.filter((item) => !removedIds.has(item.id)),
+      )
+      setExpandedNavFolders((current) => {
+        const next = new Set(current)
+        for (const id of removedIds) next.delete(id)
+        return next
+      })
+      onToast('Folder deleted')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to delete this folder.')
+    } finally {
+      setDeletingFolderId(null)
+    }
+  }
+
+  const openMoveDialog = (
+    target: WorkspaceDocument | WorkspaceDocumentFolder,
+  ) => {
+    const kind = 'folderId' in target ? 'document' : 'folder'
+    const currentParent =
+      'folderId' in target ? target.folderId : target.parentId
+    setMoveTarget({ kind, [kind]: target } as never)
+    setMoveTargetFolderId(currentParent || '')
+    setError('')
+  }
+
+  const handleMove = async () => {
+    if (!moveTarget || movingTarget) return
+    setMovingTarget(true)
+    setError('')
+    try {
+      const destination = moveTargetFolderId || null
+      if (moveTarget.kind === 'document') {
+        const updated = await api.documents.move(moveTarget.document.id, destination)
+        setDocuments((current) =>
+          current.map((document) =>
+            document.id === updated.id ? updated : document,
+          ),
+        )
+        onToast(`${updated.name} moved`)
+      } else {
+        const updated = await api.documents.folders.move(moveTarget.folder.id, destination)
+        setFolders((current) =>
+          current.map((folder) => (folder.id === updated.id ? updated : folder)),
+        )
+        setLibraryFolderTrail((trail) =>
+          trail.map((folder) => (folder.id === updated.id ? updated : folder)),
+        )
+        onToast('Folder moved')
+      }
+      setMoveTarget(null)
+      setMoveTargetFolderId('')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to move this item.')
+    } finally {
+      setMovingTarget(false)
     }
   }
 
@@ -894,11 +1231,103 @@ export default function FilesPage({
       )
     })
 
+  const renderFolderTree = (parentId: string | null, depth: number): ReactNode =>
+    folders
+      .filter((folder) => (folder.parentId ?? null) === parentId)
+      .sort((a, b) => byName(a.name, b.name))
+      .map((folder) => {
+        const hasChildren = folders.some(
+          (candidate) => candidate.parentId === folder.id,
+        )
+        const expanded = expandedNavFolders.has(folder.id)
+        const active = scope === 'library' && currentFolderId === folder.id
+        return (
+          <div key={folder.id} className="file-explorer__tree-branch">
+            <div
+              className={`file-explorer__tree-row${active ? ' is-active' : ''}`}
+              style={{ paddingLeft: `${10 + depth * 16}px` }}
+            >
+              <button
+                type="button"
+                className="file-explorer__tree-toggle"
+                disabled={!hasChildren}
+                onClick={() => toggleNavFolder(folder.id)}
+                aria-label={expanded ? `Collapse ${folder.name}` : `Expand ${folder.name}`}
+              >
+                {hasChildren ? (
+                  <ExplorerIcon
+                    name="chevron-right"
+                    size={13}
+                    className=""
+                  />
+                ) : (
+                  <span className="file-explorer__tree-toggle-empty" />
+                )}
+              </button>
+              <button
+                type="button"
+                className="file-explorer__tree-name"
+                onClick={() => navigateToFolder(folder)}
+                title={folder.name}
+              >
+                <ExplorerIcon name="folder" size={15} />
+                <span>{folder.name}</span>
+                <small>{folderItemCount(folder.id)}</small>
+              </button>
+            </div>
+            {expanded && renderFolderTree(folder.id, depth + 1)}
+          </div>
+        )
+      })
+
+  const renderFolderOptions = (
+    parentId: string | null,
+    depth: number,
+    excludeId: string | null,
+  ): ReactNode[] => {
+    const excluded = new Set<string>()
+    if (excludeId) {
+      excluded.add(excludeId)
+      let changed = true
+      while (changed) {
+        changed = false
+        for (const candidate of folders) {
+          if (candidate.parentId && excluded.has(candidate.parentId) && !excluded.has(candidate.id)) {
+            excluded.add(candidate.id)
+            changed = true
+          }
+        }
+      }
+    }
+    return folders
+      .filter((folder) => (folder.parentId ?? null) === parentId && !excluded.has(folder.id))
+      .sort((a, b) => byName(a.name, b.name))
+      .flatMap((folder) => [
+        <option key={folder.id} value={folder.id}>
+          {'\u00A0\u00A0'.repeat(depth)}
+          {folder.name}
+        </option>,
+        ...renderFolderOptions(folder.id, depth + 1, excludeId),
+      ])
+  }
+
   const totalDocumentBytes = documents.reduce((total, document) => total + document.size, 0)
   const defaultStoragePoint = links.find((link) => link.isDefault) || links[0] || null
-  const quickAccessDocuments = filteredDocuments.slice(0, 4)
   const storagePointForDocument = (document: WorkspaceDocument) =>
     links.find((link) => link.id === document.storagePointId)
+
+  const subtitle =
+    scope === 'drive'
+      ? 'Browse the Google Drive folder chosen for this workspace.'
+      : currentLibraryFolder
+        ? `Contents of ${currentLibraryFolder.name} — ${childFolders.length + folderDocuments.length} item${childFolders.length + folderDocuments.length === 1 ? '' : 's'}`
+        : `${childFolders.length + folderDocuments.length} item${childFolders.length + folderDocuments.length === 1 ? '' : 's'} in the lancee library. Upload a file or create a folder to begin.`
+
+  const moveOptions = renderFolderOptions(
+    null,
+    0,
+    moveTarget?.kind === 'folder' ? moveTarget.folder.id : null,
+  )
 
   if (loading) {
     return (
@@ -914,13 +1343,12 @@ export default function FilesPage({
     )
   }
 
-
   return (
     <div className="content-container animate-fade-in dashboard-page files-page file-explorer">
       <aside className="file-explorer__sidebar" aria-label="Files navigation">
         <button
           type="button"
-          className="file-explorer__new"
+          className={`file-explorer__new${uploadOpen ? ' is-open' : ''}`}
           onClick={() => setUploadOpen((open) => !open)}
         >
           <span className="file-explorer__new-icon"><ExplorerIcon name="plus" size={20} /></span>
@@ -929,28 +1357,34 @@ export default function FilesPage({
         </button>
 
         <nav className="file-explorer__nav" aria-label="File views">
-          <button type="button" className="is-active" onClick={() => setQuery('')}>
-            <span className="file-explorer__nav-icon"><ExplorerIcon name="file" /></span>
+          <button
+            type="button"
+            className={scope === 'library' && !currentLibraryFolder ? 'is-active' : ''}
+            onClick={goToLibraryRoot}
+          >
+            <span className="file-explorer__nav-icon"><ExplorerIcon name="home" size={17} /></span>
             <span>All files</span>
             <small>{documents.length}</small>
           </button>
-          <button type="button" onClick={() => setQuery('')}>
-            <span className="file-explorer__nav-icon"><ExplorerIcon name="clock" /></span>
-            <span>Recent</span>
-          </button>
-          <button type="button" onClick={() => setNotice('Starred files will appear here as you mark them.')}>
-            <span className="file-explorer__nav-icon"><ExplorerIcon name="star" /></span>
-            <span>Starred</span>
-          </button>
-          <button type="button" onClick={() => setNotice('Shared files are managed from their storage point.')}>
-            <span className="file-explorer__nav-icon"><ExplorerIcon name="users" /></span>
-            <span>Shared with me</span>
-          </button>
-          <button type="button" onClick={() => setNotice('Trash is managed by the selected storage provider.')}>
-            <span className="file-explorer__nav-icon"><ExplorerIcon name="trash" /></span>
-            <span>Trash</span>
-          </button>
+          {driveConnected && (
+            <button
+              type="button"
+              className={scope === 'drive' ? 'is-active' : ''}
+              onClick={goToDrive}
+            >
+              <span className="file-explorer__nav-icon"><ExplorerIcon name="file" size={17} /></span>
+              <span>Google Drive</span>
+              {driveRootFolder && <small title={driveRootFolder.name}>{driveRootFolder.name}</small>}
+            </button>
+          )}
         </nav>
+
+        {folders.length > 0 && (
+          <div className="file-explorer__tree">
+            <span className="file-explorer__section-label">Folders</span>
+            {renderFolderTree(null, 0)}
+          </div>
+        )}
 
         <div className="file-explorer__spaces">
           <span className="file-explorer__section-label">Storage points</span>
@@ -993,9 +1427,9 @@ export default function FilesPage({
           <button
             type="button"
             className="file-explorer__new-space"
-            onClick={() => openStoragePointSetup('drive')}
+            onClick={onOpenConnections}
           >
-            <span><ExplorerIcon name="plus" size={17} /></span> New storage point
+            <span><ExplorerIcon name="plus" size={17} /></span> Add storage
           </button>
         </div>
 
@@ -1036,15 +1470,94 @@ export default function FilesPage({
 
         <div className="file-explorer__content">
           <header className="file-explorer__title-row">
-            <div>
-              <h1>Files</h1>
-              <p>Work from your selected Google Drive folder or your lancee library.</p>
+            <div className="file-explorer__title-block">
+              <nav className="file-explorer__crumbs" aria-label="File path">
+                {scope === 'library' ? (
+                  <>
+                    <button
+                      type="button"
+                      className={!currentLibraryFolder ? 'is-current' : ''}
+                      onClick={goToLibraryRoot}
+                    >
+                      Lancee library
+                    </button>
+                    {libraryFolderTrail.map((folder, index) => (
+                      <span key={folder.id} className="file-explorer__crumb">
+                        <span className="file-explorer__crumb-sep" aria-hidden="true">/</span>
+                        <button
+                          type="button"
+                          className={index === libraryFolderTrail.length - 1 ? 'is-current' : ''}
+                          onClick={() => setLibraryFolderTrail(libraryFolderTrail.slice(0, index + 1))}
+                        >
+                          {folder.name}
+                        </button>
+                      </span>
+                    ))}
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className={!currentDriveFolder ? 'is-current' : ''}
+                      onClick={() => {
+                        if (driveRootFolder) void openDriveFolder(driveRootFolder, [driveRootFolder])
+                        else void fetchDriveFiles()
+                      }}
+                    >
+                      Google Drive
+                    </button>
+                    {driveFolderTrail.map((folder, index) => (
+                      <span key={folder.id} className="file-explorer__crumb">
+                        <span className="file-explorer__crumb-sep" aria-hidden="true">/</span>
+                        <button
+                          type="button"
+                          className={index === driveFolderTrail.length - 1 ? 'is-current' : ''}
+                          onClick={() => void openDriveFolderAt(index)}
+                        >
+                          {folder.name}
+                        </button>
+                      </span>
+                    ))}
+                  </>
+                )}
+              </nav>
+              <p>{subtitle}</p>
             </div>
             <div className="file-explorer__title-actions">
               <div className="file-explorer__view-toggle" aria-label="File layout">
-                <button type="button" className="is-active" aria-label="List view"><ExplorerIcon name="list" size={17} /></button>
-                <button type="button" aria-label="Grid view"><ExplorerIcon name="grid" size={16} /></button>
+                <button
+                  type="button"
+                  className={view === 'list' ? 'is-active' : ''}
+                  aria-label="List view"
+                  onClick={() => setView('list')}
+                >
+                  <ExplorerIcon name="list" size={17} />
+                </button>
+                <button
+                  type="button"
+                  className={view === 'grid' ? 'is-active' : ''}
+                  aria-label="Grid view"
+                  onClick={() => setView('grid')}
+                >
+                  <ExplorerIcon name="grid" size={16} />
+                </button>
               </div>
+              <button
+                type="button"
+                className="button button--secondary file-explorer__folder-button"
+                disabled={
+                  folderFormBusy ||
+                  (scope === 'drive' && !currentDriveFolder?.canEdit) ||
+                  (scope === 'drive' && !currentDriveFolder)
+                }
+                onClick={() => {
+                  if (folderForm?.mode === 'create') closeFolderForm()
+                  else openCreateFolder()
+                }}
+              >
+                <ExplorerIcon name="folder-plus" size={16} />
+                {folderForm?.mode === 'create' ? 'Close folder' : 'New folder'}
+              </button>
               <button type="button" className="button button--primary file-explorer__upload-button" onClick={() => setUploadOpen((open) => !open)}>
                 <ExplorerIcon name="upload" size={17} /> {uploadOpen ? 'Close upload' : 'Upload'}
               </button>
@@ -1054,310 +1567,440 @@ export default function FilesPage({
           {error && <div className="dashboard-alert">{error}</div>}
           {notice && <div className="dashboard-alert dashboard-alert--success">{notice}</div>}
 
+          {folderForm && (
+            <form
+              className="file-explorer__folder-form"
+              onSubmit={
+                folderForm.mode === 'rename'
+                  ? handleRenameLibraryFolder
+                  : scope === 'drive'
+                    ? handleCreateDriveFolder
+                    : handleCreateLibraryFolder
+              }
+            >
+              <label className="file-explorer__folder-form-field">
+                <span>
+                  {folderForm.mode === 'rename'
+                    ? 'Rename folder'
+                    : scope === 'drive'
+                      ? `New folder in ${currentDriveFolder?.name || 'Google Drive'}`
+                      : currentLibraryFolder
+                        ? `New folder in ${currentLibraryFolder.name}`
+                        : 'New folder in Lancee library'}
+                </span>
+                <input
+                  value={folderFormName}
+                  onChange={(event) => setFolderFormName(event.target.value)}
+                  placeholder="Folder name"
+                  maxLength={120}
+                  autoFocus
+                  required
+                />
+              </label>
+              <button
+                type="submit"
+                className="button button--primary button--small"
+                disabled={folderFormBusy || !folderFormName.trim()}
+              >
+                {folderFormBusy
+                  ? 'Working…'
+                  : folderForm.mode === 'rename'
+                    ? 'Rename'
+                    : 'Create folder'}
+              </button>
+              <button type="button" className="button button--secondary button--small" onClick={closeFolderForm}>
+                Cancel
+              </button>
+            </form>
+          )}
+
           <div className="file-explorer__toolbar">
             <label className="file-explorer__search">
               <span aria-hidden="true"><ExplorerIcon name="search" size={18} /></span>
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search files and folders…"
+                placeholder={scope === 'drive' ? 'Search this Drive folder…' : 'Search files and folders…'}
                 aria-label="Search files and folders"
               />
             </label>
-            <button type="button" className="file-explorer__toolbar-button" onClick={() => setNotice('Use a storage point or file name to narrow this view.')}>
-              <ExplorerIcon name="filter" size={16} /> <span>Filters</span>
-            </button>
-            <select className="file-explorer__sort" aria-label="Sort files">
-              <option>Name (A–Z)</option>
-              <option>Recently updated</option>
-              <option>Largest first</option>
+            <select
+              className="file-explorer__sort"
+              aria-label="Sort files"
+              value={`${sort.key}-${sort.desc ? 'desc' : 'asc'}`}
+              onChange={(event) => {
+                const [key, direction] = event.target.value.split('-') as [SortKey, 'asc' | 'desc']
+                setSort({ key, desc: direction === 'desc' })
+              }}
+            >
+              <option value="name-asc">Name (A–Z)</option>
+              <option value="name-desc">Name (Z–A)</option>
+              <option value="updated-desc">Recently updated</option>
+              <option value="updated-asc">Oldest first</option>
+              <option value="size-desc">Largest first</option>
+              <option value="size-asc">Smallest first</option>
             </select>
           </div>
 
-          <section className="file-explorer__section drive-folder-section" aria-labelledby="drive-folder-heading">
-            <div className="file-explorer__section-heading drive-folder-section__heading">
-              <div>
-                <h2 id="drive-folder-heading">Google Drive folder</h2>
-                <p className="drive-folder-section__hint">
-                  {driveRootFolder
-                    ? 'Files here open and save directly in Google Drive.'
-                    : 'Choose one folder to make it the workspace file location.'}
-                </p>
-              </div>
-              <div className="drive-folder-section__actions">
-                {driveRootFolder?.webViewLink && (
-                  <a className="button button--secondary button--small" href={driveRootFolder.webViewLink} target="_blank" rel="noreferrer">
-                    Open in Drive ↗
-                  </a>
-                )}
-                <button type="button" className="button button--primary button--small" onClick={() => void openDrivePicker(driveConnected)}>
-                  {driveConnected ? (driveRootFolder ? 'Change folder' : 'Choose folder') : 'Connect Google Drive'}
-                </button>
-              </div>
-            </div>
-            {!driveConnected ? (
-              <div className="drive-folder-section__empty">
-                <strong>Connect Google Drive to use a cloud file folder.</strong>
-                <span>Files can be viewed and edited here after you choose a folder.</span>
-              </div>
-            ) : !driveRootFolder ? (
-              <div className="drive-folder-section__empty">
-                <strong>No Google Drive folder selected.</strong>
-                <span>Choose a folder once and the dashboard will remember it for this workspace.</span>
-              </div>
-            ) : (
-              <div className="drive-folder-browser">
-                <div className="drive-folder-browser__bar">
-                  <nav className="drive-folder-browser__breadcrumbs" aria-label="Google Drive folder path">
-                    {driveFolderTrail.map((folder, index) => (
-                      <span key={folder.id}>
-                        {index > 0 && <span aria-hidden="true">/</span>}
-                        <button type="button" disabled={index === driveFolderTrail.length - 1} onClick={() => void openDriveFolderAt(index)}>
-                          {folder.name}
-                        </button>
-                      </span>
-                    ))}
-                  </nav>
-                  <span className="drive-folder-browser__count">
-                    {filteredDriveFiles.length} of {driveFiles.length} item{driveFiles.length === 1 ? '' : 's'}
-                  </span>
-                </div>
-                {driveLoading ? (
-                  <div className="drive-folder-section__empty">Loading the Google Drive folder…</div>
-                ) : (
-                  <div className="file-explorer__file-table-wrap">
-                    <table className="file-explorer__file-table drive-folder-table">
-                      <thead>
-                        <tr>
-                          <th>Name</th>
-                          <th>Type</th>
-                          <th>Updated</th>
-                          <th>Size</th>
-                          <th aria-label="Actions" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredDriveFiles.map((file) => {
-                          const folder = isDriveFolder(file)
-                          const fileType = explorerFileType(file.name, file.mimeType)
-                          const mode = driveWorkspaceMode(file)
-                          return (
-                            <tr key={file.id}>
-                              <td>
-                                <button
-                                  type="button"
-                                  className="file-explorer__file-name"
-                                  onClick={() => folder ? void openDriveFolder(file) : mode !== 'unsupported' && setSelectedDriveFile(file)}
-                                >
-                                  <span className={folder ? 'drive-folder-table__folder-icon' : 'file-explorer__file-icon file-explorer__file-icon--' + fileType.className}>
-                                    {folder ? <ExplorerIcon name="folder" size={20} /> : fileType.label}
-                                  </span>
-                                  <span>
-                                    <strong>{file.name}</strong>
-                                    <small>{folder ? 'Folder' : fileType.label + (file.canEdit ? ' · Editable' : ' · View only')}</small>
-                                  </span>
-                                </button>
-                              </td>
-                              <td>{folder ? 'Folder' : fileType.label}</td>
-                              <td>{explorerDate(file.modifiedTime || '')}</td>
-                              <td>{file.size === null ? '—' : explorerFileSize(file.size)}</td>
-                              <td>
-                                <details className="file-item-menu">
-                                  <summary aria-label={'Actions for ' + file.name}><ExplorerIcon name="more" size={18} /></summary>
-                                  <div>
-                                    {folder && <button type="button" onClick={() => void openDriveFolder(file)}>Open folder</button>}
-                                    {!folder && mode !== 'unsupported' && <button type="button" onClick={() => setSelectedDriveFile(file)}>{file.canEdit && !['pdf', 'image'].includes(mode) ? 'Edit in lancee' : 'View in lancee'}</button>}
-                                    {!folder && <button type="button" onClick={() => { setSelectedDriveResource(file); setDriveToolsOpen(true) }}>Link to client or project</button>}
-                                    {file.webViewLink && <a href={file.webViewLink} target="_blank" rel="noreferrer">Open in Drive ↗</a>}
-                                    {file.canDelete && <button type="button" className="file-item-menu__danger" disabled={removingDriveFileId !== null} onClick={() => void handleTrashDriveFile(file)}>{removingDriveFileId === file.id ? 'Moving to trash…' : 'Move to Drive trash'}</button>}
-                                  </div>
-                                </details>
-                              </td>
-                            </tr>
-                          )
-                        })}
-                        {filteredDriveFiles.length === 0 && (
-                          <tr><td colSpan={5} className="file-explorer__empty-row">This Google Drive folder is empty.</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-
-          <section className="file-explorer__section" aria-labelledby="quick-access-heading">
-            <div className="file-explorer__section-heading">
-              <h2 id="quick-access-heading">Quick access</h2>
-              <span>{filteredDocuments.length} file{filteredDocuments.length === 1 ? '' : 's'}</span>
-            </div>
-            <div className="file-explorer__quick-grid">
-              {quickAccessDocuments.map((document) => {
-                const fileType = explorerFileType(document.name, document.mimeType)
-                const storagePoint = storagePointForDocument(document)
-                return (
-                  <article className="file-explorer__quick-card" key={document.id}>
-                    <button type="button" className="file-explorer__quick-star" aria-label={'Star ' + document.name}><ExplorerIcon name="star" size={17} /></button>
-                    <button
-                      type="button"
-                      className="file-explorer__quick-open"
-                      onClick={() => setSelectedLocalDocument(document)}
-                    >
-                      <span className={'file-explorer__file-icon file-explorer__file-icon--' + fileType.className}>{fileType.label}</span>
-                      <strong>{document.name}</strong>
-                      <small>{storagePoint?.label || 'Lancee library'}</small>
-                      <span className="file-explorer__quick-meta">
-                        <span className="file-explorer__mini-avatar">{ownerInitials}</span>
-                        Updated {explorerDate(document.updatedAt)}
-                      </span>
-                    </button>
-                  </article>
-                )
-              })}
-              {quickAccessDocuments.length === 0 && (
-                <div className="file-explorer__empty-card">
-                  <strong>Your workspace is ready for its first file.</strong>
-                  <span>Upload a document or set a storage point to get started.</span>
-                </div>
-              )}
-            </div>
-          </section>
-
-          <section className="file-explorer__section" aria-labelledby="folders-heading">
-            <div className="file-explorer__section-heading">
-              <h2 id="folders-heading">Folders</h2>
-              <button type="button" onClick={() => openStoragePointSetup('drive')}>Manage storage points</button>
-            </div>
-            <div className="file-explorer__folder-columns" aria-hidden="true">
-              <span>Name <b>↑</b></span>
-              <span>Owner</span>
-              <span>Updated</span>
-              <span>Size</span>
-              <span />
-            </div>
-            <div className="file-explorer__folder-list">
-              {[
-                {
-                  id: 'local',
-                  label: 'Lancee library',
-                  provider: 'local',
-                  count: documents.length,
-                  updatedAt: documents[0]?.updatedAt || new Date().toISOString(),
-                  isDefault: false,
-                },
-                ...filteredLinks.map((link) => ({
-                  id: link.id,
-                  label: link.label,
-                  provider: link.provider,
-                  count: documents.filter((document) => document.storagePointId === link.id).length,
-                  updatedAt: link.updatedAt,
-                  isDefault: link.isDefault,
-                })),
-              ].map((folder) => (
-                <div className="file-explorer__folder-row" key={folder.id}>
-                  <button
-                    type="button"
-                    className="file-explorer__folder-main"
-                    onClick={() => folder.id === 'local' ? setQuery('') : openStoragePointSetup(folder.provider as StorageProvider)}
-                  >
-                    <span className={'file-explorer__folder-icon file-explorer__folder-icon--' + folder.provider}><ExplorerIcon name="folder" size={25} /></span>
-                    <span>{folder.label}</span>
-                  </button>
-                  <span className="file-explorer__folder-owner">
-                    <span className="file-explorer__mini-avatar">{ownerInitials}</span>
-                    {folder.isDefault && <span className="file-explorer__default-pill">Default</span>}
-                  </span>
-                  <span>{explorerDate(folder.updatedAt)}</span>
-                  <span>{folder.count} {folder.count === 1 ? 'item' : 'items'}</span>
-                  <button type="button" className="file-explorer__row-menu" aria-label={'Actions for ' + folder.label} onClick={() => folder.id === 'local' ? setUploadOpen(true) : void handleSetDefaultLink(filteredLinks.find((link) => link.id === folder.id) || links[0])}><ExplorerIcon name="more" size={18} /></button>
-                </div>
-              ))}
-              {filteredLinks.length === 0 && (
-                <div className="file-explorer__empty-row">
-                  No cloud storage points yet. Choose Dropbox, OneDrive, or Google Drive to add one.
-                </div>
-              )}
-            </div>
-          </section>
-
-          <section className="file-explorer__section file-explorer__files-section" aria-labelledby="files-heading">
-            <div className="file-explorer__section-heading">
-              <h2 id="files-heading">Files</h2>
-              <span>{filteredDocuments.length ? 'Showing workspace documents' : 'No files yet'}</span>
-            </div>
-            <div className="file-explorer__file-table-wrap">
-              <table className="file-explorer__file-table">
-                <thead>
-                  <tr>
-                    <th>Name <span aria-hidden="true">↑</span></th>
-                    <th>Storage point</th>
-                    <th>Updated</th>
-                    <th>Size</th>
-                    <th aria-label="Actions" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredDocuments.map((document) => {
-                    const fileType = explorerFileType(document.name, document.mimeType)
-                    const storagePoint = storagePointForDocument(document)
-                    return (
-                      <tr key={document.id}>
-                        <td>
-                          <button type="button" className="file-explorer__file-name" onClick={() => setSelectedLocalDocument(document)}>
-                            <span className={'file-explorer__file-icon file-explorer__file-icon--' + fileType.className}>{fileType.label}</span>
-                            <span>
-                              <strong>{document.name}</strong>
-                              <small>{fileType.label} document</small>
-                            </span>
+          {scope === 'library' && (
+            <section className="file-explorer__section file-explorer__files-section" aria-label="Lancee library">
+              {view === 'grid' ? (
+                <div className="file-explorer__grid">
+                  {childFolders.map((folder) => (
+                    <div key={folder.id} className="file-explorer__grid-card">
+                      <button
+                        type="button"
+                        className="file-explorer__grid-open"
+                        onClick={() => navigateToFolder(folder)}
+                        onDoubleClick={() => navigateToFolder(folder)}
+                      >
+                        <span className="file-explorer__grid-icon file-explorer__grid-icon--folder">
+                          <ExplorerIcon name="folder" size={30} />
+                        </span>
+                        <strong title={folder.name}>{folder.name}</strong>
+                        <small>{folderItemCount(folder.id)} item{folderItemCount(folder.id) === 1 ? '' : 's'}</small>
+                      </button>
+                      <details className="file-item-menu file-explorer__grid-menu">
+                        <summary aria-label={`Actions for ${folder.name}`}><ExplorerIcon name="more" size={17} /></summary>
+                        <div>
+                          <button type="button" onClick={() => navigateToFolder(folder)}>Open</button>
+                          <button type="button" onClick={() => openRenameFolder(folder)}>Rename</button>
+                          <button type="button" onClick={() => openMoveDialog(folder)}>Move to…</button>
+                          <button
+                            type="button"
+                            className="file-item-menu__danger"
+                            disabled={deletingFolderId !== null}
+                            onClick={() => void handleDeleteFolder(folder)}
+                          >
+                            {deletingFolderId === folder.id ? 'Deleting…' : 'Delete'}
                           </button>
-                        </td>
-                        <td>
-                          <span className="file-explorer__storage-label">
-                            <span className={'file-explorer__space-icon file-explorer__space-icon--' + (storagePoint?.provider || 'local')}>
-                              {storagePoint ? (storagePoint.provider === 'drive' ? 'G' : storagePoint.provider === 'dropbox' ? 'D' : 'O') : 'L'}
-                            </span>
-                            {storagePoint?.label || 'Lancee library'}
+                        </div>
+                      </details>
+                    </div>
+                  ))}
+                      {folderDocuments.map((document) => {
+                        const fileType = explorerFileType(document.name, document.mimeType)
+                        const storagePoint = storagePointForDocument(document)
+                        return (
+                      <div key={document.id} className="file-explorer__grid-card">
+                        <button
+                          type="button"
+                          className="file-explorer__grid-open"
+                          onClick={() => setSelectedLocalDocument(document)}
+                          onDoubleClick={() => setSelectedLocalDocument(document)}
+                        >
+                          <span className={'file-explorer__file-icon file-explorer__file-icon--' + fileType.className}>
+                            {fileType.label}
                           </span>
-                        </td>
-                        <td>{explorerDate(document.updatedAt)}</td>
-                        <td>{explorerFileSize(document.size)}</td>
-                        <td>
-                          <details className="file-item-menu">
-                            <summary aria-label={'Actions for ' + document.name}><ExplorerIcon name="more" size={18} /></summary>
-                            <div>
-                              <button type="button" onClick={() => setSelectedLocalDocument(document)}>View in lancee</button>
-                              <a href={api.documents.downloadUrl(document.id)}>Download</a>
-                              {driveConnected && driveRootFolder && (
-                                <button type="button" onClick={() => void handleSyncDocument(document)}>Sync to Google Drive</button>
-                              )}
-                              <button
-                                type="button"
-                                className="file-item-menu__danger"
-                                disabled={removingDocumentId === document.id}
-                                onClick={() => void handleRemoveDocument(document)}
-                              >
-                                {removingDocumentId === document.id ? 'Removing…' : 'Remove'}
-                              </button>
-                            </div>
-                          </details>
-                        </td>
-                      </tr>
+                          <strong title={document.name}>{document.name}</strong>
+                          <small>{fileType.label} · {explorerFileSize(document.size)}{storagePoint ? ` · ${storagePoint.label}` : ''}</small>
+                        </button>
+                        <details className="file-item-menu file-explorer__grid-menu">
+                          <summary aria-label={'Actions for ' + document.name}><ExplorerIcon name="more" size={17} /></summary>
+                          <div>
+                            <button type="button" onClick={() => setSelectedLocalDocument(document)}>View in lancee</button>
+                            <button type="button" onClick={() => openMoveDialog(document)}>Move to folder…</button>
+                            <a href={api.documents.downloadUrl(document.id)}>Download</a>
+                            {driveConnected && currentDriveFolder && (
+                              <button type="button" onClick={() => void handleSyncDocument(document)}>Sync to Google Drive</button>
+                            )}
+                            <button
+                              type="button"
+                              className="file-item-menu__danger"
+                              disabled={removingDocumentId === document.id}
+                              onClick={() => void handleRemoveDocument(document)}
+                            >
+                              {removingDocumentId === document.id ? 'Removing…' : 'Remove'}
+                            </button>
+                          </div>
+                        </details>
+                      </div>
                     )
                   })}
-                  {filteredDocuments.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="file-explorer__empty-row">No files match this view. Upload a document to begin.</td>
-                    </tr>
+                  {childFolders.length === 0 && folderDocuments.length === 0 && (
+                    <div className="file-explorer__empty-card">
+                      <strong>{currentLibraryFolder ? 'This folder is empty.' : 'No files yet.'}</strong>
+                      <span>Upload a document or create a folder to begin.</span>
+                    </div>
                   )}
-                </tbody>
-              </table>
-            </div>
-            <footer className="file-explorer__pagination">
-              <span>{filteredDocuments.length ? '1–' + filteredDocuments.length + ' of ' + documents.length + ' items' : '0 items'}</span>
-              <div><button type="button" aria-label="Previous page">‹</button><button type="button" className="is-active">1</button><button type="button" aria-label="Next page">›</button></div>
-            </footer>
-          </section>
+                </div>
+              ) : (
+                <div className="file-explorer__file-table-wrap">
+                  <table className="file-explorer__file-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Items</th>
+                        <th>Updated</th>
+                        <th>Size</th>
+                        <th aria-label="Actions" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {childFolders.map((folder) => {
+                        const count = folderItemCount(folder.id)
+                        return (
+                          <tr key={folder.id} className="file-explorer__row--folder">
+                            <td>
+                              <button
+                                type="button"
+                                className="file-explorer__file-name"
+                                onClick={() => navigateToFolder(folder)}
+                                onDoubleClick={() => navigateToFolder(folder)}
+                              >
+                                <span className="file-explorer__grid-icon file-explorer__grid-icon--folder">
+                                  <ExplorerIcon name="folder" size={24} />
+                                </span>
+                                <span>
+                                  <strong>{folder.name}</strong>
+                                  <small>Folder</small>
+                                </span>
+                              </button>
+                            </td>
+                            <td>{count} item{count === 1 ? '' : 's'}</td>
+                            <td>{explorerDate(folder.updatedAt)}</td>
+                            <td>—</td>
+                            <td>
+                              <details className="file-item-menu">
+                                <summary aria-label={'Actions for ' + folder.name}><ExplorerIcon name="more" size={18} /></summary>
+                                <div>
+                                  <button type="button" onClick={() => navigateToFolder(folder)}>Open folder</button>
+                                  <button type="button" onClick={() => openRenameFolder(folder)}>Rename</button>
+                                  <button type="button" onClick={() => openMoveDialog(folder)}>Move to…</button>
+                                  <button
+                                    type="button"
+                                    className="file-item-menu__danger"
+                                    disabled={deletingFolderId !== null}
+                                    onClick={() => void handleDeleteFolder(folder)}
+                                  >
+                                    {deletingFolderId === folder.id ? 'Deleting…' : 'Delete folder'}
+                                  </button>
+                                </div>
+                              </details>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                      {folderDocuments.map((document) => {
+                        const fileType = explorerFileType(document.name, document.mimeType)
+                        return (
+                          <tr key={document.id}>
+                            <td>
+                              <button type="button" className="file-explorer__file-name" onClick={() => setSelectedLocalDocument(document)} onDoubleClick={() => setSelectedLocalDocument(document)}>
+                                <span className={'file-explorer__file-icon file-explorer__file-icon--' + fileType.className}>{fileType.label}</span>
+                                <span>
+                                  <strong>{document.name}</strong>
+                                  <small>{fileType.label} document</small>
+                                </span>
+                              </button>
+                            </td>
+                            <td>—</td>
+                            <td>{explorerDate(document.updatedAt)}</td>
+                            <td>{explorerFileSize(document.size)}</td>
+                            <td>
+                              <details className="file-item-menu">
+                                <summary aria-label={'Actions for ' + document.name}><ExplorerIcon name="more" size={18} /></summary>
+                                <div>
+                                  <button type="button" onClick={() => setSelectedLocalDocument(document)}>View in lancee</button>
+                                  <button type="button" onClick={() => openMoveDialog(document)}>Move to folder…</button>
+                                  <a href={api.documents.downloadUrl(document.id)}>Download</a>
+                                  {driveConnected && currentDriveFolder && (
+                                    <button type="button" onClick={() => void handleSyncDocument(document)}>Sync to Google Drive</button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="file-item-menu__danger"
+                                    disabled={removingDocumentId === document.id}
+                                    onClick={() => void handleRemoveDocument(document)}
+                                  >
+                                    {removingDocumentId === document.id ? 'Removing…' : 'Remove'}
+                                  </button>
+                                </div>
+                              </details>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                      {childFolders.length === 0 && folderDocuments.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="file-explorer__empty-row">
+                            {currentLibraryFolder
+                              ? 'This folder is empty. Upload a document or create a subfolder to begin.'
+                              : 'No files yet. Upload a document or create a folder to begin.'}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <footer className="file-explorer__pagination">
+                <span>
+                  {childFolders.length + folderDocuments.length
+                    ? `${childFolders.length + folderDocuments.length} item${childFolders.length + folderDocuments.length === 1 ? '' : 's'}`
+                    : '0 items'}
+                </span>
+              </footer>
+            </section>
+          )}
+
+          {scope === 'drive' && (
+            <section className="file-explorer__section drive-folder-section" aria-labelledby="drive-folder-heading">
+              <div className="file-explorer__section-heading drive-folder-section__heading">
+                <div>
+                  <h2 id="drive-folder-heading">Google Drive folder</h2>
+                  <p className="drive-folder-section__hint">
+                    {driveRootFolder
+                      ? `Files open and save directly in ${driveRootFolder.name}.`
+                      : 'Choose one folder to make it the workspace file location.'}
+                  </p>
+                </div>
+                <div className="drive-folder-section__actions">
+                  {driveRootFolder?.webViewLink && (
+                    <a className="button button--secondary button--small" href={driveRootFolder.webViewLink} target="_blank" rel="noreferrer">
+                      Open in Drive ↗
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    className="button button--primary button--small"
+                    onClick={() => void openDrivePicker(driveConnected)}
+                  >
+                    {driveConnected ? (driveRootFolder ? 'Change folder' : 'Choose folder') : 'Connect Google Drive'}
+                  </button>
+                </div>
+              </div>
+              {!driveConnected ? (
+                <div className="drive-folder-section__empty">
+                  <strong>Connect Google Drive to use a cloud file folder.</strong>
+                  <span>Files can be viewed and edited here after you choose a folder.</span>
+                  <button type="button" className="button button--primary button--small" onClick={() => void openDrivePicker(false)}>
+                    Connect Google Drive
+                  </button>
+                </div>
+              ) : !driveRootFolder ? (
+                <div className="drive-folder-section__empty">
+                  <strong>No Google Drive folder selected.</strong>
+                  <span>Choose a folder once and the dashboard will remember it for this workspace.</span>
+                  <button type="button" className="button button--primary button--small" onClick={() => void openDrivePicker(true)}>
+                    Choose folder
+                  </button>
+                </div>
+              ) : driveLoading ? (
+                <div className="drive-folder-section__empty">Loading the Google Drive folder…</div>
+              ) : view === 'grid' ? (
+                <div className="file-explorer__grid">
+                  {filteredDriveFiles.map((file) => {
+                    const folder = isDriveFolder(file)
+                    const fileType = explorerFileType(file.name, file.mimeType)
+                    const mode = driveWorkspaceMode(file)
+                    return (
+                      <div key={file.id} className="file-explorer__grid-card">
+                        <button
+                          type="button"
+                          className="file-explorer__grid-open"
+                          onClick={() => folder ? void openDriveFolder(file) : mode !== 'unsupported' && setSelectedDriveFile(file)}
+                          onDoubleClick={() => folder ? void openDriveFolder(file) : mode !== 'unsupported' && setSelectedDriveFile(file)}
+                        >
+                          {folder ? (
+                            <span className="file-explorer__grid-icon file-explorer__grid-icon--folder">
+                              <ExplorerIcon name="folder" size={30} />
+                            </span>
+                          ) : (
+                            <span className={'file-explorer__file-icon file-explorer__file-icon--' + fileType.className}>
+                              {fileType.label}
+                            </span>
+                          )}
+                          <strong title={file.name}>{file.name}</strong>
+                          <small>{folder ? 'Folder' : fileType.label}{file.size !== null ? ` · ${explorerFileSize(file.size)}` : ''}</small>
+                        </button>
+                        <details className="file-item-menu file-explorer__grid-menu">
+                          <summary aria-label={'Actions for ' + file.name}><ExplorerIcon name="more" size={17} /></summary>
+                          <div>
+                            {folder && <button type="button" onClick={() => void openDriveFolder(file)}>Open folder</button>}
+                            {!folder && mode !== 'unsupported' && <button type="button" onClick={() => setSelectedDriveFile(file)}>{file.canEdit && !['pdf', 'image'].includes(mode) ? 'Edit in lancee' : 'View in lancee'}</button>}
+                            {!folder && <button type="button" onClick={() => { setSelectedDriveResource(file); setDriveToolsOpen(true) }}>Link to client or project</button>}
+                            {file.webViewLink && <a href={file.webViewLink} target="_blank" rel="noreferrer">Open in Drive ↗</a>}
+                            {file.canDelete && <button type="button" className="file-item-menu__danger" disabled={removingDriveFileId !== null} onClick={() => void handleTrashDriveFile(file)}>{removingDriveFileId === file.id ? 'Moving to trash…' : 'Move to Drive trash'}</button>}
+                          </div>
+                        </details>
+                      </div>
+                    )
+                  })}
+                  {filteredDriveFiles.length === 0 && (
+                    <div className="file-explorer__empty-card">
+                      <strong>This Google Drive folder is empty.</strong>
+                      <span>Create a folder here or upload a document into it.</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="file-explorer__file-table-wrap">
+                  <table className="file-explorer__file-table drive-folder-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Type</th>
+                        <th>Updated</th>
+                        <th>Size</th>
+                        <th aria-label="Actions" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredDriveFiles.map((file) => {
+                        const folder = isDriveFolder(file)
+                        const fileType = explorerFileType(file.name, file.mimeType)
+                        const mode = driveWorkspaceMode(file)
+                        return (
+                          <tr key={file.id}>
+                            <td>
+                              <button
+                                type="button"
+                                className="file-explorer__file-name"
+                                onClick={() => folder ? void openDriveFolder(file) : mode !== 'unsupported' && setSelectedDriveFile(file)}
+                                onDoubleClick={() => folder ? void openDriveFolder(file) : mode !== 'unsupported' && setSelectedDriveFile(file)}
+                              >
+                                <span className={folder ? 'drive-folder-table__folder-icon' : 'file-explorer__file-icon file-explorer__file-icon--' + fileType.className}>
+                                  {folder ? <ExplorerIcon name="folder" size={20} /> : fileType.label}
+                                </span>
+                                <span>
+                                  <strong>{file.name}</strong>
+                                  <small>{folder ? 'Folder' : fileType.label + (file.canEdit ? ' · Editable' : ' · View only')}</small>
+                                </span>
+                              </button>
+                            </td>
+                            <td>{folder ? 'Folder' : fileType.label}</td>
+                            <td>{explorerDate(file.modifiedTime || '')}</td>
+                            <td>{file.size === null ? '—' : explorerFileSize(file.size)}</td>
+                            <td>
+                              <details className="file-item-menu">
+                                <summary aria-label={'Actions for ' + file.name}><ExplorerIcon name="more" size={18} /></summary>
+                                <div>
+                                  {folder && <button type="button" onClick={() => void openDriveFolder(file)}>Open folder</button>}
+                                  {!folder && mode !== 'unsupported' && <button type="button" onClick={() => setSelectedDriveFile(file)}>{file.canEdit && !['pdf', 'image'].includes(mode) ? 'Edit in lancee' : 'View in lancee'}</button>}
+                                  {!folder && <button type="button" onClick={() => { setSelectedDriveResource(file); setDriveToolsOpen(true) }}>Link to client or project</button>}
+                                  {file.webViewLink && <a href={file.webViewLink} target="_blank" rel="noreferrer">Open in Drive ↗</a>}
+                                  {file.canDelete && <button type="button" className="file-item-menu__danger" disabled={removingDriveFileId !== null} onClick={() => void handleTrashDriveFile(file)}>{removingDriveFileId === file.id ? 'Moving to trash…' : 'Move to Drive trash'}</button>}
+                                </div>
+                              </details>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                      {filteredDriveFiles.length === 0 && (
+                        <tr><td colSpan={5} className="file-explorer__empty-row">This Google Drive folder is empty.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <footer className="file-explorer__pagination">
+                <span>
+                  {filteredDriveFiles.length} of {driveFiles.length} item{driveFiles.length === 1 ? '' : 's'}
+                </span>
+              </footer>
+            </section>
+          )}
 
           {uploadOpen && (
             <form className="file-explorer__upload" onSubmit={handleDocumentUpload}>
@@ -1365,7 +2008,13 @@ export default function FilesPage({
                 <div>
                   <span className="file-explorer__eyebrow">Add a file</span>
                   <h2>Upload to a storage option</h2>
-                  <p>Choose a Drive folder for cloud uploads, or keep the file in the lancee library for local editing.</p>
+                  <p>
+                    {scope === 'drive' && driveConnected
+                      ? `Uploads to Google Drive land in ${currentDriveFolder?.name || 'the workspace folder'}.`
+                      : currentLibraryFolder
+                        ? `Uploads to the library land in ${currentLibraryFolder.name}.`
+                        : 'Choose a Drive folder for cloud uploads, or keep the file in the lancee library for local editing.'}
+                  </p>
                 </div>
                 <button type="button" className="file-explorer__close" onClick={() => setUploadOpen(false)}>×</button>
               </div>
@@ -1388,17 +2037,17 @@ export default function FilesPage({
                     setDocumentStoragePointId(links.find((link) => link.provider === next && link.isDefault)?.id || links.find((link) => link.provider === next)?.id || '')
                   }}
                 >
-                  <option value="local">Local workspace</option>
-                  <option value="drive" disabled={!driveConnected || !driveRootFolder}>Google Drive folder</option>
-                  <option value="dropbox" disabled={!links.some((link) => link.provider === 'dropbox')}>Dropbox</option>
-                  <option value="onedrive" disabled={!links.some((link) => link.provider === 'onedrive')}>OneDrive</option>
+                  <option value="local">Lancee library{currentLibraryFolder ? ` · ${currentLibraryFolder.name}` : ''}</option>
+                  {driveConnected && <option value="drive">Google Drive folder{currentDriveFolder ? ` · ${currentDriveFolder.name}` : ''}</option>}
+                  {dropboxEnabled && <option value="dropbox">Dropbox</option>}
+                  {onedriveEnabled && <option value="onedrive">OneDrive</option>}
                 </select>
               </label>
-              {documentDestination === 'drive' && driveRootFolder && (
+              {documentDestination === 'drive' && currentDriveFolder && (
                 <div className="file-explorer__form-field file-explorer__drive-destination">
                   Google Drive folder
-                  <strong>{driveRootFolder.name}</strong>
-                  <small>Uploads are saved directly to this folder.</small>
+                  <strong>{currentDriveFolder.name}</strong>
+                  <small>Uploads are saved directly to the folder you are viewing.</small>
                 </div>
               )}
               {documentDestination !== 'local' && documentDestination !== 'drive' && (
@@ -1412,7 +2061,7 @@ export default function FilesPage({
                   </select>
                 </label>
               )}
-              <button type="submit" className="button button--primary" disabled={!documentFile || uploadingDocument || (documentDestination === 'drive' && !driveRootFolder)}>
+              <button type="submit" className="button button--primary" disabled={!documentFile || uploadingDocument || (documentDestination === 'drive' && !currentDriveFolder)}>
                 {uploadingDocument ? 'Uploading…' : 'Add file'}
               </button>
             </form>
@@ -1475,7 +2124,7 @@ export default function FilesPage({
                 <span>{links.length} configured</span>
               </div>
               <div className="file-explorer__linked-points-list">
-                {links.map((link) => (
+                {filteredLinks.map((link) => (
                   <div className="file-explorer__linked-point" key={link.id}>
                     <span className={'file-explorer__space-icon file-explorer__space-icon--' + link.provider}>
                       {link.provider === 'drive' ? 'G' : link.provider === 'dropbox' ? 'D' : 'O'}
@@ -1495,6 +2144,7 @@ export default function FilesPage({
             </section>
           )}
 
+          {driveConnected && (
           <details className="file-explorer__advanced" open={driveToolsOpen} onToggle={(event) => setDriveToolsOpen(event.currentTarget.open)}>
             <summary>Google Drive tools and resource links</summary>
             <div>
@@ -1538,6 +2188,7 @@ export default function FilesPage({
               )}
             </div>
           </details>
+          )}
 
           <details className="file-explorer__advanced">
             <summary>Workspace document tools</summary>
@@ -1545,6 +2196,45 @@ export default function FilesPage({
           </details>
         </div>
       </main>
+
+      {moveTarget && (
+        <div className="file-explorer__move-dialog" role="dialog" aria-modal="true" aria-label="Move file">
+          <div className="file-explorer__move-panel">
+            <div className="file-explorer__form-heading">
+              <div>
+                <span className="file-explorer__eyebrow">Move</span>
+                <h2>{moveTarget.kind === 'document' ? moveTarget.document.name : moveTarget.folder.name}</h2>
+                <p>Choose a destination folder in the lancee library.</p>
+              </div>
+              <button type="button" className="file-explorer__close" onClick={() => setMoveTarget(null)}>×</button>
+            </div>
+            <label className="file-explorer__form-field">
+              Destination folder
+              <select
+                value={moveTargetFolderId}
+                onChange={(event) => setMoveTargetFolderId(event.target.value)}
+                autoFocus
+              >
+                <option value="">Lancee library (root)</option>
+                {moveOptions}
+              </select>
+            </label>
+            <div className="file-explorer__form-actions">
+              <button
+                type="button"
+                className="button button--primary"
+                disabled={movingTarget || moveTargetFolderId === (moveTarget.kind === 'document' ? moveTarget.document.folderId || '' : moveTarget.folder.parentId || '')}
+                onClick={() => void handleMove()}
+              >
+                {movingTarget ? 'Moving…' : 'Move here'}
+              </button>
+              <button type="button" className="button button--secondary" onClick={() => setMoveTarget(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {selectedDriveFile && (
         <DriveFileWorkspace

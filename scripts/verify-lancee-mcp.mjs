@@ -20,6 +20,21 @@ const runtime = {
     }
     throw new LanceeMcpError('MCP_TEST_FAILURE', 'Expected test failure.')
   },
+  normalizeResult(_name, result) {
+    return {
+      success: true,
+      ok: true,
+      data: {
+        resource: result.resource,
+        results: result.rows,
+        total: result.total,
+      },
+      artifacts: [],
+      warnings: [],
+      error: null,
+      metadata: { contractVersion: '1.0' },
+    }
+  },
 }
 const server = createLanceeMcpProtocolServer({ runtime })
 
@@ -47,9 +62,9 @@ const invoked = await server.handleMessage({
   params: { name: 'query_dashboard', arguments: { resource: 'projects' } },
 }, context)
 assert.equal(invoked.result.isError, undefined)
-assert.deepEqual(invoked.result.structuredContent, {
+assert.deepEqual(invoked.result.structuredContent.data, {
   resource: 'projects',
-  rows: [],
+  results: [],
   total: 0,
 })
 assert.equal(calls[0].invocationContext, context)
@@ -61,7 +76,8 @@ const failed = await server.handleMessage({
   params: { name: 'create_client', arguments: { name: 'Test' } },
 }, context)
 assert.equal(failed.result.isError, true)
-assert.equal(failed.result.structuredContent.error, 'MCP_TEST_FAILURE')
+assert.equal(failed.result.structuredContent.ok, false)
+assert.equal(failed.result.structuredContent.error.code, 'MCP_TEST_FAILURE')
 
 const dispatched = await dispatchLanceeMcpPayload([
   { jsonrpc: '2.0', id: 5, method: 'ping' },

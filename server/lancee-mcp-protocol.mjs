@@ -2,6 +2,12 @@ import {
   LanceeMcpError,
   lanceeMcpToolDefinitions,
 } from './lancee-mcp.mjs'
+import {
+  LANCEE_MCP_RESULT_CONTRACT_VERSION,
+  mcpOutputSchema,
+  normalizeCapabilityResult,
+  normalizeMcpError,
+} from './capabilities/result-contract.mjs'
 
 export const lanceeMcpProtocolVersion = '2025-06-18'
 
@@ -50,7 +56,10 @@ export function createLanceeMcpProtocolServer({
   }
 
   const resolvedTools = toolDefinitions || runtime.listTools?.() || lanceeMcpToolDefinitions
-  const tools = resolvedTools.map((tool) => ({ ...tool }))
+  const tools = resolvedTools.map((tool) => ({
+    ...tool,
+    outputSchema: tool.outputSchema || mcpOutputSchema(),
+  }))
   const toolNames = new Set(tools.map((tool) => tool.name))
 
   async function handleMessage(message, context) {
@@ -90,18 +99,37 @@ export function createLanceeMcpProtocolServer({
         const result = await runtime.invoke(name, argumentsValue, context, {
           origin: 'mcp-protocol',
           requestId: String(message.id),
+          normalizeResult: true,
         })
-        return rpcResult(message.id, toolResult(result))
+        const normalized = typeof runtime.normalizeResult === 'function'
+          ? runtime.normalizeResult(name, result, { request_id: String(message.id) })
+          : (() => {
+              const contract = normalizeCapabilityResult(null, result)
+              return {
+                success: true,
+                ok: true,
+                data: contract.data,
+                artifacts: contract.artifacts,
+                warnings: contract.warnings,
+                error: null,
+                metadata: {
+                  contractVersion: LANCEE_MCP_RESULT_CONTRACT_VERSION,
+                  tool: name,
+                  request_id: String(message.id),
+                  ...contract.diagnostics,
+                },
+              }
+            })()
+        return rpcResult(message.id, toolResult(normalized))
       } catch (error) {
         const knownError = error instanceof LanceeMcpError
         if (!knownError) {
           logger.error(`Lancee MCP tool ${name} failed:`, error)
         }
-        return rpcResult(message.id, toolResult({
-          error: knownError ? error.code : 'MCP_TOOL_FAILED',
-          message: knownError ? error.message : 'The Lancee MCP tool failed.',
-          tool: name,
-        }, true))
+        return rpcResult(message.id, toolResult(normalizeMcpError(
+          knownError ? error : null,
+          { tool: name },
+        ), true))
       }
     }
     return rpcError(message.id, -32601, `Method not found: ${message.method}`)

@@ -4752,9 +4752,10 @@ kbd {
   gap: 30px;
   padding-inline: max(24px, calc((100vw - 1240px) / 2));
   color: #eef2e9;
-  background: rgba(18, 22, 15, 0.9);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.075);
-  backdrop-filter: blur(18px);
+  background: rgba(18, 22, 15, 0.64);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  backdrop-filter: blur(18px) saturate(130%);
 }
 
 .landing-brand {
@@ -7482,6 +7483,14 @@ kbd {
 
   .sidebar.is-open {
     transform: translateX(0);
+  }
+
+  .usage-card {
+    display: none;
+  }
+
+  .sidebar__bottom {
+    margin-top: 16px;
   }
 
   .sidebar-toggle {
@@ -10290,9 +10299,9 @@ html[data-theme='dark'] .landing-cta h2
 html[data-theme='dark'] .landing .landing-nav {
   position: sticky;
   top: 0;
-  -webkit-backdrop-filter: blur(26px) saturate(145%);
-  backdrop-filter: blur(26px) saturate(145%);
-  background: linear-gradient(90deg, rgba(8, 12, 20, .76), rgba(15, 20, 32, .66));
+  -webkit-backdrop-filter: blur(20px) saturate(135%);
+  backdrop-filter: blur(20px) saturate(135%);
+  background: linear-gradient(90deg, rgba(8, 12, 20, .62), rgba(15, 20, 32, .5));
 }
 
 html[data-theme='dark'] .landing-nav__connections {

@@ -722,33 +722,26 @@ export default function WorkPanel({
                 <span className={`projects-status projects-status--${selectedProject.status.toLowerCase().replaceAll(' ', '-')}`}>
                   {statusLabels[selectedProject.status]}
                 </span>
-                <button
-                  type="button"
-                  className="button button--secondary"
-                  onClick={() => void beginEdit(selectedProject)}
-                >
-                  Edit details
-                </button>
-                <button type="button" className="button button--primary" onClick={openReviewPackageComposer} disabled={approvalBusy || !clients.find((client) => client.id === selectedProject.clientId)?.email}>
-                  Send for approval
-                </button>
-                <button
-                  type="button"
-                  className="button button--danger"
-                  onClick={() => void deleteProject(selectedProject)}
-                >
-                  Delete project
-                </button>
-                <button
-                  type="button"
-                  className="projects-new"
-                  onClick={() => {
-                    setNewProjectClientId(selectedProject.clientId || selectedClientId)
-                    setCreating(true)
-                  }}
-                >
-                  ＋ New Project
-                </button>
+                <details className="project-workspace__action-menu">
+                  <summary>Actions <span aria-hidden="true">⌄</span></summary>
+                  <div>
+                    <button type="button" onClick={() => void beginEdit(selectedProject)}>
+                      Edit details
+                    </button>
+                    <button type="button" onClick={openReviewPackageComposer} disabled={approvalBusy || !clients.find((client) => client.id === selectedProject.clientId)?.email}>
+                      Send for approval
+                    </button>
+                    <button type="button" onClick={() => {
+                      setNewProjectClientId(selectedProject.clientId || selectedClientId)
+                      setCreating(true)
+                    }}>
+                      ＋ New Project
+                    </button>
+                    <button type="button" className="is-danger" onClick={() => void deleteProject(selectedProject)}>
+                      Delete project
+                    </button>
+                  </div>
+                </details>
               </div>
             </header>
 

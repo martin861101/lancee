@@ -799,6 +799,29 @@ export async function uploadGoogleDriveFile({
   }
 }
 
+export async function createGoogleDriveFolder({ accessToken, name, parentId }) {
+  const url = new URL(GOOGLE_DRIVE_FILES_URL)
+  url.searchParams.set('supportsAllDrives', 'true')
+  url.searchParams.set('fields', fileMetadataFields())
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentId],
+    }),
+  })
+  if (!response.ok) {
+    await googleDriveResponseError(response, 'Unable to create this Google Drive folder.')
+  }
+  return normalizeDriveListFile(await response.json())
+}
+
 export function tokenHasDriveFileScope(tokenRow) {
   const scopes = String(tokenRow?.scope || '').split(/\s+/).filter(Boolean)
   return (

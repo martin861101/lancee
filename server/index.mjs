@@ -15,6 +15,13 @@ import { fileURLToPath } from 'node:url'
 import express from 'express'
 import { openDatabase } from './database.mjs'
 import { createAgentRuntime, AgentRuntimeError } from './agent-runtime.mjs'
+import {
+  AgentProviderError,
+  createAgentProviderGateway,
+  getAgentProviderConfig,
+} from './agents/agent-provider.mjs'
+import { createHermesAgentProvider } from './agents/hermes-agent-provider.mjs'
+import { createLanceeAgentProvider } from './agents/lancee-agent-provider.mjs'
 import { createBrowserWorker } from './browser-worker.mjs'
 import { createExecutionWorker } from './execution-worker.mjs'
 import {
@@ -111,6 +118,7 @@ import {
   accessTokenIsFresh,
   buildGoogleAuthUrl,
   createOAuthState,
+  createGoogleDriveFolder,
   decryptDriveSecret,
   driveStatusResponse,
   encryptDriveSecret,
@@ -3986,8 +3994,14 @@ app.post(
   },
 )
 
-app.get('/api/ai/status', requireAuth, (_request, response) => {
-  response.json(getAiStatus())
+app.get('/api/ai/status', requireAuth, async (_request, response) => {
+  const completion = getAiStatus()
+  const agent = await agentGateway.status({ probe: true })
+  response.json({ ...completion, completion, agent })
+})
+
+app.get('/api/agent/status', requireAuth, async (_request, response) => {
+  response.json(await agentGateway.status({ probe: true }))
 })
 
 app.post('/api/agent/runs', secureMutations, requireAuth, async (request, response) => {
@@ -4005,9 +4019,9 @@ app.post('/api/agent/runs', secureMutations, requireAuth, async (request, respon
     route: 'POST /api/agent/runs',
     input: { objective, threadId, budget },
     operation: async () => {
-      const run = await agentRuntime.start({
+      const run = await agentGateway.runAgent({
         context: request.auth.context,
-        objective,
+        message: objective,
         threadId,
         title: objective.slice(0, 120),
         budget,
@@ -4019,8 +4033,20 @@ app.post('/api/agent/runs', secureMutations, requireAuth, async (request, respon
 })
 
 app.get('/api/agent/runs', requireAuth, async (request, response) => {
+  const threadId = request.query.threadId ? String(request.query.threadId) : null
+  if (threadId && !/^athr_[a-f0-9]{20}$/.test(threadId)) {
+    throw new HttpError(400, 'A valid agent conversation id is required.')
+  }
+  if (threadId && !(await database.getAgentThread(
+    request.auth.context.workspace.id,
+    threadId,
+    request.auth.context.user.id,
+  ))) {
+    throw new HttpError(404, 'Agent conversation not found.')
+  }
   const runs = await database.listAgentRuns(request.auth.context.workspace.id, {
     userId: request.auth.context.user.id,
+    threadId,
     limit: 100,
   })
   response.json({ runs })
@@ -4050,7 +4076,7 @@ app.post('/api/agent/runs/:runId/resume', secureMutations, requireAuth, async (r
       status: 200,
       response: await agentRunResponse(
         request.auth.context,
-        await agentRuntime.resume({ context: request.auth.context, runId }),
+        await agentGateway.resume({ context: request.auth.context, runId }),
       ),
     }),
   })
@@ -4062,7 +4088,7 @@ app.post('/api/agent/runs/:runId/approvals/:approvalId', secureMutations, requir
   const approvalId = String(request.params.approvalId || '')
   const decision = String(request.body?.decision || '')
   const reason = String(request.body?.reason || '').slice(0, 1_000)
-  if (!/^arun_[a-f0-9]{20}$/.test(runId) || !/^aapr_[a-f0-9]{20}$/.test(approvalId)) {
+  if (!/^arun_[a-f0-9]{20}$/.test(runId) || !/^(?:aapr_[a-f0-9]{20}|ha_[a-f0-9]{20})$/.test(approvalId)) {
     throw new HttpError(400, 'Valid agent run and approval ids are required.')
   }
   if (!['approved', 'denied'].includes(decision)) throw new HttpError(400, 'Decision must be approved or denied.')
@@ -4071,14 +4097,14 @@ app.post('/api/agent/runs/:runId/approvals/:approvalId', secureMutations, requir
     route: `POST /api/agent/runs/${runId}/approvals/${approvalId}`,
     input: { decision, reason },
     operation: async () => {
-      await agentRuntime.decideApproval({
+      await agentGateway.decideApproval({
         context: request.auth.context,
         runId,
         approvalId,
         decision,
         reason,
       })
-      const run = await agentRuntime.resume({ context: request.auth.context, runId })
+      const run = await agentGateway.resume({ context: request.auth.context, runId })
       return { status: 200, response: await agentRunResponse(request.auth.context, run) }
     },
   })
@@ -4096,7 +4122,7 @@ app.post('/api/agent/runs/:runId/cancel', secureMutations, requireAuth, async (r
       status: 200,
       response: await agentRunResponse(
         request.auth.context,
-        await agentRuntime.cancel({ context: request.auth.context, runId }),
+        await agentGateway.cancel({ context: request.auth.context, runId }),
       ),
     }),
   })
@@ -4169,8 +4195,12 @@ async function aiMcpToolManifest(selectedWorkspaceId) {
   return services
     .filter((service) => service.active && service.status === 'live')
     .slice(0, 20)
-    .flatMap((service) =>
-      service.tools.slice(0, 20).map((tool) => ({
+    .flatMap((service) => {
+      const tools = service.tools.slice(0, 20)
+      for (const tool of service.tools) {
+        if (tool.id === 'create_pdf' && !tools.some((candidate) => candidate.id === tool.id)) tools.push(tool)
+      }
+      return tools.map((tool) => ({
         serviceId: service.id,
         serviceName: service.name,
         toolId: tool.id,
@@ -4181,8 +4211,8 @@ async function aiMcpToolManifest(selectedWorkspaceId) {
         description: tool.description,
         inputSchema: tool.inputSchema,
         annotations: tool.annotations || {},
-      })),
-    )
+      }))
+    })
 }
 
 function proposedActionFromToolCall(toolCall, manifest, { continueAfterSuccess = false } = {}) {
@@ -6933,6 +6963,144 @@ app.get('/api/documents', requireAuth, async (request, response) => {
   })
 })
 
+const documentFolderIdPattern = /^folder_[a-f0-9]{16}$/
+
+app.get('/api/documents/folders', requireAuth, async (request, response) => {
+  response.json({
+    folders: await database.listWorkspaceDocumentFolders(
+      request.auth.context.workspace.id,
+    ),
+  })
+})
+
+app.post('/api/documents/folders', secureMutations, requireAuth, async (request, response) => {
+  const selectedWorkspaceId = request.auth.context.workspace.id
+  const name = String(request.body?.name || '').trim()
+  const parentId = String(request.body?.parentId || '').trim() || null
+  if (!name || name.length > 120 || /[/\\\0]/.test(name)) {
+    throw new HttpError(400, 'Enter a valid folder name.')
+  }
+  if (parentId && !documentFolderIdPattern.test(parentId)) {
+    throw new HttpError(400, 'A valid parent folder is required.')
+  }
+  if (parentId) {
+    const parent = await database.getWorkspaceDocumentFolder(
+      selectedWorkspaceId,
+      parentId,
+    )
+    if (!parent) throw new HttpError(404, 'The parent folder is unavailable.')
+  }
+  const folder = await database.createWorkspaceDocumentFolder({
+    workspaceId: selectedWorkspaceId,
+    name,
+    parentId,
+  })
+  response.status(201).json({ folder })
+})
+
+app.patch('/api/documents/folders/:id', secureMutations, requireAuth, async (request, response) => {
+  const selectedWorkspaceId = request.auth.context.workspace.id
+  const id = String(request.params.id || '')
+  if (!documentFolderIdPattern.test(id)) {
+    throw new HttpError(400, 'A valid folder id is required.')
+  }
+  const folder = await database.getWorkspaceDocumentFolder(
+    selectedWorkspaceId,
+    id,
+  )
+  if (!folder) throw new HttpError(404, 'Folder not found.')
+  let name = folder.name
+  let parentId = folder.parentId
+  if (Object.hasOwn(request.body || {}, 'name')) {
+    name = String(request.body.name || '').trim()
+    if (!name || name.length > 120 || /[/\\\0]/.test(name)) {
+      throw new HttpError(400, 'Enter a valid folder name.')
+    }
+  }
+  if (Object.hasOwn(request.body || {}, 'parentId')) {
+    parentId = String(request.body.parentId || '').trim() || null
+    if (parentId && !documentFolderIdPattern.test(parentId)) {
+      throw new HttpError(400, 'A valid destination folder is required.')
+    }
+    if (parentId === id) {
+      throw new HttpError(400, 'A folder cannot be moved into itself.')
+    }
+    if (parentId) {
+      const parent = await database.getWorkspaceDocumentFolder(
+        selectedWorkspaceId,
+        parentId,
+      )
+      if (!parent) throw new HttpError(404, 'The destination folder is unavailable.')
+      let ancestor = parent
+      const guard = new Set([id])
+      while (ancestor) {
+        if (guard.has(ancestor.id)) {
+          throw new HttpError(400, 'A folder cannot be moved into its own subfolder.')
+        }
+        guard.add(ancestor.id)
+        ancestor = ancestor.parentId
+          ? await database.getWorkspaceDocumentFolder(
+              selectedWorkspaceId,
+              ancestor.parentId,
+            )
+          : null
+      }
+    }
+  }
+  if (name !== folder.name || parentId !== folder.parentId) {
+    if (name !== folder.name) {
+      await database.renameWorkspaceDocumentFolder(selectedWorkspaceId, id, name)
+    }
+    if (parentId !== folder.parentId) {
+      await database.moveWorkspaceDocumentFolder(selectedWorkspaceId, id, parentId)
+    }
+  }
+  const updated = await database.getWorkspaceDocumentFolder(selectedWorkspaceId, id)
+  response.json({ folder: updated })
+})
+
+app.delete('/api/documents/folders/:id', secureMutations, requireAuth, async (request, response) => {
+  const selectedWorkspaceId = request.auth.context.workspace.id
+  const id = String(request.params.id || '')
+  if (!documentFolderIdPattern.test(id)) {
+    throw new HttpError(400, 'A valid folder id is required.')
+  }
+  const folder = await database.getWorkspaceDocumentFolder(
+    selectedWorkspaceId,
+    id,
+  )
+  if (!folder) throw new HttpError(404, 'Folder not found.')
+  await database.deleteWorkspaceDocumentFolder(selectedWorkspaceId, id, folder.parentId)
+  response.status(204).end()
+})
+
+app.patch('/api/documents/:id/folder', secureMutations, requireAuth, async (request, response) => {
+  const selectedWorkspaceId = request.auth.context.workspace.id
+  const id = String(request.params.id || '')
+  const folderId = String(request.body?.folderId || '').trim() || null
+  if (!/^doc_[a-f0-9]{16}$/.test(id)) {
+    throw new HttpError(400, 'A valid document id is required.')
+  }
+  if (folderId && !documentFolderIdPattern.test(folderId)) {
+    throw new HttpError(400, 'A valid destination folder is required.')
+  }
+  const document = await database.getWorkspaceDocument(selectedWorkspaceId, id)
+  if (!document) throw new HttpError(404, 'Document not found.')
+  if (folderId) {
+    const folder = await database.getWorkspaceDocumentFolder(
+      selectedWorkspaceId,
+      folderId,
+    )
+    if (!folder) throw new HttpError(404, 'The destination folder is unavailable.')
+  }
+  const updated = await database.moveWorkspaceDocument(
+    selectedWorkspaceId,
+    id,
+    folderId,
+  )
+  response.json({ document: updated })
+})
+
 app.post(
   '/api/documents',
   secureMutations,
@@ -6952,6 +7120,7 @@ app.post(
       .trim()
       .toLowerCase()
     const folderId = String(request.get('X-Drive-Folder-Id') || '').trim() || null
+    const localFolderId = String(request.get('X-Folder-Id') || '').trim() || null
     const storagePointId = String(request.get('X-Storage-Point-Id') || '').trim() || null
     if (
       !name ||
@@ -6967,6 +7136,9 @@ app.post(
     }
     if (folderId && !/^[A-Za-z0-9_-]{3,200}$/.test(folderId)) {
       throw new HttpError(400, 'A valid Google Drive folder ID is required.')
+    }
+    if (localFolderId && !documentFolderIdPattern.test(localFolderId)) {
+      throw new HttpError(400, 'A valid library folder is required.')
     }
     if (storagePointId && !/^cloud_[a-f0-9]{12}$/.test(storagePointId)) {
       throw new HttpError(400, 'A valid storage point is required.')
@@ -6993,6 +7165,13 @@ app.post(
     }
 
     const selectedWorkspaceId = request.auth.context.workspace.id
+    if (localFolderId) {
+      const folder = await database.getWorkspaceDocumentFolder(
+        selectedWorkspaceId,
+        localFolderId,
+      )
+      if (!folder) throw new HttpError(404, 'The selected library folder is unavailable.')
+    }
     if (storagePointId) {
       const storagePoint = (await database.listWorkspaceCloudLinks(selectedWorkspaceId))
         .find((link) => link.id === storagePointId)
@@ -7011,6 +7190,7 @@ app.post(
       mimeType,
       body: request.body,
       storagePointId,
+      folderId: localFolderId,
     })
     if (destination === 'drive' || destination === 'both') {
       const accessToken = await resolveGoogleDriveAccessToken(selectedWorkspaceId)
@@ -7598,6 +7778,46 @@ app.get('/api/google-drive/files', requireAuth, async (request, response) => {
   }
 })
 
+app.post('/api/google-drive/folders', secureMutations, requireAuth, async (request, response) => {
+  const workspaceId = request.auth.context.workspace.id
+  const name = String(request.body?.name || '').trim()
+  const parentId = String(request.body?.parentId || '').trim()
+  if (!name || name.length > 120) {
+    throw new HttpError(400, 'Choose a folder name between 1 and 120 characters.')
+  }
+  if (!/^[A-Za-z0-9_-]{3,200}$/.test(parentId)) {
+    throw new HttpError(400, 'A valid Google Drive parent folder is required.')
+  }
+  const rootFileId = await database.getGoogleDriveSelectionRoot(workspaceId, parentId)
+  if (!rootFileId) {
+    throw new GoogleDriveError(
+      'DRIVE_SELECTION_REQUIRED',
+      'Choose this folder in Google Drive before creating a folder here.',
+      403,
+    )
+  }
+  const accessToken = await resolveGoogleDriveAccessToken(workspaceId)
+  const parent = await getGoogleDriveFileMetadata({ accessToken, fileId: parentId })
+  if (parent.mimeType !== 'application/vnd.google-apps.folder') {
+    throw new HttpError(400, 'The selected Google Drive item is not a folder.')
+  }
+  const result = await executeIdempotentMutation({
+    request,
+    route: 'POST /api/google-drive/folders',
+    input: { name, parentId },
+    operation: async () => {
+      const folder = await createGoogleDriveFolder({ accessToken, name, parentId })
+      await database.upsertGoogleDriveSelection({
+        workspaceId,
+        rootFileId,
+        file: folder,
+      })
+      return { status: 200, response: { folder } }
+    },
+  })
+  sendMutationResponse(response, result)
+})
+
 app.get(
   '/api/google-drive/files/:fileId/editor',
   requireAuth,
@@ -7990,26 +8210,50 @@ const agentRuntime = createAgentRuntime({
   capabilityRegistry: lanceeMcp.capabilities,
 })
 
+const agentProviderConfig = getAgentProviderConfig()
+const hermesAgentProvider = createHermesAgentProvider({ database })
+const lanceeAgentProvider = createLanceeAgentProvider({ runtime: agentRuntime })
+const agentGateway = createAgentProviderGateway({
+  database,
+  config: agentProviderConfig,
+  hermes: hermesAgentProvider,
+  lancee: lanceeAgentProvider,
+})
+
 async function agentRunResponse(context, run) {
   let proposedAction = null
   if (run.status === 'waiting_approval' && run.pendingAction?.approvalId) {
-    const [approval, step] = await Promise.all([
-      database.getAgentApproval(context.workspace.id, run.pendingAction.approvalId),
-      database.getAgentStep(context.workspace.id, run.pendingAction.stepId),
-    ])
-    const capability = step ? lanceeMcp.capabilities.get(step.toolId) : null
-    if (approval && step && capability) {
-      const highRisk = ['external-action', 'destructive', 'administrative'].includes(capability.riskLevel)
+    if (run.pendingAction.provider === 'hermes') {
       proposedAction = {
         serviceId: 'lancee-agent',
-        toolId: capability.id,
-        arguments: step.arguments,
-        title: capability.id.split(/[.-]/).map((word) => word[0].toUpperCase() + word.slice(1)).join(' '),
-        description: capability.description,
-        risk: highRisk ? 'high' : capability.riskLevel === 'read' ? 'low' : 'medium',
-        readOnly: capability.riskLevel === 'read',
+        toolId: 'hermes-agent-action',
+        arguments: {},
+        title: run.pendingAction.approval?.tool || 'Hermes agent action',
+        description: run.pendingAction.approval?.description || 'Hermes requested approval before continuing.',
+        risk: 'high',
+        readOnly: false,
         agentRunId: run.id,
-        approvalId: approval.id,
+        approvalId: run.pendingAction.approvalId,
+      }
+    } else {
+      const [approval, step] = await Promise.all([
+        database.getAgentApproval(context.workspace.id, run.pendingAction.approvalId),
+        database.getAgentStep(context.workspace.id, run.pendingAction.stepId),
+      ])
+      const capability = step ? lanceeMcp.capabilities.get(step.toolId) : null
+      if (approval && step && capability) {
+        const highRisk = ['external-action', 'destructive', 'administrative'].includes(capability.riskLevel)
+        proposedAction = {
+          serviceId: 'lancee-agent',
+          toolId: capability.id,
+          arguments: step.arguments,
+          title: capability.id.split(/[.-]/).map((word) => word[0].toUpperCase() + word.slice(1)).join(' '),
+          description: capability.description,
+          risk: highRisk ? 'high' : capability.riskLevel === 'read' ? 'low' : 'medium',
+          readOnly: capability.riskLevel === 'read',
+          agentRunId: run.id,
+          approvalId: approval.id,
+        }
       }
     }
   }
@@ -8614,6 +8858,13 @@ app.use((error, _request, response, _next) => {
   }
   if (error instanceof AgentRuntimeError) {
     response.status(409).json({
+      error: error.message,
+      code: error.code,
+    })
+    return
+  }
+  if (error instanceof AgentProviderError) {
+    response.status(error.status || 502).json({
       error: error.message,
       code: error.code,
     })
