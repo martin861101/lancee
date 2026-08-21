@@ -78,10 +78,21 @@ const resultContracts = Object.freeze({
   'decision.create': { mode: 'single', resourceKey: 'decision', resourceType: 'decision' },
   'decision.list': { mode: 'list', collection: 'decisions', resourceType: 'decision' },
   'decision.get': { mode: 'single', resourceKey: 'decision', resourceType: 'decision' },
+  'decision.schedule-review': { mode: 'single', resourceKey: 'review', resourceType: 'decision-review' },
+  'decision.list-reviews': { mode: 'list', collection: 'reviews', resourceType: 'decision-review' },
   'decision.record-outcome': { mode: 'single', resourceKey: 'outcome', resourceType: 'decision-outcome' },
   'decision.get-outcome': { mode: 'single', resourceKey: 'outcome', resourceType: 'decision-outcome' },
   'decision.get-evidence': { mode: 'list', collection: 'evidence', resourceType: 'decision-evidence' },
   'decision.compare': { mode: 'list', collection: 'candidates', resourceType: 'decision-comparison' },
+  'decision.get-comparison': { mode: 'single', resourceKey: 'comparison', resourceType: 'decision-comparison' },
+  'decision.review-comparison': { mode: 'single', resourceKey: 'comparison', resourceType: 'decision-comparison' },
+  'decision.refresh-intelligence': { mode: 'terminal' },
+  'decision.list-patterns': { mode: 'list', collection: 'patterns', resourceType: 'decision-pattern' },
+  'decision.list-predictions': { mode: 'list', collection: 'predictions', resourceType: 'decision-prediction' },
+  'decision.list-warnings': { mode: 'list', collection: 'warnings', resourceType: 'decision-warning' },
+  'decision.review-warning': { mode: 'single', resourceKey: 'warning', resourceType: 'decision-warning' },
+  'decision.get-causal-assessment': { mode: 'single', resourceKey: 'assessment', resourceType: 'decision-causal-assessment' },
+  'decision.get-learning-model': { mode: 'single', resourceKey: 'model', resourceType: 'decision-learning-model' },
   'workspace.query': { mode: 'dashboard' },
 })
 
@@ -327,10 +338,14 @@ function normalizeData(capabilityId, value) {
   if (contract.mode === 'list') {
     const rawItems = value?.[contract.collection]
     const results = normalizeCollection(rawItems, contract.resourceType)
+    const resultSemantics = {}
+    if (typeof value?.resultScope === 'string') resultSemantics.resultScope = value.resultScope
+    if (typeof value?.emptyResultMeaning === 'string') resultSemantics.emptyResultMeaning = value.emptyResultMeaning
     return {
       data: {
         results,
         total: Number.isInteger(value?.total) ? value.total : results.length,
+        ...resultSemantics,
       },
       diagnostics: {
         resourceType: contract.resourceType,

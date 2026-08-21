@@ -234,8 +234,8 @@ try {
     coreToolIds: ['workspace.summary'],
     executeAutomationRun: async () => {},
   })
-  assert.equal(Object.keys(lanceeMcpCapabilityBindings).length, 53)
-  assert.equal(runtime.listTools().length, 49)
+  assert.equal(Object.keys(lanceeMcpCapabilityBindings).length, 64)
+  assert.equal(runtime.listTools().length, 60)
   for (const tool of runtime.listTools()) {
     const capability = runtime.capabilities.get(lanceeMcpCapabilityBindings[tool.name])
     assert(capability, `missing capability for ${tool.name}`)

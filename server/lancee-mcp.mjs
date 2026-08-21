@@ -363,6 +363,11 @@ export const lanceeMcpToolDefinitions = [
             direction: { type: 'string', minLength: 1, maxLength: 120 },
             expected_change: { type: 'number' },
             confidence: { type: 'number', minimum: 0, maximum: 1 },
+            review_due_at: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Optional future time when Lancee should ask for the measured outcome.',
+            },
           },
           required: ['metric_key', 'direction', 'confidence'],
           additionalProperties: false,
@@ -376,7 +381,7 @@ export const lanceeMcpToolDefinitions = [
   {
     name: 'list_decisions',
     title: 'List decisions',
-    description: 'List bounded structured decisions in the authorized workspace.',
+    description: 'Primary entry point for recorded decision inputs: list workspace decisions with original language, rationale, intent, Decision Vectors, expected reactions, and review state.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -395,6 +400,36 @@ export const lanceeMcpToolDefinitions = [
       type: 'object',
       properties: { decision_id: { type: 'string', pattern: '^dec_[a-f0-9]{32}$' } },
       required: ['decision_id'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'schedule_decision_review',
+    title: 'Schedule decision outcome review',
+    description: 'Schedule a workspace notification to review one recorded expected metric after enough observation time has passed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        decision_id: { type: 'string', pattern: '^dec_[a-f0-9]{32}$' },
+        metric_key: { type: 'string', minLength: 1, maxLength: 120 },
+        due_at: { type: 'string', format: 'date-time' },
+      },
+      required: ['decision_id', 'metric_key', 'due_at'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'list_decision_reviews',
+    title: 'List decision outcome reviews',
+    description: 'List only the scheduled, due, or completed outcome-review queue. An empty result means no matching reviews; it does not mean there are no decisions, evidence, or decision inputs. Use list_decisions to establish that.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['open', 'scheduled', 'due', 'completed', 'cancelled'] },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
@@ -419,6 +454,12 @@ export const lanceeMcpToolDefinitions = [
         observed_reason: { type: 'string', maxLength: 5000 },
         evidence_confidence: { type: 'number', minimum: 0, maximum: 1 },
         causal_confidence: { type: 'number', minimum: 0, maximum: 1 },
+        analysis_design: {
+          type: 'string',
+          enum: ['observational_pre_post', 'controlled_before_after'],
+        },
+        control_baseline_value: { type: 'number' },
+        control_observed_value: { type: 'number' },
       },
       required: ['decision_id', 'metric_key', 'evidence_confidence'],
       additionalProperties: false,
@@ -466,6 +507,139 @@ export const lanceeMcpToolDefinitions = [
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
   {
+    name: 'get_decision_comparison',
+    title: 'Get decision comparison',
+    description: 'Read the machine assessment and latest human-reviewed effective assessment for one workspace comparison.',
+    inputSchema: {
+      type: 'object',
+      properties: { comparison_id: { type: 'string', pattern: '^dcmp_[a-f0-9]{32}$' } },
+      required: ['comparison_id'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'review_decision_comparison',
+    title: 'Review decision comparison',
+    description: 'Confirm, correct, or reject a Hermes contextual comparison while retaining the original machine assessment and Lancee metrics.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        comparison_id: { type: 'string', pattern: '^dcmp_[a-f0-9]{32}$' },
+        action: { type: 'string', enum: ['confirmed', 'corrected', 'rejected'] },
+        comparable: { type: 'boolean' },
+        contextual_similarity: { type: 'number', minimum: 0, maximum: 1 },
+        shared_factors: {
+          type: 'array',
+          items: { type: 'string', minLength: 1, maxLength: 500 },
+          maxItems: 20,
+        },
+        material_differences: {
+          type: 'array',
+          items: { type: 'string', minLength: 1, maxLength: 500 },
+          maxItems: 20,
+        },
+        explanation: { type: 'string', minLength: 1, maxLength: 2000 },
+      },
+      required: ['comparison_id', 'action'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  {
+    name: 'refresh_decision_intelligence',
+    title: 'Refresh Decision Intelligence',
+    description: 'Run the bounded deterministic learning cycle for the authorized workspace after human approval.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'list_decision_patterns',
+    title: 'List decision patterns',
+    description: 'List evidence-thresholded recurring outcome patterns detected from measured workspace decisions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['all', 'active', 'emerging', 'retired'] },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'list_decision_predictions',
+    title: 'List decision predictions',
+    description: 'List bounded empirical outcome predictions with intervals, confidence, samples, and source decisions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        decision_id: { type: 'string', pattern: '^dec_[a-f0-9]{32}$' },
+        status: { type: 'string', enum: ['all', 'active', 'measured', 'superseded'] },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'list_decision_warnings',
+    title: 'List decision warnings',
+    description: 'List proactive evidence warnings without converting historical association into causality.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['all', 'active', 'acknowledged', 'dismissed', 'resolved'] },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'review_decision_warning',
+    title: 'Review decision warning',
+    description: 'Acknowledge or dismiss one workspace warning after human approval.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        warning_id: { type: 'string', pattern: '^dwrn_[a-f0-9]{32}$' },
+        action: { type: 'string', enum: ['acknowledged', 'dismissed'] },
+      },
+      required: ['warning_id', 'action'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'get_decision_causal_assessment',
+    title: 'Get decision causal assessment',
+    description: 'Read the bounded association or controlled before/after estimate and its explicit assumptions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        decision_id: { type: 'string', pattern: '^dec_[a-f0-9]{32}$' },
+        metric_key: { type: 'string', minLength: 1, maxLength: 120 },
+      },
+      required: ['decision_id'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'get_decision_learning_model',
+    title: 'Get decision learning model',
+    description: 'Read the active versioned structural calibration model and its bounded training provenance.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        model_type: { type: 'string', enum: ['structural_similarity', 'outcome_prediction'] },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
     name: 'call_external_api',
     title: 'Call external API',
     description: 'Call a public HTTP API with bounded time, body, and response size. Redirects, private hosts, cookies, and authorization headers are blocked.',
@@ -503,10 +677,21 @@ const platformCapabilityMetadata = Object.freeze({
   create_decision: { permissions: ['decisions:write'], risk: 'internal-write', approval: true, tags: ['decision', 'create'] },
   list_decisions: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'list'] },
   get_decision: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'read'] },
+  schedule_decision_review: { permissions: ['decisions:write'], risk: 'internal-write', approval: true, tags: ['decision', 'outcome', 'review', 'schedule'] },
+  list_decision_reviews: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'outcome', 'review', 'attention'] },
   record_outcome: { permissions: ['decisions:write'], risk: 'internal-write', approval: true, tags: ['decision', 'outcome'] },
   get_decision_outcome: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'outcome'] },
   get_decision_evidence: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'evidence'] },
   compare_decision: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'comparison'] },
+  get_decision_comparison: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'comparison', 'review'] },
+  review_decision_comparison: { permissions: ['decisions:write'], risk: 'internal-write', approval: true, tags: ['decision', 'comparison', 'review', 'correction'] },
+  refresh_decision_intelligence: { permissions: ['decisions:write'], risk: 'internal-write', approval: true, tags: ['decision', 'learning', 'refresh'] },
+  list_decision_patterns: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'pattern', 'learning'] },
+  list_decision_predictions: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'prediction', 'forecast'] },
+  list_decision_warnings: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'warning', 'risk'] },
+  review_decision_warning: { permissions: ['decisions:write'], risk: 'internal-write', approval: true, tags: ['decision', 'warning', 'review'] },
+  get_decision_causal_assessment: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'causal', 'evidence'] },
+  get_decision_learning_model: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'learning', 'model'] },
 })
 
 function createPlatformCapabilityDefinitions(executePlatform) {
@@ -686,6 +871,7 @@ export function createLanceeMcpRuntime({
   })
   let schedulerTimer = null
   let schedulerBusy = false
+  let lastDecisionIntelligenceRun = 0
 
   const requireOwner = (context) => {
     if (context.membership?.role !== 'owner') {
@@ -934,6 +1120,11 @@ export function createLanceeMcpRuntime({
           })
         }
       }
+      await decisionDynamics.dispatchDueObservationReviews({ limit: 50 })
+      if (Date.now() - lastDecisionIntelligenceRun >= 5 * 60 * 1_000) {
+        lastDecisionIntelligenceRun = Date.now()
+        await decisionDynamics.runAutonomousDecisionIntelligence({ limit: 20 })
+      }
     } finally {
       schedulerBusy = false
     }
@@ -1056,6 +1247,7 @@ export function createLanceeMcpRuntime({
             direction: args.expected_reaction.direction,
             expectedChange: args.expected_reaction.expected_change,
             confidence: args.expected_reaction.confidence,
+            reviewDueAt: args.expected_reaction.review_due_at,
           }]
         : []
       const decision = await decisionDynamics.createDecision(context, {
@@ -1091,7 +1283,34 @@ export function createLanceeMcpRuntime({
       if (!decision) throw new LanceeMcpError('MCP_RESOURCE_NOT_FOUND', 'Decision not found.', 404)
       return { decision }
     }
+    if (name === 'schedule_decision_review') {
+      const review = await decisionDynamics.scheduleDecisionReview(context, args.decision_id, {
+        metricKey: args.metric_key,
+        dueAt: args.due_at,
+      })
+      return { review }
+    }
+    if (name === 'list_decision_reviews') {
+      const reviews = await decisionDynamics.listDecisionReviews(context, {
+        status: args.status,
+        limit: args.limit,
+      })
+      return {
+        reviews,
+        total: reviews.length,
+        resultScope: 'decision_outcome_reviews',
+        emptyResultMeaning: 'No outcome reviews matched this query. This does not establish whether decisions, evidence, or decision inputs exist.',
+      }
+    }
     if (name === 'record_outcome') {
+      const hasControlValues = args.control_baseline_value !== undefined ||
+        args.control_observed_value !== undefined
+      if (hasControlValues && args.analysis_design !== 'controlled_before_after') {
+        throw new LanceeMcpError(
+          'MCP_INVALID_ARGUMENTS',
+          'Control values require analysis_design controlled_before_after.',
+        )
+      }
       const result = await decisionDynamics.recordOutcome(context, args.decision_id, {
         metric: {
           metricKey: args.metric_key,
@@ -1107,6 +1326,11 @@ export function createLanceeMcpRuntime({
         observedReason: args.observed_reason,
         evidenceConfidence: args.evidence_confidence,
         causalConfidence: args.causal_confidence,
+        causalAnalysis: {
+          designType: args.analysis_design,
+          controlBaselineValue: args.control_baseline_value,
+          controlObservedValue: args.control_observed_value,
+        },
       })
       return { outcome: { id: args.decision_id, ...result } }
     }
@@ -1126,6 +1350,65 @@ export function createLanceeMcpRuntime({
         threshold: args.threshold,
       })
       return result
+    }
+    if (name === 'get_decision_comparison') {
+      const comparison = await decisionDynamics.getDecisionComparison(context, args.comparison_id)
+      if (!comparison) throw new LanceeMcpError('MCP_RESOURCE_NOT_FOUND', 'Decision comparison not found.', 404)
+      return { comparison }
+    }
+    if (name === 'review_decision_comparison') {
+      const comparison = await decisionDynamics.reviewDecisionComparison(context, args.comparison_id, {
+        action: args.action,
+        comparable: args.comparable,
+        contextualSimilarity: args.contextual_similarity,
+        sharedFactors: args.shared_factors,
+        materialDifferences: args.material_differences,
+        explanation: args.explanation,
+      })
+      return { comparison }
+    }
+    if (name === 'refresh_decision_intelligence') {
+      return { refresh: await decisionDynamics.refreshDecisionIntelligence(context) }
+    }
+    if (name === 'list_decision_patterns') {
+      const patterns = await decisionDynamics.listDecisionPatterns(context, {
+        status: args.status,
+        limit: args.limit,
+      })
+      return { patterns, total: patterns.length }
+    }
+    if (name === 'list_decision_predictions') {
+      const predictions = await decisionDynamics.listDecisionPredictions(context, {
+        decisionId: args.decision_id,
+        status: args.status,
+        limit: args.limit,
+      })
+      return { predictions, total: predictions.length }
+    }
+    if (name === 'list_decision_warnings') {
+      const warnings = await decisionDynamics.listDecisionWarnings(context, {
+        status: args.status,
+        limit: args.limit,
+      })
+      return { warnings, total: warnings.length }
+    }
+    if (name === 'review_decision_warning') {
+      const warning = await decisionDynamics.reviewDecisionWarning(context, args.warning_id, args.action)
+      return { warning }
+    }
+    if (name === 'get_decision_causal_assessment') {
+      const assessment = await decisionDynamics.getDecisionCausalAssessment(
+        context,
+        args.decision_id,
+        args.metric_key,
+      )
+      if (!assessment) throw new LanceeMcpError('MCP_RESOURCE_NOT_FOUND', 'Causal assessment not found.', 404)
+      return { assessment }
+    }
+    if (name === 'get_decision_learning_model') {
+      const model = await decisionDynamics.getDecisionLearningModel(context, args.model_type)
+      if (!model) throw new LanceeMcpError('MCP_RESOURCE_NOT_FOUND', 'Decision learning model not found.', 404)
+      return { model }
     }
     throw new LanceeMcpError('MCP_TOOL_NOT_FOUND', `Unknown Lancee MCP tool: ${name}.`, 404)
   }

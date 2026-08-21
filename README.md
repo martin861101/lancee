@@ -16,6 +16,7 @@
 </p>
 
 <p align="center">
+  <a href="LANCEE_WORKSPACE.md">Investor overview</a> ·
   <a href="docs/GETTING_STARTED.md">Get started</a> ·
   <a href="docs/PRODUCT_VISION.md">Product vision</a> ·
   <a href="docs/PLATFORM.md">Platform architecture</a> ·
@@ -743,6 +744,32 @@ decision/outcome writes and canonical read/list/compare results. See
 [`docs/DECISION_INTELLIGENCE_PHASE1.md`](docs/DECISION_INTELLIGENCE_PHASE1.md)
 and [`docs/DECISION_INTELLIGENCE_SEMANTIC.md`](docs/DECISION_INTELLIGENCE_SEMANTIC.md).
 
+Decision Intelligence Phase 2 schedules evidence reviews for recorded expected
+metrics, emits one workspace notification when a review becomes due, and closes
+the review only when a measured outcome exists. Users can confirm, correct, or
+reject Hermes' contextual assessment without overwriting its machine record;
+Lancee recalculates the effective confidence with the frozen versioned model.
+The workspace assistant, constrained planner, native Hermes agent, and MCP
+surface now route decision, outcome, lesson, strategy, and priority requests to
+these workspace-scoped records. See
+[`docs/DECISION_INTELLIGENCE_PHASE2.md`](docs/DECISION_INTELLIGENCE_PHASE2.md).
+
+Decision Intelligence Phase 3 completes the bounded learning loop. Lancee now
+detects evidence-thresholded patterns from measured outcomes, produces
+sample-backed empirical predictions with intervals, warns when qualifying
+history contradicts a recorded expectation, and records prediction error when
+the outcome arrives. Structural weights can adapt only from enough explicit
+human comparison labels, with bounded movement and immutable model provenance.
+Observational results remain associations; controlled before/after estimates
+retain their assumptions and are never presented as causal proof. See
+[`docs/DECISION_INTELLIGENCE_PHASE3.md`](docs/DECISION_INTELLIGENCE_PHASE3.md).
+
+Decision-input questions are routed deterministically to the decision ledger,
+which exposes the original language, rationale, intent, Decision Vector, and
+expected reactions. Outcome reviews are treated only as a review queue: an
+empty queue never implies that decisions, evidence, or business inputs are
+absent.
+
 The public landing page includes a Decision Intelligence section that explains
 this flow in business language: remember the choice, measure what changed, and
 compare past decisions with their context and evidence intact. Its atmospheric
@@ -756,7 +783,11 @@ npm run verify:memory
 npm run verify:signals
 npm run verify:dynamics
 npm run verify:decision-semantic
+npm run verify:decision-phase2
+npm run verify:decision-phase3
 npm run verify:mcp-contracts
+# Against a guarded lancee_decision_verify_* database only:
+npm run verify:dynamics-postgres
 ```
 
 AI providers are an internal deployment detail. The workspace assistant passes

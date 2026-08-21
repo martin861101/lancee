@@ -5,6 +5,7 @@ import {
   normalizeDecisionVector,
   normalizeTaxonomyValue,
 } from './decision-taxonomy.mjs'
+import { createDecisionLearningService } from './decision-learning.mjs'
 import { recordWorkspaceEvent } from './workspace-events.mjs'
 
 export const STRUCTURAL_SCORING_POLICY = Object.freeze({
@@ -73,6 +74,19 @@ export const DECISION_EVIDENCE_PACK_POLICY = Object.freeze({
   maxEvidencePerDecision: 2,
   maxConfoundersPerDecision: 2,
   maxMetricsPerDecision: 2,
+})
+
+export const OUTCOME_OBSERVATION_POLICY = Object.freeze({
+  version: 'decision-outcome-observation-v1',
+  maxHorizonDays: 730,
+  maxListResults: 100,
+})
+
+export const COMPARISON_REVIEW_POLICY = Object.freeze({
+  version: 'decision-comparison-review-v1',
+  maxFactors: 20,
+  maxFactorLength: 500,
+  maxExplanationLength: 2_000,
 })
 
 export class DecisionDynamicsError extends Error {
@@ -247,6 +261,42 @@ function mapConfounder(row) {
     factorValue: row.factor_value,
     significance: Number(row.significance),
     evidenceSourceId: row.evidence_source_id,
+    createdAt: row.created_at,
+  }
+}
+
+function mapObservationReview(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    decisionId: row.decision_id,
+    metricKey: row.metric_key,
+    scheduledBy: row.scheduled_by,
+    dueAt: row.due_at,
+    status: row.status,
+    notifiedAt: row.notified_at,
+    completedAt: row.completed_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...(row.decision_title ? { decisionTitle: row.decision_title } : {}),
+  }
+}
+
+function mapComparisonReview(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    comparisonId: row.comparison_id,
+    reviewedBy: row.reviewed_by,
+    action: row.review_action,
+    comparable: Boolean(row.comparable),
+    contextualSimilarity: Number(row.contextual_similarity),
+    sharedFactors: parseJson(row.shared_factors_json, []),
+    materialDifferences: parseJson(row.material_differences_json, []),
+    explanation: row.explanation,
+    comparisonConfidence: Number(row.comparison_confidence),
+    confidenceModelVersion: row.confidence_model_version,
+    reviewVersion: row.review_version,
     createdAt: row.created_at,
   }
 }
@@ -523,6 +573,22 @@ function normalizeSemanticAssessment(value) {
   }
 }
 
+function normalizeComparisonReviewFactors(items, field) {
+  if (!Array.isArray(items) || items.length > COMPARISON_REVIEW_POLICY.maxFactors) {
+    throw new DecisionDynamicsError('INVALID_COMPARISON_REVIEW', `${field} must be a bounded list.`)
+  }
+  return items.map((item) => {
+    if (typeof item !== 'string') {
+      throw new DecisionDynamicsError('INVALID_COMPARISON_REVIEW', `${field} must contain text values.`)
+    }
+    const text = item.trim()
+    if (!text || text.length > COMPARISON_REVIEW_POLICY.maxFactorLength) {
+      throw new DecisionDynamicsError('INVALID_COMPARISON_REVIEW', `${field} contains an invalid value.`)
+    }
+    return text
+  })
+}
+
 export function createDecisionDynamicsService({
   database,
   structuralPolicy = STRUCTURAL_SCORING_POLICY,
@@ -542,6 +608,25 @@ export function createDecisionDynamicsService({
     return date.toISOString()
   }
   const createId = (prefix) => `${prefix}_${randomUUID().replaceAll('-', '')}`
+  const learning = createDecisionLearningService({
+    database,
+    baseStructuralPolicy: structuralPolicy,
+    now,
+  })
+
+  function observationDueAt(value) {
+    const dueAt = isoDate(value, 'dueAt', { nullable: false })
+    const current = new Date(timestamp()).getTime()
+    const due = new Date(dueAt).getTime()
+    const maximum = current + OUTCOME_OBSERVATION_POLICY.maxHorizonDays * 24 * 60 * 60 * 1_000
+    if (due <= current || due > maximum) {
+      throw new DecisionDynamicsError(
+        'INVALID_OBSERVATION_REVIEW',
+        `dueAt must be in the future and within ${OUTCOME_OBSERVATION_POLICY.maxHorizonDays} days.`,
+      )
+    }
+    return dueAt
+  }
 
   async function requireReference(workspaceId, table, id, label) {
     if (!id) return
@@ -642,21 +727,33 @@ export function createDecisionDynamicsService({
       [workspaceId, String(decisionId || '')],
     )
     if (!decisionRows[0]) return null
-    const [vectorRows, expectedRows] = await Promise.all([
-      database.query(
-        `SELECT * FROM decision_vectors WHERE workspace_id = $1 AND decision_id = $2`,
-        [workspaceId, decisionId],
-      ),
-      database.query(
-        `SELECT * FROM decision_expected_reactions
-         WHERE workspace_id = $1 AND decision_id = $2 ORDER BY metric_key`,
-        [workspaceId, decisionId],
-      ),
-    ])
+    const vectorRows = await database.query(
+      `SELECT * FROM decision_vectors WHERE workspace_id = $1 AND decision_id = $2`,
+      [workspaceId, decisionId],
+    )
+    const expectedRows = await database.query(
+      `SELECT * FROM decision_expected_reactions
+       WHERE workspace_id = $1 AND decision_id = $2 ORDER BY metric_key`,
+      [workspaceId, decisionId],
+    )
+    const observationRows = await database.query(
+      `SELECT * FROM decision_observation_reviews
+       WHERE workspace_id = $1 AND decision_id = $2 ORDER BY due_at`,
+      [workspaceId, decisionId],
+    )
+    const observationReviews = observationRows.map(mapObservationReview)
     return {
       ...mapDecision(decisionRows[0]),
       vector: mapVector(vectorRows[0]),
-      expectedReactions: expectedRows.map(mapExpectedReaction),
+      expectedReactions: expectedRows.map((row) => {
+        const expected = mapExpectedReaction(row)
+        const observationReview = observationReviews.find((review) => review.metricKey === expected.metricKey)
+        return {
+          ...expected,
+          observationReview: observationReview ? { ...observationReview } : null,
+        }
+      }),
+      observationReviews,
     }
   }
 
@@ -676,6 +773,121 @@ export function createDecisionDynamicsService({
       params,
     )
     return Promise.all(rows.map((row) => getDecision(context, row.id)))
+  }
+
+  async function scheduleDecisionReview(context, decisionId, input) {
+    const { workspaceId, userId } = trustedScope(context, { write: true })
+    const decision = await requireDecision(context, decisionId)
+    const metricKey = normalizeTaxonomyValue(input.metricKey, { required: true, field: 'metricKey' })
+    if (!decision.expectedReactions.some((reaction) => reaction.metricKey === metricKey)) {
+      throw new DecisionDynamicsError(
+        'EXPECTED_REACTION_NOT_FOUND',
+        'Schedule an outcome review only for a recorded expected metric.',
+        404,
+      )
+    }
+    const dueAt = observationDueAt(input.dueAt)
+    const updatedAt = timestamp()
+    await database.query(
+      `INSERT INTO decision_observation_reviews (
+         id, workspace_id, decision_id, metric_key, scheduled_by, due_at,
+         status, notified_at, completed_at, created_at, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, 'scheduled', NULL, NULL, $7, $8)
+       ON CONFLICT (workspace_id, decision_id, metric_key) DO UPDATE SET
+         scheduled_by = EXCLUDED.scheduled_by,
+         due_at = EXCLUDED.due_at,
+         status = 'scheduled',
+         notified_at = NULL,
+         completed_at = NULL,
+         updated_at = EXCLUDED.updated_at`,
+      [createId('dobs'), workspaceId, decisionId, metricKey, userId, dueAt, updatedAt, updatedAt],
+    )
+    await recordWorkspaceEvent({
+      database,
+      context,
+      eventType: 'outcome.observation_started',
+      entityType: 'decision',
+      entityId: decisionId,
+      payload: { metricKey, dueAt, observationPolicyVersion: OUTCOME_OBSERVATION_POLICY.version },
+      importance: 80,
+      occurredAt: updatedAt,
+    })
+    const rows = await database.query(
+      `SELECT * FROM decision_observation_reviews
+       WHERE workspace_id = $1 AND decision_id = $2 AND metric_key = $3`,
+      [workspaceId, decisionId, metricKey],
+    )
+    return mapObservationReview(rows[0])
+  }
+
+  async function listDecisionReviews(context, { status = 'open', limit = 50 } = {}) {
+    const { workspaceId } = trustedScope(context)
+    const selectedStatus = String(status || 'open')
+    if (!['open', 'scheduled', 'due', 'completed', 'cancelled'].includes(selectedStatus)) {
+      throw new DecisionDynamicsError('INVALID_OBSERVATION_REVIEW', 'Use a supported review status.')
+    }
+    const boundedLimit = Math.min(
+      OUTCOME_OBSERVATION_POLICY.maxListResults,
+      Math.max(1, Number.isInteger(limit) ? limit : 50),
+    )
+    const statusFilter = selectedStatus === 'open'
+      ? `r.status IN ('scheduled', 'due')`
+      : 'r.status = $2'
+    const params = selectedStatus === 'open'
+      ? [workspaceId, boundedLimit]
+      : [workspaceId, selectedStatus, boundedLimit]
+    const limitParameter = selectedStatus === 'open' ? '$2' : '$3'
+    const rows = await database.query(
+      `SELECT r.*, d.title AS decision_title
+       FROM decision_observation_reviews r
+       JOIN decisions d ON d.id = r.decision_id AND d.workspace_id = r.workspace_id
+       WHERE r.workspace_id = $1 AND ${statusFilter}
+       ORDER BY r.due_at, r.created_at LIMIT ${limitParameter}`,
+      params,
+    )
+    return rows.map(mapObservationReview)
+  }
+
+  async function dispatchDueObservationReviews({ limit = 50 } = {}) {
+    const selectedAt = timestamp()
+    const boundedLimit = Math.min(
+      OUTCOME_OBSERVATION_POLICY.maxListResults,
+      Math.max(1, Number.isInteger(limit) ? limit : 50),
+    )
+    const dueRows = await database.query(
+      `SELECT r.*, d.title AS decision_title
+       FROM decision_observation_reviews r
+       JOIN decisions d ON d.id = r.decision_id AND d.workspace_id = r.workspace_id
+       WHERE r.status = 'scheduled' AND r.due_at <= $1
+       ORDER BY r.due_at, r.created_at LIMIT $2`,
+      [selectedAt, boundedLimit],
+    )
+    const dispatched = []
+    for (const due of dueRows) {
+      await database.transaction(async () => {
+        const claimedRows = await database.query(
+          `UPDATE decision_observation_reviews
+           SET status = 'due', notified_at = $1, updated_at = $2
+           WHERE workspace_id = $3 AND id = $4 AND status = 'scheduled'
+           RETURNING *`,
+          [selectedAt, selectedAt, due.workspace_id, due.id],
+        )
+        if (!claimedRows[0]) return
+        await database.createWorkspaceNotification({
+          workspaceId: due.workspace_id,
+          kind: 'decision.outcome_review_due',
+          title: 'Decision outcome ready for review',
+          body: `Review “${String(due.decision_title || 'Decision').slice(0, 200)}” against ${due.metric_key}.`,
+          entityType: 'decision',
+          entityId: due.decision_id,
+        })
+        dispatched.push(mapObservationReview({
+          ...claimedRows[0],
+          decision_title: due.decision_title,
+        }))
+      })
+    }
+    return dispatched
   }
 
   async function createDecision(context, input) {
@@ -743,6 +955,7 @@ export function createDecisionDynamicsService({
         ],
       )
       for (const reaction of input.expectedReactions || []) {
+        const metricKey = normalizeTaxonomyValue(reaction.metricKey, { required: true, field: 'metricKey' })
         await database.query(
           `INSERT INTO decision_expected_reactions (
              decision_id, workspace_id, metric_key, direction, expected_change,
@@ -751,13 +964,33 @@ export function createDecisionDynamicsService({
           [
             id,
             workspaceId,
-            normalizeTaxonomyValue(reaction.metricKey, { required: true, field: 'metricKey' }),
+            metricKey,
             normalizeTaxonomyValue(reaction.direction, { required: true, field: 'direction' }),
             numeric(reaction.expectedChange, 'expectedChange'),
             boundedConfidence(reaction.confidence, 'expectedReaction.confidence'),
             createdAt,
           ],
         )
+        if (reaction.reviewDueAt) {
+          const dueAt = observationDueAt(reaction.reviewDueAt)
+          await database.query(
+            `INSERT INTO decision_observation_reviews (
+               id, workspace_id, decision_id, metric_key, scheduled_by, due_at,
+               status, notified_at, completed_at, created_at, updated_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, 'scheduled', NULL, NULL, $7, $8)`,
+            [createId('dobs'), workspaceId, id, metricKey, userId, dueAt, createdAt, createdAt],
+          )
+          await recordWorkspaceEvent({
+            database,
+            context,
+            eventType: 'outcome.observation_started',
+            entityType: 'decision',
+            entityId: id,
+            payload: { metricKey, dueAt, observationPolicyVersion: OUTCOME_OBSERVATION_POLICY.version },
+            importance: 80,
+            occurredAt: createdAt,
+          })
+        }
       }
       for (const evidence of input.evidence || []) await insertEvidence(context, id, evidence)
       for (const confounder of input.confounders || []) await insertConfounder(context, id, confounder)
@@ -814,18 +1047,17 @@ export function createDecisionDynamicsService({
     const { workspaceId } = trustedScope(context)
     const decision = await getDecision(context, decisionId)
     if (!decision) return null
-    const [outcomeRows, metricRows, confounders] = await Promise.all([
-      database.query(
-        `SELECT * FROM decision_outcomes WHERE workspace_id = $1 AND decision_id = $2`,
-        [workspaceId, decisionId],
-      ),
-      database.query(
-        `SELECT * FROM decision_metrics
-         WHERE workspace_id = $1 AND decision_id = $2 ORDER BY metric_key`,
-        [workspaceId, decisionId],
-      ),
-      getDecisionConfounders(context, decisionId),
-    ])
+    const outcomeRows = await database.query(
+      `SELECT * FROM decision_outcomes WHERE workspace_id = $1 AND decision_id = $2`,
+      [workspaceId, decisionId],
+    )
+    const metricRows = await database.query(
+      `SELECT * FROM decision_metrics
+       WHERE workspace_id = $1 AND decision_id = $2 ORDER BY metric_key`,
+      [workspaceId, decisionId],
+    )
+    const confounders = await getDecisionConfounders(context, decisionId)
+    const causalAssessment = await learning.getCausalAssessment(context, decisionId)
     const metrics = metricRows.map(mapMetric)
     return {
       decisionId,
@@ -840,6 +1072,7 @@ export function createDecisionDynamicsService({
         ),
       })),
       confounders,
+      causalAssessment,
     }
   }
 
@@ -850,6 +1083,12 @@ export function createDecisionDynamicsService({
     const calculated = calculateDecisionMetric(metricInput)
     const metricKey = normalizeTaxonomyValue(metricInput.metricKey, { required: true, field: 'metricKey' })
     await database.transaction(async () => {
+      const observationRows = await database.query(
+        `SELECT * FROM decision_observation_reviews
+         WHERE workspace_id = $1 AND decision_id = $2 AND metric_key = $3
+           AND status IN ('scheduled', 'due')`,
+        [workspaceId, decisionId, metricKey],
+      )
       for (const evidence of input.evidence || []) await insertEvidence(context, decisionId, evidence)
       for (const confounder of input.confounders || []) await insertConfounder(context, decisionId, confounder)
       const evidence = await getDecisionEvidence(context, decisionId)
@@ -923,11 +1162,45 @@ export function createDecisionDynamicsService({
           timestamp(),
         ],
       )
-      await database.query(
-        `UPDATE decisions SET status = 'reviewed', updated_at = $1
-         WHERE workspace_id = $2 AND id = $3`,
-        [timestamp(), workspaceId, decisionId],
-      )
+      if (calculated.measurementStatus !== 'pending') {
+        const recordedMetric = {
+          metricKey,
+          unit: bounded(metricInput.unit, 'unit', 80),
+          ...calculated,
+        }
+        await learning.recordCausalAssessment(
+          workspaceId,
+          decisionId,
+          recordedMetric,
+          { evidenceConfidence, causalConfidence },
+          input.causalAnalysis,
+        )
+        await learning.completePrediction(workspaceId, decisionId, metricKey, recordedMetric, reviewedAt)
+        await database.query(
+          `UPDATE decisions SET status = 'reviewed', updated_at = $1
+           WHERE workspace_id = $2 AND id = $3`,
+          [timestamp(), workspaceId, decisionId],
+        )
+        if (observationRows[0]) {
+          await database.query(
+            `UPDATE decision_observation_reviews
+             SET status = 'completed', completed_at = $1, updated_at = $2
+             WHERE workspace_id = $3 AND decision_id = $4 AND metric_key = $5
+               AND status IN ('scheduled', 'due')`,
+            [reviewedAt, timestamp(), workspaceId, decisionId, metricKey],
+          )
+          await recordWorkspaceEvent({
+            database,
+            context,
+            eventType: 'outcome.observation_completed',
+            entityType: 'decision',
+            entityId: decisionId,
+            payload: { metricKey, measurementStatus: calculated.measurementStatus },
+            importance: 90,
+            occurredAt: reviewedAt,
+          })
+        }
+      }
       await recordWorkspaceEvent({
         database,
         context,
@@ -944,28 +1217,207 @@ export function createDecisionDynamicsService({
         importance: 95,
         occurredAt: reviewedAt,
       })
+      if (calculated.measurementStatus !== 'pending') {
+        await recordWorkspaceEvent({
+          database,
+          context,
+          eventType: 'decision.reviewed',
+          entityType: 'decision',
+          entityId: decisionId,
+          payload: { outcomeDirection: direction },
+          importance: 90,
+          occurredAt: reviewedAt,
+        })
+      }
+    })
+    return getDecisionOutcome(context, decisionId)
+  }
+
+  async function getDecisionComparison(context, comparisonId) {
+    const { workspaceId } = trustedScope(context)
+    const rows = await database.query(
+      `SELECT * FROM decision_comparisons WHERE workspace_id = $1 AND id = $2`,
+      [workspaceId, String(comparisonId || '')],
+    )
+    const row = rows[0]
+    if (!row) return null
+    const reviewRows = await database.query(
+      `SELECT * FROM decision_comparison_reviews
+       WHERE workspace_id = $1 AND comparison_id = $2
+       ORDER BY created_at DESC LIMIT 1`,
+      [workspaceId, row.id],
+    )
+    const humanReview = mapComparisonReview(reviewRows[0])
+    const machineAssessment = {
+      status: row.semantic_status,
+      contextualSimilarity: row.contextual_similarity === null
+        ? null
+        : Number(row.contextual_similarity),
+      comparable: row.comparable === null ? null : Boolean(row.comparable),
+      sharedFactors: parseJson(row.shared_factors_json, []),
+      materialDifferences: parseJson(row.material_differences_json, []),
+      explanation: row.semantic_explanation,
+      errorCode: row.semantic_error_code,
+      modelVersion: row.model_version,
+      assessmentVersion: row.semantic_assessment_version,
+    }
+    const contextualSimilarity = humanReview
+      ? humanReview.contextualSimilarity
+      : machineAssessment.contextualSimilarity
+    const comparisonConfidence = humanReview
+      ? calculateComparisonConfidence({
+          structuralSimilarity: Number(row.structural_similarity),
+          contextualSimilarity,
+          evidenceConfidence: Number(row.evidence_confidence),
+          recencyRelevance: Number(row.recency_relevance),
+        })
+      : Number(row.comparison_confidence)
+    return {
+      id: row.id,
+      decisionAId: row.decision_a_id,
+      decisionBId: row.decision_b_id,
+      structuralSimilarity: Number(row.structural_similarity),
+      contextualSimilarity,
+      evidenceConfidence: Number(row.evidence_confidence),
+      recencyRelevance: Number(row.recency_relevance),
+      comparisonConfidence,
+      comparable: humanReview ? humanReview.comparable : machineAssessment.comparable,
+      sharedFactors: humanReview ? humanReview.sharedFactors : machineAssessment.sharedFactors,
+      materialDifferences: humanReview
+        ? humanReview.materialDifferences
+        : machineAssessment.materialDifferences,
+      comparisonVersion: row.comparison_version,
+      confidenceModelVersion: row.confidence_model_version,
+      evidencePackVersion: row.evidence_pack_version,
+      assessmentSource: humanReview
+        ? 'human_review'
+        : row.semantic_status === 'completed'
+          ? 'hermes'
+          : 'structural',
+      machineAssessment,
+      humanReview,
+      semanticAssessment: {
+        status: row.semantic_status,
+        explanation: row.semantic_explanation,
+        errorCode: row.semantic_error_code,
+        assessmentVersion: row.semantic_assessment_version,
+      },
+      modelVersion: row.model_version,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }
+  }
+
+  async function reviewDecisionComparison(context, comparisonId, input) {
+    const { workspaceId, userId } = trustedScope(context, { write: true })
+    const comparison = await getDecisionComparison(context, comparisonId)
+    if (!comparison) {
+      throw new DecisionDynamicsError('DECISION_COMPARISON_NOT_FOUND', 'Decision comparison not found.', 404)
+    }
+    const action = String(input.action || '').trim().toLowerCase()
+    if (!['confirmed', 'corrected', 'rejected'].includes(action)) {
+      throw new DecisionDynamicsError('INVALID_COMPARISON_REVIEW', 'Use confirmed, corrected, or rejected.')
+    }
+    if (action === 'confirmed' && comparison.machineAssessment.status !== 'completed') {
+      throw new DecisionDynamicsError(
+        'INVALID_COMPARISON_REVIEW',
+        'Only a completed semantic assessment can be confirmed.',
+      )
+    }
+    const comparable = action === 'confirmed'
+      ? comparison.machineAssessment.comparable
+      : action === 'rejected'
+        ? false
+        : input.comparable
+    if (typeof comparable !== 'boolean') {
+      throw new DecisionDynamicsError('INVALID_COMPARISON_REVIEW', 'comparable must be explicitly true or false.')
+    }
+    const contextualSimilarity = action === 'confirmed'
+      ? comparison.machineAssessment.contextualSimilarity
+      : action === 'rejected' && input.contextualSimilarity === undefined
+        ? 0
+        : boundedConfidence(input.contextualSimilarity, 'contextualSimilarity')
+    const sharedFactors = action === 'confirmed'
+      ? comparison.machineAssessment.sharedFactors
+      : normalizeComparisonReviewFactors(
+          input.sharedFactors ?? comparison.machineAssessment.sharedFactors,
+          'sharedFactors',
+        )
+    const materialDifferences = action === 'confirmed'
+      ? comparison.machineAssessment.materialDifferences
+      : normalizeComparisonReviewFactors(
+          input.materialDifferences ?? comparison.machineAssessment.materialDifferences,
+          'materialDifferences',
+        )
+    const explanation = action === 'confirmed'
+      ? comparison.machineAssessment.explanation
+      : bounded(
+          input.explanation,
+          'explanation',
+          COMPARISON_REVIEW_POLICY.maxExplanationLength,
+          { required: true },
+        )
+    const comparisonConfidence = calculateComparisonConfidence({
+      structuralSimilarity: comparison.structuralSimilarity,
+      contextualSimilarity,
+      evidenceConfidence: comparison.evidenceConfidence,
+      recencyRelevance: comparison.recencyRelevance,
+    })
+    const createdAt = timestamp()
+    await database.transaction(async () => {
+      await database.query(
+        `INSERT INTO decision_comparison_reviews (
+           id, workspace_id, comparison_id, reviewed_by, review_action,
+           comparable, contextual_similarity, shared_factors_json,
+           material_differences_json, explanation, comparison_confidence,
+           confidence_model_version, review_version, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          createId('dcrv'),
+          workspaceId,
+          comparison.id,
+          userId,
+          action,
+          comparable ? 1 : 0,
+          contextualSimilarity,
+          JSON.stringify(sharedFactors),
+          JSON.stringify(materialDifferences),
+          explanation,
+          comparisonConfidence,
+          COMPARISON_CONFIDENCE_POLICY.version,
+          COMPARISON_REVIEW_POLICY.version,
+          createdAt,
+        ],
+      )
       await recordWorkspaceEvent({
         database,
         context,
-        eventType: 'decision.reviewed',
-        entityType: 'decision',
-        entityId: decisionId,
-        payload: { outcomeDirection: direction },
+        eventType: 'decision.comparison_reviewed',
+        entityType: 'decision_comparison',
+        entityId: comparison.id,
+        payload: {
+          action,
+          comparable,
+          contextualSimilarity,
+          comparisonConfidence,
+          reviewVersion: COMPARISON_REVIEW_POLICY.version,
+        },
         importance: 90,
-        occurredAt: reviewedAt,
+        occurredAt: createdAt,
       })
     })
-    return getDecisionOutcome(context, decisionId)
+    return getDecisionComparison(context, comparison.id)
   }
 
   async function compareDecision(context, decisionId, { limit, threshold } = {}) {
     const { workspaceId } = trustedScope(context)
     const decision = await requireDecision(context, decisionId)
+    const comparisonStructuralPolicy = await learning.structuralPolicyForWorkspace(workspaceId)
     const boundedLimit = Math.min(
-      structuralPolicy.maxCandidates,
-      Math.max(1, Number.isInteger(limit) ? limit : structuralPolicy.maxCandidates),
+      comparisonStructuralPolicy.maxCandidates,
+      Math.max(1, Number.isInteger(limit) ? limit : comparisonStructuralPolicy.maxCandidates),
     )
-    const selectedThreshold = threshold === undefined ? structuralPolicy.threshold : Number(threshold)
+    const selectedThreshold = threshold === undefined ? comparisonStructuralPolicy.threshold : Number(threshold)
     if (!Number.isFinite(selectedThreshold) || selectedThreshold < 0 || selectedThreshold > 1) {
       throw new DecisionDynamicsError('INVALID_COMPARISON', 'threshold must be from 0 to 1.')
     }
@@ -978,7 +1430,7 @@ export function createDecisionDynamicsService({
        WHERE d.workspace_id = $1 AND d.id <> $2 AND d.decided_at <= $3
        ORDER BY d.decided_at DESC
        LIMIT $4`,
-      [workspaceId, decisionId, decision.decidedAt, structuralPolicy.retrievalLimit],
+      [workspaceId, decisionId, decision.decidedAt, comparisonStructuralPolicy.retrievalLimit],
     )
     const structural = rows
       .map((row) => {
@@ -997,7 +1449,7 @@ export function createDecisionDynamicsService({
         return {
           decision: mapDecision(row),
           vector,
-          structuralSimilarity: calculateStructuralSimilarity(decision.vector, vector, structuralPolicy.weights),
+          structuralSimilarity: calculateStructuralSimilarity(decision.vector, vector, comparisonStructuralPolicy.weights),
         }
       })
       .filter((candidate) => candidate.structuralSimilarity >= selectedThreshold)
@@ -1076,7 +1528,7 @@ export function createDecisionDynamicsService({
           comparisonConfidence,
           JSON.stringify(factors.sharedFactors),
           JSON.stringify(factors.materialDifferences),
-          structuralPolicy.version,
+          comparisonStructuralPolicy.version,
           DECISION_EVIDENCE_PACK_POLICY.version,
           SEMANTIC_REALITY_CHECK_CONTRACT.version,
           COMPARISON_CONFIDENCE_POLICY.version,
@@ -1132,7 +1584,7 @@ export function createDecisionDynamicsService({
             workspaceId,
             decisionId,
             historicalDecision.id,
-            structuralPolicy.version,
+            comparisonStructuralPolicy.version,
           ],
         )
       } else {
@@ -1141,43 +1593,24 @@ export function createDecisionDynamicsService({
              semantic_status = 'unavailable', semantic_error_code = $1, updated_at = $2
            WHERE workspace_id = $3 AND decision_a_id = $4 AND decision_b_id = $5
              AND comparison_version = $6`,
-          [semanticErrorCode, timestamp(), workspaceId, decisionId, historicalDecision.id, structuralPolicy.version],
+          [semanticErrorCode, timestamp(), workspaceId, decisionId, historicalDecision.id, comparisonStructuralPolicy.version],
         )
       }
       const persistedRows = await database.query(
         `SELECT * FROM decision_comparisons
          WHERE workspace_id = $1 AND decision_a_id = $2 AND decision_b_id = $3
            AND comparison_version = $4`,
-        [workspaceId, decisionId, historicalDecision.id, structuralPolicy.version],
+        [workspaceId, decisionId, historicalDecision.id, comparisonStructuralPolicy.version],
       )
       const persisted = persistedRows[0]
+      const effectiveComparison = await getDecisionComparison(context, persisted.id)
       candidates.push({
-        id: persisted.id,
+        ...effectiveComparison,
         decisionId: historicalDecision.id,
         decision: historicalDecision,
-        structuralSimilarity: Number(persisted.structural_similarity),
-        contextualSimilarity: persisted.contextual_similarity === null
-          ? null
-          : Number(persisted.contextual_similarity),
-        evidenceConfidence: Number(persisted.evidence_confidence),
         causalConfidence: outcome?.outcome?.causalConfidence ?? null,
-        recencyRelevance: Number(persisted.recency_relevance),
-        comparisonConfidence: Number(persisted.comparison_confidence),
-        comparable: persisted.comparable === null ? null : Boolean(persisted.comparable),
-        sharedFactors: parseJson(persisted.shared_factors_json, []),
-        materialDifferences: parseJson(persisted.material_differences_json, []),
-        comparisonVersion: persisted.comparison_version,
-        confidenceModelVersion: persisted.confidence_model_version,
-        modelVersion: persisted.model_version,
         outcome,
-        evidencePackVersion: persisted.evidence_pack_version,
         semanticRealityCheck: evidencePack,
-        semanticAssessment: {
-          status: persisted.semantic_status,
-          explanation: persisted.semantic_explanation,
-          errorCode: persisted.semantic_error_code,
-          assessmentVersion: persisted.semantic_assessment_version,
-        },
         provenance: {
           newDecisionId: decision.id,
           historicalDecisionId: historicalDecision.id,
@@ -1193,7 +1626,7 @@ export function createDecisionDynamicsService({
     ))
     return {
       decisionId,
-      structuralScoringVersion: structuralPolicy.version,
+      structuralScoringVersion: comparisonStructuralPolicy.version,
       comparisonConfidenceVersion: COMPARISON_CONFIDENCE_POLICY.version,
       threshold: selectedThreshold,
       semanticStage: candidates.length === 0
@@ -1214,12 +1647,25 @@ export function createDecisionDynamicsService({
     createDecision,
     getDecision,
     listDecisions,
+    scheduleDecisionReview,
+    listDecisionReviews,
+    dispatchDueObservationReviews,
     addDecisionEvidence,
     addDecisionConfounder,
     getDecisionEvidence,
     getDecisionConfounders,
     recordOutcome,
     getDecisionOutcome,
+    getDecisionComparison,
+    reviewDecisionComparison,
     compareDecision,
+    refreshDecisionIntelligence: learning.refreshWorkspace,
+    runAutonomousDecisionIntelligence: learning.runAutonomousCycle,
+    listDecisionPatterns: learning.listPatterns,
+    listDecisionPredictions: learning.listPredictions,
+    listDecisionWarnings: learning.listWarnings,
+    reviewDecisionWarning: learning.reviewWarning,
+    getDecisionCausalAssessment: learning.getCausalAssessment,
+    getDecisionLearningModel: learning.getLearningModel,
   }
 }

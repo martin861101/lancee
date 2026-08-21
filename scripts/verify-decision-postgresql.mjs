@@ -29,6 +29,13 @@ const expectedTables = [
   'decision_evidence',
   'decision_confounders',
   'decision_comparisons',
+  'decision_observation_reviews',
+  'decision_comparison_reviews',
+  'decision_learning_models',
+  'decision_patterns',
+  'decision_predictions',
+  'decision_warnings',
+  'decision_causal_assessments',
 ]
 const expectedIndexes = [
   'idx_hermes_preferences_user_category',
@@ -41,6 +48,14 @@ const expectedIndexes = [
   'idx_decision_evidence_decision',
   'idx_decision_confounders_decision',
   'idx_decision_comparisons_decision',
+  'idx_decision_observation_reviews_due',
+  'idx_decision_observation_reviews_workspace',
+  'idx_decision_comparison_reviews_comparison',
+  'idx_decision_learning_models_active',
+  'idx_decision_patterns_workspace',
+  'idx_decision_predictions_decision',
+  'idx_decision_warnings_workspace',
+  'idx_decision_causal_assessments_decision',
 ]
 const databaseOptions = {
   adminEmail: 'decision-pg-a@example.test',
@@ -185,6 +200,31 @@ try {
     key.column_name === 'decision_b_id' &&
     key.referenced_table === 'decisions'
   )))
+  assert(foreignKeys.some((key) => (
+    key.table_name === 'decision_observation_reviews' &&
+    key.column_name === 'decision_id' &&
+    key.referenced_table === 'decisions'
+  )))
+  assert(foreignKeys.some((key) => (
+    key.table_name === 'decision_comparison_reviews' &&
+    key.column_name === 'comparison_id' &&
+    key.referenced_table === 'decision_comparisons'
+  )))
+  assert(foreignKeys.some((key) => (
+    key.table_name === 'decision_predictions' &&
+    key.column_name === 'pattern_id' &&
+    key.referenced_table === 'decision_patterns'
+  )))
+  assert(foreignKeys.some((key) => (
+    key.table_name === 'decision_warnings' &&
+    key.column_name === 'decision_id' &&
+    key.referenced_table === 'decisions'
+  )))
+  assert(foreignKeys.some((key) => (
+    key.table_name === 'decision_causal_assessments' &&
+    key.column_name === 'decision_id' &&
+    key.referenced_table === 'decisions'
+  )))
 
   const constraints = await database.query(
     `SELECT conrelid::regclass::text AS table_name, pg_get_constraintdef(oid) AS definition
@@ -208,6 +248,30 @@ try {
   assert(constraints.some((constraint) => (
     constraint.table_name === 'decision_comparisons' &&
     constraint.definition.includes('semantic_status')
+  )))
+  assert(constraints.some((constraint) => (
+    constraint.table_name === 'decision_observation_reviews' &&
+    constraint.definition.includes('status')
+  )))
+  assert(constraints.some((constraint) => (
+    constraint.table_name === 'decision_comparison_reviews' &&
+    constraint.definition.includes('review_action')
+  )))
+  assert(constraints.some((constraint) => (
+    constraint.table_name === 'decision_patterns' &&
+    constraint.definition.includes('pattern_confidence')
+  )))
+  assert(constraints.some((constraint) => (
+    constraint.table_name === 'decision_predictions' &&
+    constraint.definition.includes('predicted_direction')
+  )))
+  assert(constraints.some((constraint) => (
+    constraint.table_name === 'decision_warnings' &&
+    constraint.definition.includes('status')
+  )))
+  assert(constraints.some((constraint) => (
+    constraint.table_name === 'decision_causal_assessments' &&
+    constraint.definition.includes('claim_level')
   )))
 
   const timestamp = new Date().toISOString()
@@ -285,6 +349,35 @@ try {
   })
   assert.equal(outcome.metrics[0].changePercent, -14.01)
 
+  for (let index = 0; index < 4; index += 1) {
+    const additionalHistorical = await dynamics.createDecision(contextA, {
+      title: `PostgreSQL additional historical bumper decision ${index + 1}`,
+      decisionText: 'Reuse a previous-generation bumper and observe sales.',
+      intent: 'Increase or preserve sales.',
+      objectType: 'product',
+      objectId: `pg_historical_${index + 1}`,
+      decidedAt: `2026-0${index + 2}-05T00:00:00.000Z`,
+      vector: {
+        actionType: 'reuse_component',
+        targetType: 'bumper',
+        sourceState: 'previous_generation',
+        destinationState: 'current_generation',
+        intentType: 'increase_or_preserve_sales',
+        expectedDirection: 'positive',
+      },
+    })
+    await dynamics.recordOutcome(contextA, additionalHistorical.id, {
+      metric: {
+        metricKey: 'avg_monthly_sales',
+        baselineValue: 1400,
+        observedValue: 1180 + index * 20,
+      },
+      outcomeClass: 'sales_declined',
+      evidenceConfidence: 0.9,
+      causalConfidence: 0.2,
+    })
+  }
+
   const current = await dynamics.createDecision(contextA, {
     title: 'PostgreSQL current bumper decision',
     decisionText: 'Use the 2024 bumper on Mini Van XT and see if sales improve.',
@@ -297,18 +390,66 @@ try {
       targetType: 'bumper',
       sourceState: '2024_generation',
       destinationState: 'current_generation',
-      intentType: 'increase_sales',
+      intentType: 'increase_or_preserve_sales',
       expectedDirection: 'positive',
     },
+    expectedReactions: [{
+      metricKey: 'avg_monthly_sales',
+      direction: 'increase',
+      confidence: 0.6,
+      reviewDueAt: new Date(Date.now() + 24 * 60 * 60 * 1_000).toISOString(),
+    }],
   })
+  assert.equal((await dynamics.listDecisionReviews(contextA)).length, 1)
+  assert.deepEqual(await dynamics.listDecisionReviews(contextB), [])
+  const intelligenceRefresh = await dynamics.refreshDecisionIntelligence(contextA)
+  assert.equal(intelligenceRefresh.patternCount, 1)
+  assert.equal(intelligenceRefresh.warningCount, 1)
+  assert.equal((await dynamics.listDecisionPatterns(contextA))[0].sampleSize, 5)
+  assert.equal((await dynamics.listDecisionPredictions(contextA, { decisionId: current.id }))[0].predictedDirection, 'negative')
+  assert.equal((await dynamics.listDecisionWarnings(contextA))[0].decisionId, current.id)
+  assert.deepEqual(await dynamics.listDecisionPatterns(contextB), [])
+  assert.deepEqual(await dynamics.listDecisionPredictions(contextB), [])
+  assert.deepEqual(await dynamics.listDecisionWarnings(contextB), [])
   const comparison = await dynamics.compareDecision(contextA, current.id)
-  assert(comparison.candidates.some((candidate) => (
+  const comparisonCandidate = comparison.candidates.find((candidate) => (
     candidate.decisionId === historical.id &&
     candidate.outcome.metrics[0].changePercent === -14.01 &&
     candidate.semanticAssessment.status === 'completed' &&
     candidate.contextualSimilarity === 0.87 &&
     candidate.confidenceModelVersion === 'comparison-confidence-v1'
-  )))
+  ))
+  assert(comparisonCandidate)
+  const correctedComparison = await dynamics.reviewDecisionComparison(contextA, comparisonCandidate.id, {
+    action: 'corrected',
+    comparable: false,
+    contextualSimilarity: 0.2,
+    sharedFactors: ['same component intervention'],
+    materialDifferences: ['procurement constraints differ'],
+    explanation: 'The procurement constraint makes this a weak operational comparison.',
+  })
+  assert.equal(correctedComparison.assessmentSource, 'human_review')
+  assert.equal(correctedComparison.comparable, false)
+  assert.equal(correctedComparison.machineAssessment.comparable, true)
+  assert.equal(await dynamics.getDecisionComparison(contextB, comparisonCandidate.id), null)
+  const controlledOutcome = await dynamics.recordOutcome(contextA, current.id, {
+    metric: { metricKey: 'avg_monthly_sales', baselineValue: 100, observedValue: 90 },
+    outcomeClass: 'sales_declined',
+    evidenceConfidence: 0.9,
+    causalConfidence: 0.8,
+    causalAnalysis: {
+      designType: 'controlled_before_after',
+      controlBaselineValue: 100,
+      controlObservedValue: 80,
+    },
+  })
+  assert.equal(controlledOutcome.causalAssessment.claimLevel, 'controlled_estimate')
+  assert.equal(controlledOutcome.causalAssessment.effectEstimate, 10)
+  assert.equal((await dynamics.listDecisionPredictions(contextA, {
+    decisionId: current.id,
+    status: 'measured',
+  }))[0].actualDirection, 'negative')
+  assert.equal((await dynamics.listDecisionWarnings(contextA, { status: 'resolved' }))[0].decisionId, current.id)
   const comparisonRows = await database.query(
     `SELECT * FROM decision_comparisons
      WHERE workspace_id = $1 AND decision_a_id = $2 AND decision_b_id = $3`,
@@ -337,7 +478,7 @@ try {
   )
 
   console.log(
-    'Real PostgreSQL Decision Intelligence verified: Phase 1 migration preservation, semantic columns, constraints, indexes, foreign keys, deterministic/final comparisons, and workspace isolation.',
+    'Real PostgreSQL Decision Intelligence verified: Phase 1 migration preservation, Phase 2 reviews, Phase 3 pattern/prediction/warning/causal tables, constraints, indexes, foreign keys, deterministic comparisons, proactive learning behavior, and workspace isolation.',
   )
 } finally {
   if (database) {

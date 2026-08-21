@@ -58,7 +58,13 @@ async function startAiProvider() {
     if (body.tools?.length) {
       const userMessage = [...body.messages].reverse().find((message) => message.role === 'user')?.content || ''
       const availableToolNames = body.tools.map((tool) => tool.function?.name)
-      const requestedTool = availableToolNames.includes('lancee_web_search') && /search|research/i.test(userMessage)
+      const requestedTool = availableToolNames.includes('lancee_list_decisions') && /inputs?|rationale|criteria|decision-making/i.test(userMessage)
+        ? 'lancee_list_decisions'
+        : availableToolNames.includes('lancee_list_decision_warnings') && /warning|risk/i.test(userMessage)
+        ? 'lancee_list_decision_warnings'
+        : availableToolNames.includes('lancee_list_decision_reviews') && /decision|outcome|priorit/i.test(userMessage)
+        ? 'lancee_list_decision_reviews'
+        : availableToolNames.includes('lancee_web_search') && /search|research/i.test(userMessage)
         ? 'lancee_web_search'
         : availableToolNames.includes('lancee_create_pdf') && /pdf|untrusted_tool_result/i.test(userMessage)
           ? 'lancee_create_pdf'
@@ -70,6 +76,12 @@ async function startAiProvider() {
       const workflowId = userMessage.match(/aut_[a-f0-9]{12}/)?.[0]
       const argumentsValue = requestedTool === 'lancee_run_workflow'
         ? { workflow_id: workflowId, instruction: 'Summarize this workspace.' }
+        : requestedTool === 'lancee_list_decisions'
+          ? { limit: 10 }
+        : requestedTool === 'lancee_list_decision_warnings'
+          ? { status: 'active', limit: 10 }
+        : requestedTool === 'lancee_list_decision_reviews'
+          ? { status: 'open', limit: 10 }
         : requestedTool === 'lancee_web_search'
           ? { query: 'notable baking companies', limit: 10 }
           : requestedTool === 'lancee_create_pdf'
@@ -90,6 +102,14 @@ async function startAiProvider() {
       assert(body.tools.some((tool) => tool.function?.name === requestedTool))
       if (['lancee_create_file', 'lancee_web_search', 'lancee_create_pdf'].includes(requestedTool)) {
         assert.deepEqual(body.tools.map((tool) => tool.function?.name), [requestedTool])
+      }
+      if (requestedTool === 'lancee_list_decisions') {
+        assert.deepEqual(availableToolNames, ['lancee_list_decisions'])
+      }
+      if (['lancee_list_decision_reviews', 'lancee_list_decision_warnings'].includes(requestedTool)) {
+        assert(availableToolNames.every((name) => name.startsWith('lancee_')))
+        assert(availableToolNames.includes('lancee_compare_decision'))
+        assert(!availableToolNames.includes('lancee_create_workflow'))
       }
       response.end(JSON.stringify({
         model: 'connector-test-model',
@@ -297,7 +317,114 @@ try {
   assert.equal(servicesResponse.status, 200)
   const builtInService = (await servicesResponse.json()).services.find((service) => service.id === 'lancee')
   assert.equal(builtInService.active, true)
-  assert.equal(builtInService.tools.length, 49)
+  assert.equal(builtInService.tools.length, 60)
+
+  const assistantDecisionResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/ai/chat',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'What decision outcomes need my attention?' }),
+    },
+  )
+  assert.equal(assistantDecisionResponse.status, 200)
+  const assistantDecision = await assistantDecisionResponse.json()
+  assert.deepEqual({
+    serviceId: assistantDecision.proposedAction.serviceId,
+    toolId: assistantDecision.proposedAction.toolId,
+    arguments: assistantDecision.proposedAction.arguments,
+    readOnly: assistantDecision.proposedAction.readOnly,
+  }, {
+    serviceId: 'lancee',
+    toolId: 'list_decision_reviews',
+    arguments: { status: 'open', limit: 10 },
+    readOnly: true,
+  })
+  const approvedDecisionReadResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/mcp/invoke',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'assistant-list-decision-reviews-0001',
+      },
+      body: JSON.stringify(assistantDecision.proposedAction),
+    },
+  )
+  assert.equal(approvedDecisionReadResponse.status, 200)
+  const approvedDecisionRead = await approvedDecisionReadResponse.json()
+  assert.deepEqual(approvedDecisionRead.data.reviews, [])
+  assert.equal(approvedDecisionRead.data.resultScope, 'decision_outcome_reviews')
+  assert.match(approvedDecisionRead.data.emptyResultMeaning, /does not establish whether decisions/i)
+
+  const assistantInputsResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/ai/chat',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'Which specific inputs and rationale were used for decision-making?' }),
+    },
+  )
+  assert.equal(assistantInputsResponse.status, 200)
+  const assistantInputs = await assistantInputsResponse.json()
+  assert.deepEqual({
+    toolId: assistantInputs.proposedAction.toolId,
+    arguments: assistantInputs.proposedAction.arguments,
+    readOnly: assistantInputs.proposedAction.readOnly,
+  }, {
+    toolId: 'list_decisions',
+    arguments: { limit: 10 },
+    readOnly: true,
+  })
+
+  const agentInputsResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/agent/runs',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'agent-decision-inputs-0001',
+      },
+      body: JSON.stringify({ objective: 'Identify the inputs and rationale used for decision-making.' }),
+    },
+  )
+  assert.equal(agentInputsResponse.status, 201)
+  const agentInputs = await agentInputsResponse.json()
+  assert.equal(agentInputs.run.status, 'completed')
+  const agentInputsDetailResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    `/api/agent/runs/${agentInputs.run.id}`,
+  )
+  assert.equal(agentInputsDetailResponse.status, 200)
+  const agentInputsDetail = await agentInputsDetailResponse.json()
+  assert.equal(agentInputsDetail.steps.length, 1)
+  assert.equal(agentInputsDetail.steps[0].toolId, 'decision.list')
+  assert.deepEqual(agentInputsDetail.steps[0].arguments, { limit: 50 })
+
+  const assistantWarningResponse = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/ai/chat',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'Show me any active decision warnings or risks.' }),
+    },
+  )
+  assert.equal(assistantWarningResponse.status, 200)
+  const assistantWarning = await assistantWarningResponse.json()
+  assert.equal(assistantWarning.proposedAction.toolId, 'list_decision_warnings')
+  assert.deepEqual(assistantWarning.proposedAction.arguments, { status: 'active', limit: 10 })
+  assert.equal(assistantWarning.proposedAction.readOnly, true)
 
   const assistantCreateResponse = await sessionRequest(
     application.origin,
@@ -649,10 +776,21 @@ try {
       'create_decision',
       'list_decisions',
       'get_decision',
+      'schedule_decision_review',
+      'list_decision_reviews',
       'record_outcome',
       'get_decision_outcome',
       'get_decision_evidence',
       'compare_decision',
+      'get_decision_comparison',
+      'review_decision_comparison',
+      'refresh_decision_intelligence',
+      'list_decision_patterns',
+      'list_decision_predictions',
+      'list_decision_warnings',
+      'review_decision_warning',
+      'get_decision_causal_assessment',
+      'get_decision_learning_model',
       'call_external_api',
     ],
   )

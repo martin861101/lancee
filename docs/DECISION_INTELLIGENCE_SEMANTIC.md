@@ -116,6 +116,8 @@ npm run lint
 npm run build
 ```
 
-The next phase is scheduled outcome observation/review and explicit user
-correction of semantic assessments. Autonomous learning, adaptive weights,
-proactive warnings, prediction, and pattern detection remain out of scope.
+Scheduled outcome observation/review and explicit user correction are now
+implemented in [`DECISION_INTELLIGENCE_PHASE2.md`](DECISION_INTELLIGENCE_PHASE2.md).
+The bounded autonomous-learning, adaptive-weight, warning, prediction, pattern,
+and causal-assessment layers are implemented in
+[`DECISION_INTELLIGENCE_PHASE3.md`](DECISION_INTELLIGENCE_PHASE3.md).
