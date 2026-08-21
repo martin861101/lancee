@@ -67,9 +67,11 @@ The repository audit quarantine is documented in [`junk/README.md`](junk/README.
 - **Public landing page** — freelancer-focused product narrative, workflow
   explanation, connection highlights, security posture, and sign-in calls to
   action.
-- **Home** — a compact date, local time, city, and weather masthead above
-  projects, deadlines, outstanding invoices, useful automations, recent
-  activity, and one quick-task entry point.
+- **Home** — a weather-responsive Workspace Pulse built around the local date,
+  time, city, current conditions, and a short contextual summary. It leads into
+  a bounded Today list, then keeps Quick Task, saved automations, and recent
+  activity available without turning the page into a KPI wall. See
+  [`docs/WORKSPACE_PULSE.md`](docs/WORKSPACE_PULSE.md).
 - **Clients** — a sidebar-accessible client directory with search, contact
   details, status controls, project counts, confirmed deletion, and a focused
   client workspace. Client records can be edited, branded with a logo, and
@@ -170,14 +172,16 @@ All motion is disabled when the visitor requests reduced motion. See
 [`docs/LANDING_MOTION.md`](docs/LANDING_MOTION.md) for configuration and
 maintenance notes.
 
-The authenticated Home page presents the date and local time in one compact
-control and the city, temperature, and conditions in a separate weather card.
-It intentionally avoids technical status labels. The backend resolves the
-session's public IP to a city, country, and timezone, then requests current
-conditions for those coordinates. The greeting, clock, and weather refresh
-without hard-coded “Good morning” text and fall back safely when a provider is
-unavailable. The implementation details and storage-point model are documented
-in [`docs/FILES_CONTEXT_AND_STORAGE.md`](docs/FILES_CONTEXT_AND_STORAGE.md).
+The authenticated Home page uses `public/img/sunny.png` as its scenic visual
+anchor and applies restrained weather and night overlays without swapping the
+product theme or typography. The backend resolves the session's public IP to a
+city, country, and timezone, then requests current conditions for those
+coordinates. A deterministic pulse renders immediately; `GET
+/api/workspace/pulse` may replace its copy with a cached, schema-validated AI
+summary generated through the bounded chat-completion path. Provider failures,
+missing weather, and malformed AI output remain invisible to the user. See
+[`docs/WORKSPACE_PULSE.md`](docs/WORKSPACE_PULSE.md) and
+[`docs/FILES_CONTEXT_AND_STORAGE.md`](docs/FILES_CONTEXT_AND_STORAGE.md).
 
 ## Authentication
 
