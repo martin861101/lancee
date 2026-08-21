@@ -42,6 +42,9 @@ import {
   type WorkspaceBuilderState,
   type WorkspaceContext,
   type WorkspaceNotification,
+  type WorkspacePulse,
+  type WorkspacePulseItem,
+  type WorkspacePulseMood,
   type WhatsAppStatus,
 } from './lib/api'
 import { syncIdeaMutations } from './lib/ideasRepository'
@@ -783,10 +786,128 @@ function overviewLocationLabel(location: WorkspaceContext['location']) {
   return [location.city, location.country].filter(Boolean).join(', ') || 'Local conditions'
 }
 
+function workspacePulseMood(weather: WorkspaceContext['weather']): WorkspacePulseMood {
+  if (!weather) return 'steady'
+  const code = weather.weatherCode
+  if (!weather.isDay) return code <= 1 ? 'clear-night' : 'cloudy-night'
+  if (code <= 1) return 'sunny'
+  if (code === 2 || code === 3 || code === 45 || code === 48) return 'cloudy'
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return 'rainy'
+  if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) return 'snowy'
+  if (code >= 95) return 'stormy'
+  return 'cloudy'
+}
+
+function localWorkspacePulse({
+  user,
+  workspaceContext,
+  analytics,
+  runs,
+  notifications,
+  generatedAt,
+}: {
+  user: User
+  workspaceContext: WorkspaceContext | null
+  analytics: {
+    openProjects: number; dueSoonProjects: number; totalClients: number
+    outstandingAmount: number; pendingInvoices: number; dueThisWeek: number
+  } | null
+  runs: Run[]
+  notifications: WorkspaceNotification[]
+  generatedAt: string
+}): WorkspacePulse {
+  const firstName = user.name.split(' ')[0] || 'there'
+  const mood = workspacePulseMood(workspaceContext?.weather || null)
+  const failedRun = runs.find((run) => run.status === 'failed')
+  const alert = notifications.find((notification) =>
+    !notification.readAt && /warning|alert|decision|failed|overdue/i.test(`${notification.kind} ${notification.title}`),
+  )
+  const needsAttention = (analytics?.pendingInvoices || 0) + (failedRun ? 1 : 0) + (alert ? 1 : 0)
+  const headline = needsAttention > 0
+    ? `A few things need your eye, ${firstName}.`
+    : mood === 'rainy' || mood === 'stormy'
+      ? `A good day for focused progress, ${firstName}.`
+      : mood === 'clear-night' || mood === 'cloudy-night'
+        ? `A calm evening to close the loop, ${firstName}.`
+        : mood === 'sunny'
+          ? `A clear day to move work forward, ${firstName}.`
+          : `Your workspace is ready, ${firstName}.`
+  const facts: string[] = []
+  if ((analytics?.openProjects || 0) > 0) facts.push(`${analytics!.openProjects} active project${analytics!.openProjects === 1 ? '' : 's'}`)
+  if ((analytics?.dueThisWeek || 0) > 0) facts.push(`${analytics!.dueThisWeek} due this week`)
+  if ((analytics?.pendingInvoices || 0) > 0) facts.push(`${analytics!.pendingInvoices} invoice${analytics!.pendingInvoices === 1 ? '' : 's'} awaiting payment`)
+  const items: WorkspacePulseItem[] = []
+  if ((analytics?.dueThisWeek || 0) > 0) {
+    items.push({
+      id: 'local-due-this-week',
+      title: `${analytics!.dueThisWeek} project${analytics!.dueThisWeek === 1 ? '' : 's'} due this week`,
+      detail: 'Review milestones and client handoffs',
+      kind: 'deadline',
+      target: 'work',
+    })
+  }
+  if ((analytics?.pendingInvoices || 0) > 0) {
+    items.push({
+      id: 'local-pending-invoices',
+      title: `${analytics!.pendingInvoices} invoice${analytics!.pendingInvoices === 1 ? '' : 's'} awaiting payment`,
+      detail: 'Open invoicing to review follow-ups',
+      kind: 'money',
+      target: 'money',
+    })
+  }
+  if (alert) {
+    items.push({
+      id: `local-alert-${alert.id}`,
+      title: alert.title,
+      detail: alert.body || 'Needs your attention',
+      kind: 'attention',
+      target: alert.entityType === 'project' ? 'work' : alert.entityType === 'invoice' ? 'money' : 'intelligence',
+    })
+  } else if (failedRun) {
+    items.push({
+      id: `local-run-${failedRun.id}`,
+      title: failedRun.automationName || 'Automation needs attention',
+      detail: 'The latest run did not complete',
+      kind: 'attention',
+      target: 'automations',
+    })
+  }
+  if (items.length === 0) {
+    items.push({
+      id: 'local-clear',
+      title: 'Nothing urgent is waiting',
+      detail: 'Your workspace is clear for focused work',
+      kind: 'clear',
+      target: 'work',
+    })
+  }
+  return {
+    headline,
+    message: facts.length > 0
+      ? `Today’s view: ${facts.slice(0, 3).join(', ')}. Start with the item that creates the most breathing room.`
+      : 'Nothing urgent is crowding the day. Choose one meaningful next step and give it your full attention.',
+    mood,
+    generatedAt,
+    source: 'fallback',
+    items: items.slice(0, 4),
+    refreshPending: false,
+  }
+}
+
+function workspacePulseItemIcon(kind: WorkspacePulseItem['kind']): IconName {
+  if (kind === 'deadline') return 'calendar'
+  if (kind === 'money') return 'wallet'
+  if (kind === 'attention') return 'alert'
+  if (kind === 'activity') return 'activity'
+  if (kind === 'task') return 'briefcase'
+  return 'check-circle'
+}
+
 function OverviewPage({
   user,
   automations,
   runs,
+  notifications,
   workspaceContext,
   prompt,
   selectedAutomation,
@@ -801,6 +922,7 @@ function OverviewPage({
   user: User
   automations: Automation[]
   runs: Run[]
+  notifications: WorkspaceNotification[]
   workspaceContext: WorkspaceContext | null
   prompt: string
   selectedAutomation: string
@@ -816,23 +938,8 @@ function OverviewPage({
   onCreateProject: () => void
 }) {
   const [now, setNow] = useState(() => new Date())
-  const activeAutomations = automations.filter((automation) => automation.status === 'active').length
-  const chartValues = useMemo(() => {
-    const start = new Date()
-    start.setHours(0, 0, 0, 0)
-    start.setDate(start.getDate() - 13)
-    const values = Array.from({ length: 14 }, () => 0)
-    for (const run of runs) {
-      if (run.status !== 'completed') continue
-      const started = new Date(run.startedAt)
-      const index = Math.floor((started.getTime() - start.getTime()) / 86_400_000)
-      if (index >= 0 && index < values.length) values[index] += 1
-    }
-    return values
-  }, [runs])
-  const completedInPeriod = chartValues.reduce((total, value) => total + value, 0)
-  const chartMaximum = Math.max(...chartValues, 1)
-  const failedRuns = runs.filter((run) => run.status === 'failed').length
+  const [remotePulse, setRemotePulse] = useState<WorkspacePulse | null>(null)
+  const [fallbackGeneratedAt] = useState(() => new Date().toISOString())
   const timeZone = workspaceContext?.location?.timezone
   const today = formatOverviewDate(now, {
     weekday: 'long',
@@ -849,54 +956,93 @@ function OverviewPage({
   const weatherInfo = weatherPresentation(weather ?? null)
   const locationLabel = overviewLocationLabel(workspaceContext?.location || null)
   const temperatureLabel = weather ? `${Math.round(weather.temperatureC)}°C` : '—'
+  const fallbackPulse = useMemo(() => localWorkspacePulse({
+    user,
+    workspaceContext,
+    analytics,
+    runs,
+    notifications,
+    generatedAt: fallbackGeneratedAt,
+  }), [user, workspaceContext, analytics, runs, notifications, fallbackGeneratedAt])
+  const pulse = remotePulse || fallbackPulse
 
   useEffect(() => {
     const clock = window.setInterval(() => setNow(new Date()), 1_000)
     return () => window.clearInterval(clock)
   }, [])
 
+  useEffect(() => {
+    let active = true
+    let retry: number | undefined
+    let attempts = 0
+    setRemotePulse(null)
+    const load = () => {
+      attempts += 1
+      void api.workspace.getPulse().then((nextPulse) => {
+        if (!active) return
+        setRemotePulse(nextPulse)
+        if (nextPulse.source === 'fallback' && nextPulse.refreshPending && attempts < 3) {
+          retry = window.setTimeout(load, 1_800)
+        }
+      }).catch(() => undefined)
+    }
+    load()
+    return () => {
+      active = false
+      if (retry) window.clearTimeout(retry)
+    }
+  }, [user.workspaceId])
+
   return (
     <div className="page page--overview">
-      <section className="overview-hero" aria-labelledby="overview-greeting">
-        <div className="overview-hero__copy">
-          <div className="overview-date" aria-label={`${today} at ${localTime}`}>
-            <span className="overview-date__icon" aria-hidden="true">
-              <Icon name="calendar" size={15} />
-            </span>
-            <span>{today}</span>
-            <span className="overview-date__divider" aria-hidden="true" />
+      <section className="workspace-pulse" data-mood={pulse.mood} aria-labelledby="workspace-pulse-title">
+        <div className="workspace-pulse__shade" aria-hidden="true" />
+        <div className="workspace-pulse__content">
+          <div className="workspace-pulse__meta" aria-label={`${today} at ${localTime}`}>
+            <span><Icon name="calendar" size={14} /> {today}</span>
+            <span aria-hidden="true" />
             <strong>{localTime}</strong>
           </div>
-          <h1 id="overview-greeting">
-            {greeting}, <em>{user.name.split(' ')[0]}.</em>
-          </h1>
-          <p>A clear view of your projects, cash flow, and the next best things to move forward.</p>
-        </div>
-
-        <div className="overview-hero__aside">
-          <div className="overview-context" aria-live="polite">
-            <span className={`overview-context__icon overview-context__icon--${weatherInfo.icon}`} aria-hidden="true">
-              <Icon name={weatherInfo.icon} size={25} />
-            </span>
-            <span className="overview-context__body">
-              <span className="overview-context__reading">
-                <strong>{temperatureLabel}</strong>
-                <span>{weatherInfo.label}</span>
-              </span>
-              <span className="overview-context__location">
-                <Icon name="map-pin" size={12} />
-                {locationLabel}
-              </span>
-            </span>
+          <div className="workspace-pulse__copy" aria-live="polite" key={`${pulse.source}-${pulse.generatedAt}`}>
+            <span className="micro-label">{greeting} · Workspace pulse</span>
+            <h1 id="workspace-pulse-title">{pulse.headline}</h1>
+            <p>{pulse.message}</p>
           </div>
-          <button className="button button--primary overview-hero__action" onClick={onCreateProject}>
-            <Icon name="plus" size={16} />
-            New project
-          </button>
+        </div>
+        <div className="workspace-pulse__weather">
+          <span className={`workspace-pulse__weather-icon workspace-pulse__weather-icon--${weatherInfo.icon}`} aria-hidden="true">
+            <Icon name={weatherInfo.icon} size={25} />
+          </span>
+          <span>
+            <span className="workspace-pulse__weather-reading"><strong>{temperatureLabel}</strong> {weatherInfo.label}</span>
+            <span className="workspace-pulse__weather-location"><Icon name="map-pin" size={12} /> {locationLabel}</span>
+          </span>
         </div>
       </section>
 
-      <section className="command-card">
+      <section className="today-panel" aria-labelledby="today-heading">
+        <div className="panel-heading today-panel__heading">
+          <div>
+            <span className="micro-label">Next best steps</span>
+            <h2 id="today-heading">Today</h2>
+            <p>A few useful signals, kept intentionally short.</p>
+          </div>
+          <button className="button button--primary" onClick={onCreateProject}>
+            <Icon name="plus" size={16} /> New project
+          </button>
+        </div>
+        <div className="today-list">
+          {pulse.items.map((item) => (
+            <button className={`today-item today-item--${item.kind}`} key={item.id} onClick={() => onNavigate(item.target)}>
+              <span className="today-item__icon" aria-hidden="true"><Icon name={workspacePulseItemIcon(item.kind)} size={17} /></span>
+              <span className="today-item__copy"><strong>{item.title}</strong><small>{item.detail}</small></span>
+              <Icon name="arrow-right" size={15} />
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="command-card command-card--compact">
         <div className="command-card__glow" aria-hidden="true" />
         <div className="command-card__header">
           <div className="command-orb">
@@ -954,102 +1100,7 @@ function OverviewPage({
         </div>
       </section>
 
-      <section className="metric-grid" aria-label="Workspace metrics">
-        <article className="metric-card">
-          <div className="metric-card__top">
-            <span>Open projects</span>
-            <span className="metric-icon metric-icon--lime">
-              <Icon name="layers" size={17} />
-            </span>
-          </div>
-          <strong>{analytics?.openProjects ?? 0}</strong>
-          <div className="metric-card__bottom">
-            <span className="trend trend--up">{analytics?.dueSoonProjects ?? 0} due soon</span>
-            <span>across {analytics?.totalClients ?? 0} clients</span>
-          </div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-card__top">
-            <span>Outstanding</span>
-            <span className="metric-icon metric-icon--violet">
-              <Icon name="activity" size={17} />
-            </span>
-          </div>
-          <strong>R {(analytics?.outstandingAmount ?? 0) > 0 ? ((analytics!.outstandingAmount / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '0.00'}</strong>
-          <div className="metric-card__bottom">
-            <span className="trend trend--up">{analytics?.pendingInvoices ?? 0} invoices</span>
-            <span>awaiting payment</span>
-          </div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-card__top">
-            <span>Due this week</span>
-            <span className="metric-icon metric-icon--blue">
-              <Icon name="check-circle" size={17} />
-            </span>
-          </div>
-          <strong>{analytics?.dueThisWeek ?? 0}</strong>
-          <div className="metric-card__bottom">
-            <span className="trend trend--up">{analytics?.dueSoonProjects ?? 0} due soon</span>
-            <span>across {analytics?.totalClients ?? 0} clients</span>
-          </div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-card__top">
-            <span>Automations on</span>
-            <span className="metric-icon metric-icon--coral">
-              <Icon name="bot" size={17} />
-            </span>
-          </div>
-          <strong>
-            {activeAutomations}
-            <small> / {automations.length}</small>
-          </strong>
-          <div className="metric-card__bottom">
-            <span className="online-dot" />
-            <span>{failedRuns > 0 ? `${failedRuns} failed run${failedRuns === 1 ? '' : 's'}` : 'No failed runs'}</span>
-          </div>
-        </article>
-      </section>
-
-      <section className="overview-grid">
-        <article className="panel activity-panel">
-          <div className="panel-heading">
-            <div>
-              <h3>Projects</h3>
-              <p>Work completed over the last 14 days</p>
-            </div>
-            <span className="period-button">
-              14 days
-            </span>
-          </div>
-          <div className="chart-summary">
-            <strong>{completedInPeriod} completed</strong>
-            <span className="trend trend--up">last 14 days</span>
-          </div>
-          <div className="chart-wrap">
-            <div className="chart-y-labels" aria-hidden="true">
-              <span>{chartMaximum}</span>
-              <span>{Math.ceil(chartMaximum * 0.67)}</span>
-              <span>{Math.ceil(chartMaximum * 0.33)}</span>
-              <span>0</span>
-            </div>
-            <div className="bar-chart">
-              {chartValues.map((value, index) => (
-                <div className="bar-column" key={`${value}-${index}`}>
-                  <span style={{ height: `${(value / chartMaximum) * 100}%` }} />
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="chart-dates" aria-hidden="true">
-            <span>13 days ago</span>
-            <span>9 days ago</span>
-            <span>5 days ago</span>
-            <span>Today</span>
-          </div>
-        </article>
-
+      <section className="overview-grid overview-grid--supporting">
         <article className="panel workforce-panel">
           <div className="panel-heading">
             <div>
@@ -1082,19 +1133,18 @@ function OverviewPage({
             )}
           </div>
         </article>
-      </section>
-
-      <section className="panel runs-panel">
-        <div className="panel-heading">
-          <div>
-            <h3>Recent activity</h3>
-            <p>What changed across your business</p>
+        <article className="panel runs-panel">
+          <div className="panel-heading">
+            <div>
+              <h3>Recent activity</h3>
+              <p>What changed across your business</p>
+            </div>
+            <button className="text-button" onClick={() => onNavigate('runs')}>
+              View history <Icon name="arrow-right" size={14} />
+            </button>
           </div>
-          <button className="text-button" onClick={() => onNavigate('runs')}>
-            View automation history <Icon name="arrow-right" size={14} />
-          </button>
-        </div>
-        <RunsTable runs={runs.slice(0, 5)} />
+          <RunsTable runs={runs.slice(0, 4)} />
+        </article>
       </section>
     </div>
   )
@@ -7103,6 +7153,7 @@ function WorkspaceApp() {
             user={user}
             automations={automations}
             runs={runs}
+            notifications={workspaceNotifications}
             workspaceContext={workspaceContext}
             prompt={prompt}
             selectedAutomation={selectedAutomation}
