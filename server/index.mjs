@@ -56,6 +56,7 @@ import {
   getAiStatus,
   AiError,
 } from './ai.mjs'
+import { createWorkspacePulseService } from './workspace-pulse.mjs'
 import { createHermesDecisionAssessor } from './decision-semantic-assessor.mjs'
 import {
   automationById,
@@ -280,6 +281,10 @@ const database = await openDatabase({
   adminPasswordHash: process.env.ADMIN_PASSWORD_HASH,
   workspaceId,
   workspaceName,
+})
+const workspacePulse = createWorkspacePulseService({
+  database,
+  complete: completeChat,
 })
 const openConnectorAdapter = createOpenConnectorAdapter()
 const integrationGateway = createIntegrationGateway({
@@ -8279,6 +8284,16 @@ app.get('/api/workspace/analytics', requireAuth, async (request, response) => {
 
 app.get('/api/workspace/context', requireAuth, async (request, response) => {
   response.json(await loadWorkspaceContext(request))
+})
+
+app.get('/api/workspace/pulse', requireAuth, async (request, response) => {
+  const context = request.auth.context
+  response.json(await workspacePulse.get({
+    workspaceId: context.workspace.id,
+    userId: context.user.id,
+    userName: context.user.name,
+    workspaceContext: await loadWorkspaceContext(request),
+  }))
 })
 
 const browserWorker = createBrowserWorker()

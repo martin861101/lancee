@@ -715,6 +715,35 @@ export type WorkspaceContext = {
   fetchedAt: string
 }
 
+export type WorkspacePulseMood =
+  | 'sunny'
+  | 'cloudy'
+  | 'rainy'
+  | 'stormy'
+  | 'snowy'
+  | 'clear-night'
+  | 'cloudy-night'
+  | 'steady'
+  | 'attention'
+
+export type WorkspacePulseItem = {
+  id: string
+  title: string
+  detail: string
+  kind: 'deadline' | 'money' | 'attention' | 'task' | 'activity' | 'clear'
+  target: 'work' | 'money' | 'automations' | 'messages' | 'intelligence'
+}
+
+export type WorkspacePulse = {
+  headline: string
+  message: string
+  mood: WorkspacePulseMood
+  generatedAt: string
+  source: 'fallback' | 'ai'
+  items: WorkspacePulseItem[]
+  refreshPending: boolean
+}
+
 export type Project = {
   id: string
   workspaceId?: string
@@ -2295,6 +2324,22 @@ export const api = {
     },
   },
   workspace: {
+    async getPulse() {
+      const response = await fetch('/api/workspace/pulse', {
+        credentials: 'same-origin',
+        cache: 'no-store',
+      })
+      const payload = (await response.json()) as WorkspacePulse & { error?: string }
+      if (
+        !response.ok ||
+        typeof payload.headline !== 'string' ||
+        typeof payload.message !== 'string' ||
+        !Array.isArray(payload.items)
+      ) {
+        throw new Error(payload.error || 'Unable to load the workspace pulse.')
+      }
+      return payload as WorkspacePulse
+    },
     async getContext() {
       const response = await fetch('/api/workspace/context', {
         credentials: 'same-origin',
