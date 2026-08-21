@@ -10,13 +10,15 @@
   margin-bottom: 28px;
 }
 
-.workflows-header h1 {
+.workflows-header h1,
+.workflows-header h2 {
   margin: 8px 0 10px;
   font-size: clamp(2.1rem, 4vw, 3.5rem);
   letter-spacing: -.055em;
 }
 
-.workflows-header h1 em {
+.workflows-header h1 em,
+.workflows-header h2 em {
   color: transparent;
   background: var(--brand-gradient);
   background-clip: text;

@@ -4188,6 +4188,7 @@ const decisionAssistantToolIds = new Set([
   'review_decision_warning',
   'get_decision_causal_assessment',
   'get_decision_learning_model',
+  'get_decision_intelligence_overview',
 ])
 
 function decisionIntelligenceRequest(message) {
@@ -6450,6 +6451,21 @@ app.patch('/api/notifications/:id/read', secureMutations, requireAuth, async (re
       if (!notification) throw new HttpError(404, 'Notification not found.')
       return { status: 200, response: { notification } }
     },
+  })
+  sendMutationResponse(response, result)
+})
+
+app.delete('/api/notifications', secureMutations, requireAuth, async (request, response) => {
+  const result = await executeIdempotentMutation({
+    request,
+    route: 'DELETE /api/notifications',
+    input: {},
+    operation: async () => ({
+      status: 200,
+      response: {
+        cleared: await database.clearWorkspaceNotifications(request.auth.context.workspace.id),
+      },
+    }),
   })
   sendMutationResponse(response, result)
 })

@@ -116,12 +116,19 @@ foreign keys, and workspace-first indexes. The MCP/capability surface adds:
 - `list_decision_warnings`;
 - `review_decision_warning`;
 - `get_decision_causal_assessment`;
-- `get_decision_learning_model`.
+- `get_decision_learning_model`;
+- `get_decision_intelligence_overview` — a read-only aggregate for exact UI
+  counts, implementation thresholds, category relationships, and a bounded
+  persisted intelligence timeline. It does not run the learning cycle.
 
 Refresh and warning review retain the existing approval boundary. Reads retain
 authentication, permission, canonical result-contract, and tenant isolation.
 The workspace assistant and native Hermes agent are instructed to use only
 persisted records and keep all confidence dimensions distinct.
+
+The first-class `/dashboard/intelligence` experience that consumes these
+records is documented in
+[`DECISION_INTELLIGENCE_UI.md`](DECISION_INTELLIGENCE_UI.md).
 
 ## Query scope and empty results
 

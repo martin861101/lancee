@@ -54,15 +54,13 @@ const IdeasCanvasPage = lazy(() => import('./components/IdeasCanvasPage'))
 const MoneyPage = lazy(() => import('./components/MoneyPage'))
 const WorkPage = lazy(() => import('./components/WorkPage'))
 const ClientsPage = lazy(() => import('./components/dashboard/ClientsPage'))
-const AnalyticsPage = lazy(() => import('./components/dashboard/AnalyticsPage'))
+const IntelligencePage = lazy(() => import('./components/dashboard/IntelligencePage'))
 const TeamPage = lazy(() => import('./components/dashboard/TeamPage'))
 const FilesPage = lazy(() => import('./components/dashboard/FilesPage'))
 const MessagesPage = lazy(() => import('./components/dashboard/MessagesPage'))
-const ServicesPage = lazy(() => import('./components/dashboard/ServicesPage'))
 const WorkspaceChat = lazy(() => import('./components/dashboard/WorkspaceChat'))
 const WorkflowsPage = lazy(() => import('./components/WorkflowsPage'))
 const WorkspaceBuilder = lazy(() => import('./components/workspace-builder/WorkspaceBuilder'))
-const StorefrontPage = lazy(() => import('./components/StorefrontPage'))
 const ReviewPage = lazy(() => import('./components/annotations/ReviewPage'))
 const PricingPage = lazy(() => import('./components/pricing/PricingPage'))
 const PricingLanding = lazy(() => import('./components/pricing/PricingLanding'))
@@ -92,6 +90,7 @@ type Page =
   | 'services'
   | 'money'
   | 'analytics'
+  | 'intelligence'
   | 'files'
   | 'messages'
   | 'team'
@@ -113,6 +112,7 @@ const pageIds = new Set<Page>([
   'services',
   'money',
   'analytics',
+  'intelligence',
   'files',
   'messages',
   'team',
@@ -122,6 +122,18 @@ const pageIds = new Set<Page>([
   'settings',
   'admin',
 ])
+
+const legacyDashboardPageAliases: Partial<Record<Page, Page>> = {
+  analytics: 'intelligence',
+  workflows: 'automations',
+  runs: 'automations',
+  services: 'integrations',
+  storefront: 'overview',
+}
+
+function canonicalDashboardPage(page: Page) {
+  return legacyDashboardPageAliases[page] || page
+}
 type ModalName =
   | 'automation'
   | 'key'
@@ -188,18 +200,14 @@ const navItems: { id: Page; label: string; icon: IconName; section: string; modu
   { id: 'ideas', label: 'Ideas', icon: 'lightbulb', section: 'Your work', modules: ['whiteboard', 'notes'] },
   { id: 'files', label: 'Files', icon: 'file', section: 'Your work', modules: ['files', 'annotations', 'knowledge-base'] },
   { id: 'messages', label: 'Messages', icon: 'messages', section: 'Your work', modules: ['clients', 'client-portal'] },
-  { id: 'automations', label: 'Automations', icon: 'activity', section: 'Business', modules: ['workflows'] },
-  { id: 'runs', label: 'Results', icon: 'play', section: 'Business', modules: ['workflows'] },
-  { id: 'workflows', label: 'Workflows', icon: 'layers', section: 'Business', modules: ['workflows', 'approvals'] },
-  { id: 'storefront', label: 'Storefront', icon: 'layers', section: 'Business', modules: ['client-portal'] },
-  { id: 'integrations', label: 'Connections', icon: 'plug', section: 'Business' },
-  { id: 'services', label: 'Services', icon: 'plug', section: 'Business', modules: ['workflows'] },
+  { id: 'automations', label: 'Automations & Workflows', icon: 'activity', section: 'Business', modules: ['workflows'] },
+  { id: 'integrations', label: 'Connected Apps', icon: 'plug', section: 'Business' },
   { id: 'money', label: 'Invoicing', icon: 'wallet', section: 'Business', modules: ['quotes', 'invoices', 'time-tracking'] },
-  { id: 'analytics', label: 'Analytics', icon: 'target', section: 'Business' },
+  { id: 'intelligence', label: 'Intelligence', icon: 'sparkles', section: 'Business' },
   { id: 'team', label: 'Team', icon: 'user', section: 'Platform' },
   { id: 'pricing', label: 'Pricing', icon: 'credit-card', section: 'Platform' },
   { id: 'builder', label: 'Workspace builder', icon: 'sparkles', section: 'Platform' },
-  { id: 'settings', label: 'Settings', icon: 'settings', section: 'Platform' },
+  { id: 'settings', label: 'Preferences', icon: 'settings', section: 'Platform' },
   { id: 'admin', label: 'Admin', icon: 'shield', section: 'Platform', adminOnly: true },
 ]
 
@@ -1275,6 +1283,7 @@ function AutomationsPage({
   onDelete,
   onToggle,
   onRun,
+  workflowTemplates,
 }: {
   automations: Automation[]
   busyId: string | null
@@ -1282,6 +1291,7 @@ function AutomationsPage({
   onDelete: (automation: Automation) => void
   onToggle: (automation: Automation) => void
   onRun: (automation: Automation) => void
+  workflowTemplates: ReactNode
 }) {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<'all' | Automation['status']>('all')
@@ -1295,8 +1305,8 @@ function AutomationsPage({
     <div className="page">
       <PageHeader
         eyebrow="Runs in the Core"
-        title="Automations"
-        description="Standard workflows execute inside lancee; custom n8n workflows run on the Edge only when you opt in."
+        title="Automations & Workflows"
+        description="Create, run, and reuse repeatable business work from one place. Standard workflows execute inside lancee; custom n8n workflows run on the Edge only when you opt in."
         action={
           <button className="button button--primary" onClick={onCreate}>
             <Icon name="plus" size={16} /> New automation
@@ -1447,6 +1457,10 @@ function AutomationsPage({
           <strong>Create a useful routine</strong>
           <p>Start with a plain-language task or a simple template.</p>
         </button>
+      </section>
+
+      <section className="automation-workflows" aria-label="Workflow recipes">
+        {workflowTemplates}
       </section>
     </div>
   )
@@ -1776,7 +1790,7 @@ function IntegrationsPage({
     <div className="page">
       <PageHeader
         eyebrow="Your tools, together"
-        title="Connections"
+        title="Connected Apps"
         description="Bring in the apps you already use. lancee keeps the work connected without replacing them."
         action={
           <button
@@ -1809,6 +1823,31 @@ function IntegrationsPage({
       <p className="integration-boundary-note">
         Lancee remains the orchestration and permission boundary. OpenConnector stores provider credentials and executes external actions behind the private gateway.
       </p>
+
+      <section className="connected-apps-diagram" aria-labelledby="connected-apps-diagram-title">
+        <div>
+          <span className="micro-label">How Lancee connects work</span>
+          <h2 id="connected-apps-diagram-title">One private path from research to workspace memory.</h2>
+          <p>External research and authorized workspace data meet in Lancee MCP. PostgreSQL remains the durable, workspace-scoped source of record.</p>
+        </div>
+        <ol aria-label="Lancee connection architecture">
+          <li>
+            <span>AI</span>
+            <strong>Orchestrator &amp; external tools</strong>
+            <small>Web search, crawling, and research</small>
+          </li>
+          <li>
+            <span>Lancee MCP</span>
+            <strong>The brain &amp; internal tools</strong>
+            <small>Read projects, client data, and approved workspace records</small>
+          </li>
+          <li>
+            <span>PostgreSQL</span>
+            <strong>The memory</strong>
+            <small>Stores workspace data and durable results</small>
+          </li>
+        </ol>
+      </section>
 
       <div className="toolbar integrations-toolbar">
         <label className="search-field">
@@ -3093,7 +3132,6 @@ function SettingsPage({
   onNavigate,
   onSaved,
   onUserUpdated,
-  onSignOut,
   initialSection,
 }: {
   user: User
@@ -3101,8 +3139,7 @@ function SettingsPage({
   onNavigate: (page: Page) => void
   onSaved: (settings: { name: string }) => void
   onUserUpdated: (user: User) => void
-  onSignOut: () => void
-  initialSection: 'profile' | 'general' | 'dev'
+  initialSection: 'general' | 'dev'
 }) {
   const canEdit = user.role === 'owner'
   const [workspace, setWorkspace] = useState(user.workspace)
@@ -3257,8 +3294,8 @@ function SettingsPage({
   return (
     <div className="page settings-page">
       <PageHeader
-        eyebrow="Your account"
-        title={section === 'profile' ? 'Your Profile' : section === 'dev' ? 'Dev Tools' : 'Settings'}
+        eyebrow="Your account and workspace"
+        title={section === 'dev' ? 'Dev Tools' : 'Preferences'}
         description={
           section === 'dev'
             ? 'Technical diagnostics, API access, and activity records for workspace administrators.'
@@ -3267,11 +3304,8 @@ function SettingsPage({
       />
       <div className="settings-layout">
         <aside className="settings-nav">
-          <button type="button" className={section === 'profile' ? 'is-active' : ''} onClick={() => setSection('profile')}>
-            <Icon name="user" size={16} /> Profile
-          </button>
           <button type="button" className={section === 'general' ? 'is-active' : ''} onClick={() => setSection('general')}>
-            <Icon name="grid" size={16} /> General
+            <Icon name="settings" size={16} /> Preferences
           </button>
           <button type="button" onClick={() => onNavigate('team')}>
             <Icon name="user" size={16} /> Collaborators
@@ -3375,11 +3409,6 @@ function SettingsPage({
                 </button>
               ) : (
                 <small>Only workspace owners can change these settings.</small>
-              )}
-              {section === 'profile' && (
-                <button type="button" className="button button--danger" onClick={onSignOut}>
-                  <Icon name="logout" size={14} /> Log out
-                </button>
               )}
             </div>
           </form>
@@ -5111,9 +5140,6 @@ function Sidebar({
   onNavigate,
   onClose,
   onSignOut,
-  projectCount,
-  automationCount,
-  connectionCount,
   pendingInvoiceCount,
   enabledModules,
 }: {
@@ -5124,9 +5150,6 @@ function Sidebar({
   onNavigate: (page: Page) => void
   onClose: () => void
   onSignOut: () => void
-  projectCount: number
-  automationCount: number
-  connectionCount: number
   pendingInvoiceCount: number
   enabledModules: string[] | null
 }) {
@@ -5193,17 +5216,6 @@ function Sidebar({
         </nav>
 
         <div className="sidebar__bottom">
-          <div className="usage-card">
-            <div>
-              <span>Workspace at a glance</span>
-              <strong>{projectCount} project{projectCount === 1 ? '' : 's'}</strong>
-            </div>
-            <div className="usage-bar">
-              <span />
-            </div>
-            <p>{automationCount} automations · {connectionCount} connections</p>
-            <button onClick={() => onNavigate('analytics')}>View analytics</button>
-          </div>
           <a className="sidebar-help" href="/lancee.html" target="_blank" rel="noopener">
             <Icon name="help" size={17} />
             Help & documentation
@@ -6004,14 +6016,14 @@ function dashboardPageFromLocation(): Page | null {
   if (match) {
     try {
       const page = decodeURIComponent(match[1])
-      return pageIds.has(page as Page) ? (page as Page) : null
+      return pageIds.has(page as Page) ? canonicalDashboardPage(page as Page) : null
     } catch {
       return null
     }
   }
 
   const legacyPage = new URLSearchParams(window.location.search).get('page')
-  return legacyPage && pageIds.has(legacyPage as Page) ? (legacyPage as Page) : null
+  return legacyPage && pageIds.has(legacyPage as Page) ? canonicalDashboardPage(legacyPage as Page) : null
 }
 
 function dashboardPath(page: Page) {
@@ -6092,13 +6104,14 @@ function WorkspaceApp() {
   const [storageSetupProvider, setStorageSetupProvider] = useState<'dropbox' | 'onedrive' | null>(null)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
-  const [settingsSection, setSettingsSection] =
-    useState<'profile' | 'general' | 'dev'>('general')
+  const [settingsSection, setSettingsSection] = useState<'general' | 'dev'>('general')
+  const [clearingNotifications, setClearingNotifications] = useState(false)
 
   const navigatePage = (requestedPage: Page, replace = false) => {
-    const nextPage = requestedPage === 'admin' && !user?.isAdmin
+    const canonicalPage = canonicalDashboardPage(requestedPage)
+    const nextPage = canonicalPage === 'admin' && !user?.isAdmin
       ? 'overview'
-      : requestedPage
+      : canonicalPage
     setActivePage(nextPage)
     setMobileOpen(false)
     setNotificationsOpen(false)
@@ -6115,6 +6128,21 @@ function WorkspaceApp() {
 
   const visibleNotifications = workspaceNotifications
   const unreadNotifications = visibleNotifications.filter((notification) => !notification.readAt)
+
+  const clearNotifications = async () => {
+    if (workspaceNotifications.length === 0 || clearingNotifications) return
+    if (!window.confirm('Clear all notifications for this workspace? This cannot be undone.')) return
+    setClearingNotifications(true)
+    try {
+      const cleared = await api.notifications.clear()
+      setWorkspaceNotifications([])
+      setToast(cleared === 1 ? '1 notification cleared.' : `${cleared} notifications cleared.`)
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Unable to clear notifications.')
+    } finally {
+      setClearingNotifications(false)
+    }
+  }
 
   const openClientProject = (projectId: string) => {
     setWorkProjectId(projectId)
@@ -6139,6 +6167,13 @@ function WorkspaceApp() {
   }, [sidebarCollapsed])
 
   useEffect(() => {
+    const requestedPage = dashboardPageFromLocation()
+    if (requestedPage && window.location.pathname !== dashboardPath(requestedPage)) {
+      window.history.replaceState({ page: requestedPage }, '', dashboardPath(requestedPage))
+    }
+  }, [])
+
+  useEffect(() => {
     let active = true
 
     void api.auth
@@ -6160,7 +6195,12 @@ function WorkspaceApp() {
     const handlePopState = () => {
       setAuthView(authViewFromLocation())
       const requestedPage = dashboardPageFromLocation()
-      if (requestedPage) setActivePage(requestedPage)
+      if (requestedPage) {
+        setActivePage(requestedPage)
+        if (window.location.pathname !== dashboardPath(requestedPage)) {
+          window.history.replaceState({ page: requestedPage }, '', dashboardPath(requestedPage))
+        }
+      }
       setMobileOpen(false)
       setNotificationsOpen(false)
       setProfileOpen(false)
@@ -7115,24 +7155,16 @@ function WorkspaceApp() {
             onDelete={deleteAutomation}
             onToggle={toggleAutomation}
             onRun={runAutomation}
+            workflowTemplates={
+              <Suspense fallback={<EmptySkeleton />}>
+                <WorkflowsPage
+                  embedded
+                  onUseTemplate={useWorkflowTemplate}
+                  busyTemplateId={busyId?.startsWith('template:') ? busyId.slice('template:'.length) : null}
+                />
+              </Suspense>
+            }
           />
-        )
-        break
-      case 'workflows':
-        page = (
-          <Suspense fallback={<EmptySkeleton />}>
-            <WorkflowsPage
-              onUseTemplate={useWorkflowTemplate}
-              busyTemplateId={busyId?.startsWith('template:') ? busyId.slice('template:'.length) : null}
-            />
-          </Suspense>
-        )
-        break
-      case 'storefront':
-        page = (
-          <Suspense fallback={<EmptySkeleton />}>
-            <StorefrontPage workspaceId={user.workspaceId} />
-          </Suspense>
         )
         break
       case 'runs':
@@ -7182,24 +7214,6 @@ function WorkspaceApp() {
           />
         )
         break
-      case 'services':
-        page = (
-          <Suspense fallback={<EmptySkeleton />}>
-            <ServicesPage
-              connection={mcpConnection}
-              services={mcpServices}
-              onSync={async () => {
-                const result = await api.mcp.sync()
-                setMcpConnection(result.connection)
-                setMcpServices(result.services)
-                setToast('Local Lancee tools refreshed.')
-              }}
-              onInvoke={async (service, toolId, args) => api.mcp.invoke(service.id, toolId, args)}
-              onToast={setToast}
-            />
-          </Suspense>
-        )
-        break
       case 'money':
         page = (
           <Suspense fallback={<EmptySkeleton />}>
@@ -7207,10 +7221,10 @@ function WorkspaceApp() {
           </Suspense>
         )
         break
-      case 'analytics':
+      case 'intelligence':
         page = (
           <Suspense fallback={<EmptySkeleton />}>
-            <AnalyticsPage onOpenFiles={() => navigatePage('files')} />
+            <IntelligencePage />
           </Suspense>
         )
         break
@@ -7292,7 +7306,6 @@ function WorkspaceApp() {
               )
             }
             onUserUpdated={setUser}
-            onSignOut={() => void signOut()}
             initialSection={settingsSection}
           />
         )
@@ -7320,9 +7333,6 @@ function WorkspaceApp() {
         }}
         onClose={() => setMobileOpen(false)}
         onSignOut={() => void signOut()}
-        projectCount={analytics?.openProjects ?? 0}
-        automationCount={automations.length}
-        connectionCount={integrations.filter((integration) => integration.connected).length}
         pendingInvoiceCount={analytics?.pendingInvoices ?? 0}
         enabledModules={
           builderPayload?.state.status === 'completed'
@@ -7404,6 +7414,11 @@ function WorkspaceApp() {
                           Mark read
                         </button>
                       )}
+                      {visibleNotifications.length > 0 && (
+                        <button type="button" onClick={() => void clearNotifications()} disabled={clearingNotifications}>
+                          {clearingNotifications ? 'Clearing…' : 'Clear all'}
+                        </button>
+                      )}
                       <button type="button" onClick={() => setNotificationsOpen(false)}>Close</button>
                     </div>
                   </div>
@@ -7472,25 +7487,11 @@ function WorkspaceApp() {
                     <div><strong>{user.name}</strong><small>{user.email}</small></div>
                   </header>
                   <button onClick={() => {
-                    setSettingsSection('profile')
-                    navigatePage('settings')
-                    setProfileOpen(false)
-                  }}>
-                    <Icon name="user" size={16} /><span><strong>Profile</strong><small>Personal details and account</small></span>
-                  </button>
-                  <button onClick={() => {
                     setSettingsSection('general')
                     navigatePage('settings')
                     setProfileOpen(false)
                   }}>
-                    <Icon name="settings" size={16} /><span><strong>Settings</strong><small>Workspace preferences</small></span>
-                  </button>
-                  <button onClick={() => {
-                    setSettingsSection('dev')
-                    navigatePage('settings')
-                    setProfileOpen(false)
-                  }}>
-                    <Icon name="code" size={16} /><span><strong>Dev Tools</strong><small>Database, API keys, and logs</small></span>
+                    <Icon name="settings" size={16} /><span><strong>Preferences</strong><small>Account, workspace, and developer options</small></span>
                   </button>
                   <button className="profile-popover__signout" onClick={() => void signOut()}>
                     <Icon name="logout" size={16} /><span><strong>Sign out</strong></span>

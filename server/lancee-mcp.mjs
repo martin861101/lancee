@@ -640,6 +640,13 @@ export const lanceeMcpToolDefinitions = [
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
   {
+    name: 'get_decision_intelligence_overview',
+    title: 'Get Decision Intelligence overview',
+    description: 'Read exact workspace-scoped Decision Intelligence counts, learning thresholds, category relationships, and recent persisted intelligence events without recomputing intelligence.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
     name: 'call_external_api',
     title: 'Call external API',
     description: 'Call a public HTTP API with bounded time, body, and response size. Redirects, private hosts, cookies, and authorization headers are blocked.',
@@ -692,6 +699,7 @@ const platformCapabilityMetadata = Object.freeze({
   review_decision_warning: { permissions: ['decisions:write'], risk: 'internal-write', approval: true, tags: ['decision', 'warning', 'review'] },
   get_decision_causal_assessment: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'causal', 'evidence'] },
   get_decision_learning_model: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'learning', 'model'] },
+  get_decision_intelligence_overview: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'learning', 'overview', 'timeline'] },
 })
 
 function createPlatformCapabilityDefinitions(executePlatform) {
@@ -1409,6 +1417,9 @@ export function createLanceeMcpRuntime({
       const model = await decisionDynamics.getDecisionLearningModel(context, args.model_type)
       if (!model) throw new LanceeMcpError('MCP_RESOURCE_NOT_FOUND', 'Decision learning model not found.', 404)
       return { model }
+    }
+    if (name === 'get_decision_intelligence_overview') {
+      return { overview: await decisionDynamics.getDecisionIntelligenceOverview(context) }
     }
     throw new LanceeMcpError('MCP_TOOL_NOT_FOUND', `Unknown Lancee MCP tool: ${name}.`, 404)
   }

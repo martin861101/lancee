@@ -107,25 +107,9 @@ The repository audit quarantine is documented in [`junk/README.md`](junk/README.
   guided manual IMAP/SMTP setup, folders, search, message reading, compose and
   reply. New incoming mail can trigger native Core automations by sender,
   recipient, subject, or body keyword; these rules never use n8n.
-- **Storefront** — an optional client storefront with five selectable styles
-  (Black & White, Blue Splash, Gold Dune, Red Tech, and Flowish), copied source
-  templates, an in-dashboard scroll-through preview, and an always-visible
-  play/pause control,
-  workspace-scoped opt-in, and guided custom-domain setup. The preview remains
-  visible while the storefront is off, so users can decide before enabling it.
-  Users enter a domain, copy the displayed DNS records, and use **Check DNS
-  connection** when ready. Storefront settings also separate a full **Store
-  with checkout** experience from a **Basic page** without products or checkout.
-  The **Edit storefront/page** action opens a drag-and-drop section editor for
-  hero and text copy, logos, product sections, calls to action, and section
-  order. Editor documents are saved automatically in browser storage per
-  workspace, mode, and template until a server-side content API is connected.
-- **Automations** — plain-language routines for repetitive work, schedules,
-  connected tools, confirmed deletion, and a dedicated **Results** screen. The
-  newest run opens automatically; each completed step is shown as a readable
-  outcome card, with the full returned data and execution log available on
-  demand.
-- **Connections** — the full live OpenConnector provider catalog, categorized
+- **Automations & Workflows** — plain-language routines, schedules, connected
+  tools, confirmed deletion, and ready-to-use workflow recipes in one place.
+- **Connected Apps** — the full live OpenConnector provider catalog, categorized
   and searchable with incremental rendering, official provider icons, provider
   homepages, advertised auth methods, and owner-started OAuth for providers
   whose OAuth clients have been configured in OpenConnector. API-key and custom
@@ -133,7 +117,9 @@ The repository audit quarantine is documented in [`junk/README.md`](junk/README.
   The page also includes independent backend-managed Google Drive OAuth with
   non-sensitive per-file access through Google Picker, encrypted workspace
   Paystack credentials, signed n8n webhooks, and the application-owned Lancee
-  MCP tool surface. Drive selections that were deleted or are no longer shared
+  MCP tool surface. Its connection diagram shows the private path from AI and
+  external research, through Lancee MCP and workspace tools, to PostgreSQL as
+  the durable memory. Drive selections that were deleted or are no longer shared
   are skipped and pruned so one stale file cannot block the Files page. The
   owner can also connect WhatsApp with a Baileys QR scan; platform notifications
   are restricted to that verified owner number. Saved sessions restore on backend startup,
@@ -153,9 +139,10 @@ The repository audit quarantine is documented in [`junk/README.md`](junk/README.
   See [`docs/INVOICE_PDFS.md`](docs/INVOICE_PDFS.md).
 - **Notifications** — workspace-scoped activity with unread indicators, a
   readable notification popover, current mail and automation events,
-  navigation to related work, and mark-as-read controls.
-- **Settings** — workspace, authentication, notification configuration, profile
-  image upload/removal, and explicit logout controls.
+  navigation to related work, mark-as-read controls, and a confirmed clear-all
+  action.
+- **Preferences** — merged account and workspace settings, profile image
+  controls, developer tools, and explicit logout controls.
 
 See [`docs/PRODUCT_VISION.md`](docs/PRODUCT_VISION.md) for the target user, product
 principles, information architecture, role of AI, and delivery roadmap.
@@ -770,6 +757,29 @@ expected reactions. Outcome reviews are treated only as a review queue: an
 empty queue never implies that decisions, evidence, or business inputs are
 absent.
 
+The authenticated workspace now exposes this system as a first-class
+**Intelligence** destination at `/dashboard/intelligence`. The page presents an
+exact overview of the decision ledger, measured outcomes, reliable patterns,
+active predictions, warnings, evidence records, real category relationships,
+and persisted intelligence events. Patterns, predictions, warnings, and ledger
+records retain their named confidence dimensions and open into a shared
+evidence drawer. Warning acknowledgement and dismissal use the existing
+Decision Intelligence lifecycle, while contextual **Ask Lancee** prompts reuse
+the persisted workspace assistant and its current decision capabilities.
+
+The UI reads bounded list/detail tools and one read-only
+`get_decision_intelligence_overview` capability. That overview aggregates the
+existing workspace-scoped tables without recalculating intelligence. No new
+Decision Intelligence table, migration, learning engine, notification state,
+or Hermes authority was introduced. See
+[`docs/DECISION_INTELLIGENCE_UI.md`](docs/DECISION_INTELLIGENCE_UI.md).
+
+Business analytics now appears at the bottom of **Intelligence**, alongside the
+Decision Intelligence experience. It retains live workspace metrics and refresh
+but intentionally does not expose Cloud files or JSON export actions. Legacy
+Analytics, Workflows, Services, Results, and Storefront dashboard URLs resolve
+to their consolidated destinations. See [`docs/UI_FIXES.md`](docs/UI_FIXES.md).
+
 The public landing page includes a Decision Intelligence section that explains
 this flow in business language: remember the choice, measure what changed, and
 compare past decisions with their context and evidence intact. Its atmospheric
@@ -785,6 +795,8 @@ npm run verify:dynamics
 npm run verify:decision-semantic
 npm run verify:decision-phase2
 npm run verify:decision-phase3
+npm run verify:decision-ui
+npm run verify:ui-fixes
 npm run verify:mcp-contracts
 # Against a guarded lancee_decision_verify_* database only:
 npm run verify:dynamics-postgres

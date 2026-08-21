@@ -20,6 +20,7 @@ type Message = {
 }
 
 export const DASHBOARD_CHANGED_EVENT = 'lancee:dashboard-changed'
+export const DASHBOARD_ASSISTANT_QUERY_EVENT = 'lancee:assistant-query'
 
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -184,6 +185,16 @@ export default function WorkspaceChat({ user }: { user: User }) {
     const element = messagesElement.current
     if (element) element.scrollTop = element.scrollHeight
   }, [messages, busy])
+
+  useEffect(() => {
+    const handleQuestion = (event: Event) => {
+      const question = String((event as CustomEvent<{ question?: string }>).detail?.question || '').trim()
+      setOpen(true)
+      if (question) setMessage(question)
+    }
+    window.addEventListener(DASHBOARD_ASSISTANT_QUERY_EVENT, handleQuestion)
+    return () => window.removeEventListener(DASHBOARD_ASSISTANT_QUERY_EVENT, handleQuestion)
+  }, [])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()

@@ -2360,6 +2360,93 @@ kbd {
   line-height: 1.55;
 }
 
+.connected-apps-diagram {
+  display: grid;
+  grid-template-columns: minmax(220px, .8fr) minmax(0, 1.5fr);
+  gap: 28px;
+  align-items: center;
+  margin: 0 0 24px;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.connected-apps-diagram h2 {
+  margin: 6px 0 8px;
+  color: var(--ink);
+  font-size: 20px;
+  letter-spacing: -.025em;
+}
+
+.connected-apps-diagram p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.connected-apps-diagram ol {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.connected-apps-diagram li {
+  position: relative;
+  min-width: 0;
+  padding: 16px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.connected-apps-diagram li:not(:last-child)::after {
+  position: absolute;
+  top: 50%;
+  right: -10px;
+  z-index: 1;
+  width: 9px;
+  height: 9px;
+  background: var(--surface);
+  border-top: 1px solid var(--brand-violet);
+  border-right: 1px solid var(--brand-violet);
+  content: '';
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.connected-apps-diagram li > span,
+.connected-apps-diagram li strong,
+.connected-apps-diagram li small {
+  display: block;
+}
+
+.connected-apps-diagram li > span {
+  margin-bottom: 12px;
+  color: var(--brand-violet);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.connected-apps-diagram li strong {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.connected-apps-diagram li small {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .integrations-toolbar {
   margin-top: 18px;
 }
@@ -7911,6 +7998,10 @@ kbd {
     justify-self: start;
   }
 
+  .connected-apps-diagram {
+    grid-template-columns: 1fr;
+  }
+
   .run-stat-grid {
     grid-template-columns: 1fr 1fr;
   }
@@ -8142,6 +8233,20 @@ kbd {
 
   .auth-form-panel {
     padding: 22px 18px;
+  }
+}
+
+@media (max-width: 620px) {
+  .connected-apps-diagram ol {
+    grid-template-columns: 1fr;
+  }
+
+  .connected-apps-diagram li:not(:last-child)::after {
+    top: auto;
+    right: auto;
+    bottom: -9px;
+    left: 50%;
+    transform: translateX(-50%) rotate(135deg);
   }
 }
 

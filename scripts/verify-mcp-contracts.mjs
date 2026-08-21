@@ -44,7 +44,7 @@ try {
   const server = createLanceeMcpProtocolServer({ runtime })
 
   const tools = runtime.listTools()
-  assert.equal(tools.length, 60)
+  assert.equal(tools.length, 61)
   for (const tool of tools) {
     assert.deepEqual(tool.outputSchema.required, ['success', 'ok', 'data', 'error'])
   }
@@ -309,6 +309,11 @@ try {
     model_type: 'structural_similarity',
   })
   assert.equal(learningModel.structuredContent.data.resource.modelVersion, 'structural-calibration-v1-contract')
+  const intelligenceOverview = await call('get_decision_intelligence_overview', {})
+  assert.equal(intelligenceOverview.structuredContent.data.overview.metrics.decisionsObserved, 2)
+  assert.equal(intelligenceOverview.structuredContent.data.overview.metrics.measuredOutcomes, 1)
+  assert.equal(intelligenceOverview.structuredContent.data.overview.thresholds.minimumPatternSamples, 3)
+  assert(intelligenceOverview.structuredContent.data.overview.categories.some((category) => category.objectType === 'product'))
 
   const foreignDecision = await call('get_decision', { decision_id: currentDecisionId }, {
     ...context,

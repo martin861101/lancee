@@ -234,8 +234,8 @@ try {
     coreToolIds: ['workspace.summary'],
     executeAutomationRun: async () => {},
   })
-  assert.equal(Object.keys(lanceeMcpCapabilityBindings).length, 64)
-  assert.equal(runtime.listTools().length, 60)
+  assert.equal(Object.keys(lanceeMcpCapabilityBindings).length, 65)
+  assert.equal(runtime.listTools().length, 61)
   for (const tool of runtime.listTools()) {
     const capability = runtime.capabilities.get(lanceeMcpCapabilityBindings[tool.name])
     assert(capability, `missing capability for ${tool.name}`)
@@ -243,6 +243,8 @@ try {
   }
   const runtimeFile = await runtime.invoke('create_file', { name: 'runtime.txt', content: 'registry routed' }, context)
   assert.equal(runtimeFile.file.name, 'runtime.txt')
+  const intelligenceOverview = await runtime.invoke('get_decision_intelligence_overview', {}, context)
+  assert.equal(intelligenceOverview.overview.metrics.decisionsObserved, 0)
   await assert.rejects(
     runtime.invoke('call_external_api', { url: 'http://127.0.0.1/private' }, context),
     (error) => error instanceof LanceeMcpError && error.code === 'MCP_HTTPS_REQUIRED',

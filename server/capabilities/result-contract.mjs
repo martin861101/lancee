@@ -93,6 +93,7 @@ const resultContracts = Object.freeze({
   'decision.review-warning': { mode: 'single', resourceKey: 'warning', resourceType: 'decision-warning' },
   'decision.get-causal-assessment': { mode: 'single', resourceKey: 'assessment', resourceType: 'decision-causal-assessment' },
   'decision.get-learning-model': { mode: 'single', resourceKey: 'model', resourceType: 'decision-learning-model' },
+  'decision.get-intelligence-overview': { mode: 'terminal' },
   'workspace.query': { mode: 'dashboard' },
 })
 

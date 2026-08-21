@@ -73,6 +73,7 @@ export const lanceeMcpCapabilityBindings = Object.freeze({
   review_decision_warning: 'decision.review-warning',
   get_decision_causal_assessment: 'decision.get-causal-assessment',
   get_decision_learning_model: 'decision.get-learning-model',
+  get_decision_intelligence_overview: 'decision.get-intelligence-overview',
   call_external_api: 'integration.http.request',
 })
 

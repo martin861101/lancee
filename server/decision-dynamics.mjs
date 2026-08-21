@@ -1667,5 +1667,6 @@ export function createDecisionDynamicsService({
     reviewDecisionWarning: learning.reviewWarning,
     getDecisionCausalAssessment: learning.getCausalAssessment,
     getDecisionLearningModel: learning.getLearningModel,
+    getDecisionIntelligenceOverview: learning.getIntelligenceOverview,
   }
 }

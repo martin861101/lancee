@@ -78,9 +78,11 @@ const templates: WorkflowTemplate[] = [
 export default function WorkflowsPage({
   onUseTemplate,
   busyTemplateId,
+  embedded = false,
 }: {
   onUseTemplate: (template: WorkflowTemplate) => Promise<void>
   busyTemplateId: string | null
+  embedded?: boolean
 }) {
   const [category, setCategory] = useState('All')
   const categories = ['All', ...new Set(templates.map((template) => template.category))]
@@ -90,11 +92,11 @@ export default function WorkflowsPage({
   )
 
   return (
-    <div className="page workflows-page">
+    <div className={`workflows-page${embedded ? ' workflows-page--embedded' : ' page'}`}>
       <header className="workflows-header">
         <div>
           <span className="micro-label">Ready-to-use recipes</span>
-          <h1>Everyday <em>workflows</em></h1>
+          <h2>{embedded ? <>Workflow <em>recipes</em></> : <>Everyday <em>workflows</em></>}</h2>
           <p>Each recipe creates an active Core automation backed by live workspace data and persisted run logs.</p>
         </div>
         <div className="workflows-header__path" aria-label="Workflow process">

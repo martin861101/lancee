@@ -7998,6 +7998,18 @@ export async function openDatabase({
       return await this.getWorkspaceNotification(selectedWorkspaceId, id)
     },
 
+    async clearWorkspaceNotifications(selectedWorkspaceId) {
+      const rows = await query(
+        `SELECT COUNT(*) AS count FROM workspace_notifications WHERE workspace_id = $1`,
+        [selectedWorkspaceId],
+      )
+      await query(
+        `DELETE FROM workspace_notifications WHERE workspace_id = $1`,
+        [selectedWorkspaceId],
+      )
+      return Number(rows[0]?.count || 0)
+    },
+
     async updateProjectStatus(selectedWorkspaceId, id, status) {
       await query(
         `UPDATE projects SET status = $1, updated_at = $2 WHERE workspace_id = $3 AND id = $4`,

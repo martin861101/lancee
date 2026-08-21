@@ -41,7 +41,7 @@ function formatMoneyMinor(amountMinor: number) {
   return `R ${(amountMinor / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-export default function AnalyticsPage({ onOpenFiles }: { onOpenFiles?: () => void }) {
+export default function AnalyticsPage({ embedded = false }: { embedded?: boolean }) {
   const [data, setData] = useState<AnalyticsData | null>(null)
   const [databaseInfo, setDatabaseInfo] = useState<DatabaseInfo | null>(null)
   const [loading, setLoading] = useState(true)
@@ -83,20 +83,9 @@ export default function AnalyticsPage({ onOpenFiles }: { onOpenFiles?: () => voi
     }
   }
 
-  const handleExport = () => {
-    if (!data) return
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `lancee-analytics-${new Date().toISOString().slice(0, 10)}.json`
-    anchor.click()
-    URL.revokeObjectURL(url)
-  }
-
   if (loading) {
     return (
-      <div className="content-container dashboard-page">
+      <div className={embedded ? 'intelligence-analytics dashboard-page' : 'content-container dashboard-page'}>
         <div className="skeleton-line" style={{ width: '200px', height: '28px', marginBottom: '24px' }} />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
           {[1, 2, 3, 4].map((i) => (
@@ -109,7 +98,7 @@ export default function AnalyticsPage({ onOpenFiles }: { onOpenFiles?: () => voi
 
   if (error || !data) {
     return (
-      <div className="content-container dashboard-page">
+      <div className={embedded ? 'intelligence-analytics dashboard-page' : 'content-container dashboard-page'}>
         <div className="dashboard-alert">{error || 'Unable to load analytics.'}</div>
         <button type="button" className="button button--secondary" onClick={() => void handleRefresh()}>
           Try again
@@ -127,12 +116,12 @@ export default function AnalyticsPage({ onOpenFiles }: { onOpenFiles?: () => voi
   const weeklyRunTotal = weeklyActivity.reduce((sum, day) => sum + day.runs, 0)
 
   return (
-    <div className="content-container animate-fade-in dashboard-page">
+    <div className={`${embedded ? 'intelligence-analytics' : 'content-container animate-fade-in'} dashboard-page`}>
       <header className="dashboard-page__header">
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <h2 className="dashboard-page__title" style={{ margin: 0 }}>
-              Platform Analytics
+              {embedded ? 'Business analytics' : 'Platform Analytics'}
             </h2>
             <span className="badge badge--success" style={{ fontSize: '12px' }}>
               Live sync
@@ -146,14 +135,6 @@ export default function AnalyticsPage({ onOpenFiles }: { onOpenFiles?: () => voi
           <button type="button" className="button button--ghost" disabled={refreshing} onClick={() => void handleRefresh()}>
             {refreshing ? 'Refreshing…' : 'Refresh'}
           </button>
-          <button type="button" className="button button--secondary" onClick={handleExport}>
-            Export JSON
-          </button>
-          {onOpenFiles && (
-            <button type="button" className="button button--primary" onClick={onOpenFiles}>
-              Cloud files
-            </button>
-          )}
         </div>
       </header>
 

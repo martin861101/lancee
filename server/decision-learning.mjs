@@ -934,6 +934,161 @@ export function createDecisionLearningService({ database, baseStructuralPolicy, 
     return mapLearningModel(rows[0])
   }
 
+  async function getIntelligenceOverview(context) {
+    const { workspaceId } = trustedScope(context)
+    const decisionStatusRows = await database.query(
+      `SELECT status, COUNT(*) AS count FROM decisions
+       WHERE workspace_id = $1 GROUP BY status`,
+      [workspaceId],
+    )
+    const measuredRows = await database.query(
+      `SELECT COUNT(*) AS count FROM decision_metrics
+       WHERE workspace_id = $1 AND measurement_status = 'measured'`,
+      [workspaceId],
+    )
+    const awaitingRows = await database.query(
+      `SELECT COUNT(*) AS count
+       FROM decision_expected_reactions e
+       LEFT JOIN decision_metrics m
+         ON m.workspace_id = e.workspace_id AND m.decision_id = e.decision_id
+        AND m.metric_key = e.metric_key
+       WHERE e.workspace_id = $1
+         AND (m.measurement_status IS NULL OR m.measurement_status = 'pending')`,
+      [workspaceId],
+    )
+    const evidenceRows = await database.query(
+      `SELECT COUNT(*) AS count FROM decision_evidence WHERE workspace_id = $1`,
+      [workspaceId],
+    )
+    const patternStatusRows = await database.query(
+      `SELECT status, COUNT(*) AS count FROM decision_patterns
+       WHERE workspace_id = $1 GROUP BY status`,
+      [workspaceId],
+    )
+    const predictionStatusRows = await database.query(
+      `SELECT status, COUNT(*) AS count FROM decision_predictions
+       WHERE workspace_id = $1 GROUP BY status`,
+      [workspaceId],
+    )
+    const warningStatusRows = await database.query(
+      `SELECT status, COUNT(*) AS count FROM decision_warnings
+       WHERE workspace_id = $1 GROUP BY status`,
+      [workspaceId],
+    )
+    const reviewStatusRows = await database.query(
+      `SELECT status, COUNT(*) AS count FROM decision_observation_reviews
+       WHERE workspace_id = $1 GROUP BY status`,
+      [workspaceId],
+    )
+    const decisionCategoryRows = await database.query(
+      `SELECT object_type, COUNT(*) AS count FROM decisions
+       WHERE workspace_id = $1 GROUP BY object_type`,
+      [workspaceId],
+    )
+    const measuredCategoryRows = await database.query(
+      `SELECT d.object_type, COUNT(*) AS count
+       FROM decision_metrics m
+       JOIN decisions d ON d.workspace_id = m.workspace_id AND d.id = m.decision_id
+       WHERE m.workspace_id = $1 AND m.measurement_status = 'measured'
+       GROUP BY d.object_type`,
+      [workspaceId],
+    )
+    const patternCategoryRows = await database.query(
+      `SELECT object_type, COUNT(*) AS count FROM decision_patterns
+       WHERE workspace_id = $1 AND status IN ('active', 'emerging')
+       GROUP BY object_type`,
+      [workspaceId],
+    )
+    const predictionCategoryRows = await database.query(
+      `SELECT d.object_type, COUNT(*) AS count
+       FROM decision_predictions p
+       JOIN decisions d ON d.workspace_id = p.workspace_id AND d.id = p.decision_id
+       WHERE p.workspace_id = $1 AND p.status = 'active'
+       GROUP BY d.object_type`,
+      [workspaceId],
+    )
+    const warningCategoryRows = await database.query(
+      `SELECT d.object_type, COUNT(*) AS count
+       FROM decision_warnings w
+       JOIN decisions d ON d.workspace_id = w.workspace_id AND d.id = w.decision_id
+       WHERE w.workspace_id = $1 AND w.status = 'active'
+       GROUP BY d.object_type`,
+      [workspaceId],
+    )
+    const timelineRows = await database.query(
+      `SELECT id, event_type, entity_type, entity_id, payload_json, occurred_at
+       FROM workspace_events
+       WHERE workspace_id = $1
+         AND (event_type LIKE 'decision.%' OR event_type LIKE 'outcome.%')
+       ORDER BY occurred_at DESC, created_at DESC LIMIT 24`,
+      [workspaceId],
+    )
+    const learningModel = await getLearningModel(context)
+
+    const statusCounts = (rows, statuses) => Object.fromEntries(statuses.map((status) => [
+      status,
+      Number(rows.find((row) => row.status === status)?.count || 0),
+    ]))
+    const decisionsByStatus = statusCounts(decisionStatusRows, ['draft', 'active', 'reviewed', 'archived'])
+    const patternsByStatus = statusCounts(patternStatusRows, ['active', 'emerging', 'retired'])
+    const predictionsByStatus = statusCounts(predictionStatusRows, ['active', 'measured', 'superseded'])
+    const warningsByStatus = statusCounts(warningStatusRows, ['active', 'acknowledged', 'dismissed', 'resolved'])
+    const reviewsByStatus = statusCounts(reviewStatusRows, ['scheduled', 'due', 'completed', 'cancelled'])
+    const categoryMap = new Map()
+    const addCategoryCounts = (rows, field) => {
+      for (const row of rows) {
+        const objectType = String(row.object_type || 'uncategorized')
+        const category = categoryMap.get(objectType) || {
+          objectType,
+          decisions: 0,
+          measuredOutcomes: 0,
+          patterns: 0,
+          predictions: 0,
+          warnings: 0,
+        }
+        category[field] = Number(row.count || 0)
+        categoryMap.set(objectType, category)
+      }
+    }
+    addCategoryCounts(decisionCategoryRows, 'decisions')
+    addCategoryCounts(measuredCategoryRows, 'measuredOutcomes')
+    addCategoryCounts(patternCategoryRows, 'patterns')
+    addCategoryCounts(predictionCategoryRows, 'predictions')
+    addCategoryCounts(warningCategoryRows, 'warnings')
+
+    return {
+      metrics: {
+        decisionsObserved: Object.values(decisionsByStatus).reduce((sum, value) => sum + value, 0),
+        measuredOutcomes: Number(measuredRows[0]?.count || 0),
+        outcomesAwaitingMeasurement: Number(awaitingRows[0]?.count || 0),
+        evidenceRecords: Number(evidenceRows[0]?.count || 0),
+        decisionsByStatus,
+        patternsByStatus,
+        predictionsByStatus,
+        warningsByStatus,
+        reviewsByStatus,
+      },
+      thresholds: {
+        minimumPatternSamples: DECISION_LEARNING_POLICY.minimumPatternSamples,
+        activePatternConfidence: DECISION_LEARNING_POLICY.activePatternThreshold,
+        warningConfidence: DECISION_LEARNING_POLICY.warningThreshold,
+        minimumCalibrationSamples: DECISION_LEARNING_POLICY.minimumCalibrationSamples,
+      },
+      learningModel,
+      categories: [...categoryMap.values()].sort((left, right) => (
+        right.decisions - left.decisions || left.objectType.localeCompare(right.objectType)
+      )),
+      timeline: timelineRows.map((row) => ({
+        id: row.id,
+        eventType: row.event_type,
+        entityType: row.entity_type,
+        entityId: row.entity_id,
+        payload: parseJson(row.payload_json, {}),
+        occurredAt: row.occurred_at,
+      })),
+    }
+  }
+
   return {
     policy: DECISION_LEARNING_POLICY,
     structuralPolicyForWorkspace,
@@ -951,5 +1106,6 @@ export function createDecisionLearningService({ database, baseStructuralPolicy, 
     reviewWarning,
     getCausalAssessment,
     getLearningModel,
+    getIntelligenceOverview,
   }
 }

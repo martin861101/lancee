@@ -3171,6 +3171,18 @@ export const api = {
       }
       return payload.notification
     },
+    async clear() {
+      const response = await fetch('/api/notifications', {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: mutationHeaders(),
+      })
+      const payload = (await response.json()) as { cleared?: number; error?: string }
+      if (!response.ok || typeof payload.cleared !== 'number') {
+        throw new Error(payload.error || 'Unable to clear notifications.')
+      }
+      return payload.cleared
+    },
   },
   clients: {
     async list() {
