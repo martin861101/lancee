@@ -2,21 +2,26 @@
 
 ## Outcome
 
-Home is now a contextual, atmospheric starting point instead of a compact KPI
-dashboard. Its order is intentional:
+Home is a contextual, atmospheric starting point modelled on the supplied
+scenic dashboard reference. Its order is intentional:
 
-1. a weather-responsive Workspace Pulse hero;
-2. no more than four reliable Today actions;
-3. the existing Quick Task launcher;
-4. saved automations and recent activity.
+1. an oversized personalised welcome and contextual pulse message;
+2. a glass current-weather panel and four quick actions;
+3. a four-card dock for Today, upcoming work, active projects, and AI;
+4. a quiet branded footer within the scenic page.
 
 Analytics remains unchanged inside Intelligence.
 
 ## Visual treatment
 
-The hero uses the repository asset at `public/img/sunny.png`. Weather changes
-the tint and lightweight overlay rather than introducing unrelated stock
-images:
+The Home content uses the repository asset at `public/img/sunny.png` as a
+full-bleed background. A cool left-to-bottom contrast overlay preserves text
+legibility while translucent weather, action, and dock surfaces retain the
+photographic scene. The shared sidebar and top navigation are not restyled by
+Home's colours; their labels use the same supporting-copy font as the pulse
+message. Home headings use the bold welcome-name type treatment with a yellow
+hand-drawn underline. Weather still determines the contextual icon and pulse
+mood:
 
 | Conditions | Pulse mood |
 | --- | --- |
@@ -29,9 +34,9 @@ images:
 | Cloudy night | `cloudy-night` |
 | Weather unavailable | `steady` neutral gradient |
 
-Rain, sunlight, and night-star movement is subtle and disabled by
-`prefers-reduced-motion`. Text and weather controls use contrast overlays and
-remain responsive down to the mobile dashboard layout.
+Text and weather controls use contrast overlays and remain responsive down to
+the mobile dashboard layout. Hover motion is disabled by
+`prefers-reduced-motion`.
 
 ## Data flow
 

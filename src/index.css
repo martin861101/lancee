@@ -12203,3 +12203,1255 @@ html[data-theme='dark'] .overview-context__reading > span {
     flex-direction: row;
   }
 }
+
+/* Reference-led Home page: full-bleed workspace scene and glass dashboard dock. */
+.page--overview {
+  position: relative;
+  display: flex;
+  width: 100%;
+  max-width: none;
+  min-height: calc(100vh - 64px);
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 38px clamp(22px, 2.35vw, 38px) 18px;
+  overflow: hidden;
+  isolation: isolate;
+  color: white;
+  background-color: #1d4d7c;
+  background-image: url('/img/sunny.png');
+  background-position: center;
+  background-size: cover;
+}
+
+html .app-shell .content > .page--overview {
+  background-color: #1d4d7c;
+  background-image: url('/img/sunny.png');
+  background-position: center;
+  background-size: cover;
+}
+
+html[data-theme='dark'] .app-shell .app-main > .content > .page.page--overview {
+  background-color: #1d4d7c;
+  background-image: url('/img/sunny.png');
+  background-position: center;
+  background-size: cover;
+}
+
+.page--overview::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  content: '';
+  background:
+    linear-gradient(90deg, rgba(5, 35, 73, .64) 0%, rgba(8, 47, 91, .25) 43%, rgba(9, 40, 76, .03) 72%),
+    linear-gradient(0deg, rgba(4, 24, 53, .92) 0%, rgba(6, 32, 67, .36) 35%, transparent 68%),
+    radial-gradient(circle at 85% 8%, rgba(255, 221, 135, .1), transparent 28%);
+}
+
+.overview-scene {
+  display: grid;
+  min-height: clamp(470px, 57vh, 620px);
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 310px);
+  grid-template-rows: auto 1fr;
+  gap: 24px 42px;
+}
+
+.overview-welcome {
+  align-self: start;
+  max-width: 690px;
+  padding: 16px 0 0 16px;
+  text-shadow: 0 3px 26px rgba(2, 22, 51, .34);
+}
+
+.overview-welcome__eyebrow {
+  display: block;
+  margin-bottom: 5px;
+  color: rgba(218, 232, 255, .82);
+  font-size: clamp(12px, 1.05vw, 16px);
+  font-weight: 650;
+  letter-spacing: .28em;
+  text-transform: uppercase;
+}
+
+.overview-welcome h1 {
+  position: relative;
+  width: fit-content;
+  margin: 0 0 26px;
+  color: #fff;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: clamp(62px, 6.4vw, 98px);
+  font-weight: 700;
+  letter-spacing: -.065em;
+  line-height: 1;
+}
+
+.overview-welcome h1::after {
+  position: absolute;
+  right: 7%;
+  bottom: -12px;
+  left: -1%;
+  height: 5px;
+  content: '';
+  background: #ffc542;
+  border-radius: 50%;
+  box-shadow: 0 2px 12px rgba(255, 197, 66, .25);
+  transform: rotate(-2deg);
+}
+
+.overview-welcome h1 span {
+  display: inline-block;
+  margin-left: 10px;
+  font-size: .62em;
+  letter-spacing: 0;
+  transform: translateY(-9px) rotate(-8deg);
+}
+
+.overview-welcome__weather-line {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-top: 6px;
+  color: #fff;
+  font-size: clamp(22px, 2.25vw, 35px);
+  font-weight: 450;
+  letter-spacing: -.035em;
+}
+
+.overview-welcome__sun {
+  display: inline-flex;
+  color: #ffc83d;
+  filter: drop-shadow(0 4px 12px rgba(255, 196, 47, .45));
+}
+
+.overview-welcome__note {
+  position: relative;
+  max-width: 540px;
+  margin: 28px 0 0;
+  color: rgba(255, 255, 255, .94);
+  font-family: 'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive;
+  font-size: clamp(18px, 1.65vw, 26px);
+  font-weight: 500;
+  letter-spacing: -.025em;
+  line-height: 1.48;
+  transform: rotate(-1.25deg);
+}
+
+.overview-welcome__note::after {
+  display: block;
+  width: 42%;
+  height: 3px;
+  margin: 6px 0 0 17%;
+  content: '';
+  background: #ffd24c;
+  border-radius: 50%;
+  transform: rotate(-2deg);
+}
+
+.overview-weather {
+  align-self: start;
+  margin-top: 41px;
+  padding: 22px 20px 17px;
+  background: linear-gradient(145deg, rgba(117, 162, 219, .24), rgba(69, 93, 145, .16));
+  border: 1px solid rgba(255, 255, 255, .35);
+  border-radius: 25px;
+  box-shadow: 0 18px 50px rgba(6, 31, 66, .16), inset 0 1px rgba(255, 255, 255, .14);
+  backdrop-filter: blur(18px) saturate(125%);
+}
+
+.overview-weather__summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.overview-weather__icon {
+  display: grid;
+  width: 60px;
+  height: 60px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #ffca37;
+  filter: drop-shadow(0 5px 10px rgba(255, 196, 48, .32));
+}
+
+.overview-weather__summary > span:last-child {
+  display: grid;
+}
+
+.overview-weather__summary strong {
+  color: white;
+  font-size: 36px;
+  letter-spacing: -.05em;
+  line-height: 1;
+}
+
+.overview-weather__summary small,
+.overview-weather__summary em {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  color: rgba(255, 255, 255, .72);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.overview-weather__summary em {
+  display: block;
+  color: rgba(255, 255, 255, .6);
+  font-size: 9px;
+}
+
+.overview-weather__details {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  margin: 16px -4px -2px;
+  padding-top: 13px;
+  border-top: 1px solid rgba(255, 255, 255, .16);
+}
+
+.overview-weather__details > span {
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+  gap: 6px;
+  color: rgba(255, 255, 255, .9);
+}
+
+.overview-weather__details small {
+  color: rgba(255, 255, 255, .65);
+  font-size: 8px;
+}
+
+.overview-weather__details svg {
+  color: #ffd05a;
+}
+
+.overview-weather__details strong {
+  max-width: 100%;
+  overflow: hidden;
+  color: rgba(255, 255, 255, .8);
+  font-size: 9px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-quick-actions {
+  display: flex;
+  align-self: end;
+  grid-column: 1 / -1;
+  gap: 14px;
+  padding-left: 9px;
+}
+
+.overview-quick-actions button {
+  display: inline-flex;
+  min-width: 132px;
+  height: 49px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 19px;
+  color: rgba(255, 255, 255, .94);
+  background: rgba(51, 67, 101, .25);
+  border: 1px solid rgba(255, 255, 255, .25);
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(5, 25, 57, .16);
+  font-size: 11px;
+  font-weight: 600;
+  backdrop-filter: blur(14px);
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.overview-quick-actions button:hover {
+  background: rgba(67, 89, 131, .4);
+  border-color: rgba(255, 255, 255, .42);
+  transform: translateY(-2px);
+}
+
+.overview-quick-actions button.is-primary {
+  color: white;
+  background: linear-gradient(180deg, rgba(57, 161, 255, .84), rgba(34, 133, 237, .76));
+  border-color: rgba(136, 207, 255, .72);
+  box-shadow: 0 11px 28px rgba(18, 105, 219, .36), inset 0 1px rgba(255, 255, 255, .32);
+}
+
+.overview-dock {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 17px;
+}
+
+.overview-glass-card {
+  display: flex;
+  min-width: 0;
+  min-height: 218px;
+  flex-direction: column;
+  padding: 18px 19px 15px;
+  color: rgba(236, 243, 255, .88);
+  background: linear-gradient(150deg, rgba(16, 48, 79, .52), rgba(10, 28, 61, .56));
+  border: 1px solid rgba(173, 202, 234, .27);
+  border-radius: 22px;
+  box-shadow: 0 18px 45px rgba(3, 22, 51, .22), inset 0 1px rgba(255, 255, 255, .07);
+  backdrop-filter: blur(18px) saturate(120%);
+}
+
+.overview-glass-card header {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.overview-glass-card header > span:last-child {
+  min-width: 0;
+}
+
+.overview-glass-card header strong,
+.overview-glass-card header small {
+  display: block;
+}
+
+.overview-glass-card header strong {
+  color: white;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.overview-glass-card header small {
+  margin-top: 4px;
+  color: rgba(191, 208, 233, .68);
+  font-size: 9px;
+}
+
+.overview-card-icon {
+  display: grid;
+  width: 33px;
+  height: 33px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #c5d9f4;
+}
+
+.overview-card-icon--gold { color: #f5d2a0; }
+.overview-card-icon--amber { color: #ffc073; }
+.overview-card-icon--violet { color: #9d62ff; }
+
+.overview-card-list,
+.overview-signal-list,
+.overview-project-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 15px;
+}
+
+.overview-card-list button,
+.overview-signal-list button,
+.overview-project-list button {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  color: rgba(237, 243, 255, .86);
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+
+.overview-card-list button {
+  display: grid;
+  grid-template-columns: 19px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.overview-card-list button > span {
+  display: grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  color: #8daacb;
+  border: 1px solid #7391b2;
+  border-radius: 50%;
+}
+
+.overview-card-list button > span.is-complete {
+  color: #0c4a45;
+  background: #28e3a0;
+  border-color: #28e3a0;
+}
+
+.overview-card-list button strong {
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-card-list button:first-child strong {
+  color: rgba(202, 215, 233, .62);
+  text-decoration: line-through;
+}
+
+.overview-signal-list button,
+.overview-project-list button {
+  display: grid;
+  min-height: 21px;
+  align-items: center;
+  gap: 8px;
+  font-size: 9px;
+}
+
+.overview-signal-list button {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.overview-signal-list button span,
+.overview-project-list button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-signal-list button strong,
+.overview-project-list button strong {
+  color: rgba(207, 220, 239, .72);
+  font-size: 8px;
+  font-weight: 500;
+}
+
+.overview-project-list button {
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+}
+
+.overview-project-list i {
+  width: 8px;
+  height: 8px;
+  background: #45a9ff;
+  border-radius: 50%;
+  box-shadow: 0 0 10px currentColor;
+}
+
+.overview-project-list i.is-pink { background: #f136b0; }
+.overview-project-list i.is-amber { background: #ffc347; }
+
+.overview-card-link {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 5px;
+  margin-top: auto;
+  padding: 5px 0 0;
+  color: #43a7ff;
+  background: transparent;
+  border: 0;
+  font-size: 9px;
+  font-weight: 550;
+}
+
+.overview-card-link:hover {
+  color: #8ccbff;
+}
+
+.overview-ai-card header small.is-online {
+  color: #39df8c;
+}
+
+.overview-ai-card p {
+  margin: 17px 0 12px;
+  color: rgba(231, 239, 252, .82);
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+.overview-ai-card__button {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: auto;
+  color: #173760;
+  background: rgba(245, 249, 255, .82);
+  border: 1px solid rgba(255, 255, 255, .7);
+  border-radius: 10px;
+  box-shadow: 0 7px 22px rgba(3, 17, 42, .14);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.overview-ai-card__button:hover {
+  background: white;
+  transform: translateY(-1px);
+}
+
+.overview-footer {
+  display: flex;
+  min-height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 3px;
+  color: rgba(204, 219, 241, .7);
+  font-size: 9px;
+}
+
+.overview-footer > span,
+.overview-footer__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.overview-footer__brand strong {
+  color: white;
+  font-size: 17px;
+  letter-spacing: -.04em;
+}
+
+.overview-footer__brand small {
+  margin-left: 14px;
+  color: rgba(204, 219, 241, .7);
+  font-size: 9px;
+}
+
+.overview-footer > span:last-child svg {
+  color: #ffc845;
+}
+
+@media (max-width: 1180px) {
+  .overview-scene {
+    grid-template-columns: minmax(0, 1fr) 275px;
+  }
+
+  .overview-dock {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 800px) {
+  .page--overview {
+    padding: 24px 18px 16px;
+    overflow: visible;
+    background-position: 58% center;
+  }
+
+  .overview-scene {
+    min-height: auto;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+  }
+
+  .overview-welcome {
+    padding-left: 4px;
+  }
+
+  .overview-weather {
+    width: min(100%, 330px);
+    margin: 0;
+  }
+
+  .overview-quick-actions {
+    grid-column: auto;
+    flex-wrap: wrap;
+    padding-left: 0;
+  }
+
+  .overview-quick-actions button {
+    flex: 1 1 145px;
+  }
+}
+
+@media (max-width: 560px) {
+  .page--overview {
+    gap: 13px;
+    padding-inline: 14px;
+  }
+
+  .overview-welcome h1 {
+    margin-bottom: 22px;
+    font-size: clamp(52px, 17vw, 72px);
+  }
+
+  .overview-welcome__weather-line {
+    font-size: 20px;
+  }
+
+  .overview-welcome__note {
+    margin-top: 20px;
+    font-size: 17px;
+  }
+
+  .overview-weather {
+    width: 100%;
+  }
+
+  .overview-dock {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-glass-card {
+    min-height: 205px;
+  }
+
+  .overview-footer,
+  .overview-footer__brand small {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overview-quick-actions button,
+  .overview-ai-card__button {
+    transition: none;
+  }
+}
+
+/* Optional light-blue dashboard theme. Dark and light retain their original CSS. */
+html[data-theme-variant='sky'] .app-shell {
+  --ink: #f4f8ff;
+  --ink-soft: #dce9f7;
+  --muted: #b8cee2;
+  --muted-2: #91abc4;
+  --canvas: #0f3a6e;
+  --surface: rgba(16, 48, 79, .52);
+  --surface-soft: rgba(10, 28, 61, .56);
+  --surface-dark: #0a2c5e;
+  --line: rgba(196, 225, 250, .26);
+  --line-strong: rgba(222, 241, 255, .42);
+  --accent: #67bdff;
+  --accent-bright: #8ed1ff;
+  --accent-dark: #155696;
+  --success: #279a71;
+  --warning: #ffc85b;
+  --danger: #ff8e95;
+  --shadow-sm: 0 18px 42px rgba(3, 22, 51, .22);
+  --shadow-md: 0 28px 72px rgba(3, 22, 51, .28);
+  color: var(--ink);
+  color-scheme: dark;
+  background: #0f3a6e;
+}
+
+html[data-theme-variant='sky'] body {
+  background: #0f3a6e;
+}
+
+html[data-theme-variant='sky'] .app-shell .sidebar {
+  background:
+    radial-gradient(circle at 38% -8%, rgba(76, 139, 233, .22), transparent 17rem),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' opacity='.2' filter='url(%23n)'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, #0d3267 0%, #071b3b 100%);
+  background-blend-mode: normal, soft-light, normal;
+  background-size: auto, 240px 240px, auto;
+  border-right-color: rgba(130, 187, 246, .18);
+}
+
+html[data-theme-variant='sky'] .app-shell .topbar {
+  color: #eef6ff;
+  background:
+    linear-gradient(90deg, rgba(10, 40, 84, .94), rgba(7, 25, 55, .91)),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-blend-mode: normal, soft-light;
+  background-size: auto, 220px 220px;
+  border-bottom-color: rgba(130, 187, 246, .16);
+}
+
+html[data-theme-variant='sky'] .app-shell .app-main {
+  background:
+    radial-gradient(circle at 78% -8%, rgba(77, 144, 230, .22), transparent 34rem),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' opacity='.18' filter='url(%23n)'/%3E%3C/svg%3E"),
+    linear-gradient(145deg, #174d83 0%, #0f3a6e 100%);
+  background-blend-mode: screen, soft-light, normal;
+  background-size: auto, 260px 260px, auto;
+}
+
+html[data-theme-variant='sky'] .app-shell .content,
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) {
+  background: transparent;
+}
+
+html[data-theme-variant='sky'] .app-shell .breadcrumb-workspace,
+html[data-theme-variant='sky'] .app-shell .breadcrumb-slash {
+  color: #a9caee;
+}
+
+html[data-theme-variant='sky'] .app-shell .global-search,
+html[data-theme-variant='sky'] .app-shell .icon-button {
+  color: #d0e7ff;
+  background: rgba(255, 255, 255, .08);
+  border-color: rgba(154, 205, 255, .24);
+}
+
+html[data-theme-variant='sky'] .app-shell .global-search:hover,
+html[data-theme-variant='sky'] .app-shell .icon-button:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, .15);
+  border-color: rgba(180, 218, 255, .44);
+}
+
+html[data-theme-variant='sky'] .app-shell kbd {
+  color: #c4ddf8;
+  background: rgba(2, 22, 53, .3);
+  border-color: rgba(154, 205, 255, .18);
+  box-shadow: none;
+}
+
+html[data-theme-variant='sky'] .app-shell .topbar-avatar {
+  color: #eef6ff;
+  background: linear-gradient(145deg, #467bb5, #1b426f);
+  border-color: rgba(184, 220, 255, .34);
+}
+
+html[data-theme-variant='sky'] .app-shell .workspace-switcher {
+  background: rgba(255, 255, 255, .075);
+  border-color: rgba(166, 210, 255, .18);
+}
+
+html[data-theme-variant='sky'] .app-shell .workspace-switcher:hover {
+  background: rgba(255, 255, 255, .13);
+  border-color: rgba(181, 220, 255, .32);
+}
+
+html[data-theme-variant='sky'] .app-shell .workspace-avatar {
+  color: #fff;
+  background: linear-gradient(145deg, #53aeff, #2775ce);
+}
+
+html[data-theme-variant='sky'] .app-shell .nav-group button.is-active {
+  background: linear-gradient(90deg, rgba(72, 151, 238, .35), rgba(38, 75, 131, .42));
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(
+  .panel,
+  [class$='-card'],
+  [class*='-card '],
+  [class$='-panel'],
+  [class*='-panel '],
+  [class$='-banner'],
+  [class*='-banner '],
+  [class$='-dialog'],
+  [class*='-dialog '],
+  .clients-directory,
+  .dashboard-stat,
+  .dashboard-panel,
+  .dashboard-drive-browser,
+  .dashboard-document-library,
+  .drive-folder-browser,
+  .drive-folder-browser__bar,
+  .file-explorer__sidebar,
+  .file-explorer__section,
+  .file-explorer__topbar,
+  .file-explorer__toolbar,
+  .file-explorer__search,
+  .file-explorer__sort,
+  .file-explorer__file-table-wrap,
+  .intelligence-hero,
+  .intelligence-section,
+  .intelligence-ask,
+  .intelligence-table-wrap,
+  .mail-shell,
+  .mail-folders,
+  .mail-list-pane,
+  .mail-reader,
+  .mail-toolbar,
+  .mail-message-line,
+  .mail-compose,
+  .mail-rule-form,
+  .messages-tabs,
+  .messages-rules,
+  .money-balance,
+  .money-stats article,
+  .provider-grid article,
+  .billing-draft,
+  .project-workspace,
+  .project-workspace__stats article,
+  .project-section-panel,
+  .project-lane,
+  .project-kanban-card,
+  .projects-search,
+  .projects-filter,
+  .workflow-template-grid > article,
+  .ideas-boardbar,
+  .ideas-library-panel,
+  .ideas-library-item,
+  .ideas-board-tab,
+  .ideas-capabilities span,
+  .ideas-excalidraw-shell,
+  .ideas-empty,
+  .automation-summary,
+  .run-stat-grid article,
+  .integration-banner,
+  .mcp-panel,
+  .mcp-service-card,
+  .command-box,
+  .data-table-wrap,
+  .n8n-showcase,
+  .security-note,
+  .api-quickstart,
+  .settings-nav
+):not(.storefront-template-card, .storefront-template-mockup) {
+  color: rgba(236, 243, 255, .92);
+  background: linear-gradient(150deg, rgba(16, 48, 79, .52), rgba(10, 28, 61, .56));
+  border-color: rgba(173, 202, 234, .34);
+  box-shadow: 0 24px 58px rgba(3, 22, 51, .25), 0 7px 18px rgba(3, 22, 51, .12), inset 0 1px rgba(255, 255, 255, .09);
+  backdrop-filter: blur(18px) saturate(120%);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(
+  .panel,
+  [class$='-card'],
+  [class*='-card '],
+  [class$='-panel'],
+  [class*='-panel '],
+  [class$='-banner'],
+  [class*='-banner '],
+  [class$='-dialog'],
+  [class*='-dialog ']
+):not(.storefront-template-card, .storefront-template-mockup) {
+  border-radius: 20px;
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(
+  .dashboard-page__description,
+  .page-header p,
+  .money-header p
+) {
+  color: rgba(222, 235, 250, .82);
+  text-shadow: 0 2px 12px rgba(3, 22, 51, .16);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(
+  .button--secondary,
+  .text-button,
+  [class$='-button']:not(.dispatch-button, .ideas-new-board)
+) {
+  color: rgba(245, 249, 255, .94);
+  background: rgba(51, 67, 101, .28);
+  border-color: rgba(255, 255, 255, .28);
+  box-shadow: 0 8px 24px rgba(5, 25, 57, .14);
+  backdrop-filter: blur(14px) saturate(120%);
+}
+
+html[data-theme-variant='sky'] .app-shell :is(.button--primary, .ideas-new-board) {
+  color: #fff;
+  background: linear-gradient(180deg, rgba(57, 161, 255, .96), rgba(34, 133, 237, .92));
+  border-color: rgba(136, 207, 255, .72);
+  box-shadow: 0 11px 28px rgba(18, 105, 219, .36), inset 0 1px rgba(255, 255, 255, .32);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) {
+  color: #f4f8ff;
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(h1, h2, h3, h4) {
+  color: #fff;
+  text-shadow: 0 2px 16px rgba(3, 22, 51, .18);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(
+  p,
+  small,
+  .micro-label,
+  .page-eyebrow,
+  .projects-eyebrow,
+  .money-eyebrow,
+  .clients-eyebrow,
+  .intelligence-eyebrow,
+  .storefront-eyebrow
+) {
+  color: rgba(222, 235, 250, .82);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) button:not(
+  .button--primary,
+  .is-primary,
+  .projects-new,
+  .money-primary,
+  .ideas-new-board,
+  .dispatch-button,
+  [class*='danger'],
+  [class*='delete']
+) {
+  color: rgba(245, 249, 255, .94);
+  background: rgba(51, 67, 101, .28);
+  border-color: rgba(255, 255, 255, .28);
+  box-shadow: 0 8px 24px rgba(5, 25, 57, .12);
+  backdrop-filter: blur(14px) saturate(120%);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(
+  .button--primary,
+  .projects-new,
+  .money-primary,
+  .ideas-new-board,
+  .dispatch-button,
+  .workflow-template-grid > article > button
+) {
+  color: #fff;
+  background: linear-gradient(180deg, rgba(57, 161, 255, .96), rgba(34, 133, 237, .92));
+  border-color: rgba(136, 207, 255, .72);
+  box-shadow: 0 11px 28px rgba(18, 105, 219, .36), inset 0 1px rgba(255, 255, 255, .32);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(
+  button.is-active,
+  button[aria-pressed='true'],
+  .button--secondary:hover,
+  .text-button:hover
+) {
+  color: #fff;
+  background: rgba(100, 183, 255, .3);
+  border-color: rgba(174, 220, 255, .52);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > .file-explorer {
+  --explorer-bg: transparent;
+  --explorer-surface: rgba(16, 48, 79, .52);
+  --explorer-surface-raised: rgba(10, 28, 61, .56);
+  --explorer-line: rgba(196, 225, 250, .26);
+  --explorer-line-soft: rgba(196, 225, 250, .16);
+  --explorer-text: #f4f8ff;
+  --explorer-muted: #b8cee2;
+  --explorer-blue: #67bdff;
+  --explorer-blue-bright: #8ed1ff;
+  color: var(--explorer-text);
+  background: transparent;
+}
+
+html[data-theme-variant='sky'] .app-shell .file-explorer :is(
+  .file-explorer__main,
+  .file-explorer__content
+) {
+  background: transparent;
+}
+
+html[data-theme-variant='sky'] .app-shell .content > .money-page {
+  --money-ink: #f4f8ff;
+  --money-muted: #b8cee2;
+  --money-line: rgba(196, 225, 250, .26);
+  color: var(--money-ink);
+  background: transparent;
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(
+  .workflows-header__path,
+  .messages-page-header--app,
+  .messages-instructions,
+  .messages-server-grid fieldset
+) {
+  color: rgba(236, 243, 255, .92);
+  background: linear-gradient(150deg, rgba(16, 48, 79, .52), rgba(10, 28, 61, .56));
+  border-color: rgba(173, 202, 234, .34);
+  box-shadow: 0 18px 45px rgba(3, 22, 51, .18), inset 0 1px rgba(255, 255, 255, .09);
+  backdrop-filter: blur(18px) saturate(120%);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(
+  .search-field,
+  .filter-tabs,
+  .category-select,
+  .payment-note
+) {
+  color: rgba(222, 235, 250, .82);
+  background: rgba(10, 28, 61, .38);
+  border-color: rgba(196, 225, 250, .3);
+  box-shadow: inset 0 1px rgba(255, 255, 255, .04);
+  backdrop-filter: blur(14px) saturate(120%);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) .filter-tabs button {
+  color: rgba(222, 235, 250, .82);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) .filter-tabs button:is(:hover, .is-active) {
+  color: #fff;
+  background: rgba(100, 183, 255, .3);
+  border-color: rgba(174, 220, 255, .42);
+}
+
+html[data-theme-variant='sky'] .app-shell .app-main:has(.projects-page) {
+  background:
+    radial-gradient(circle at 78% -8%, rgba(77, 144, 230, .22), transparent 34rem),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' opacity='.18' filter='url(%23n)'/%3E%3C/svg%3E"),
+    linear-gradient(145deg, #174d83 0%, #0f3a6e 100%);
+  background-blend-mode: screen, soft-light, normal;
+  background-size: auto, 260px 260px, auto;
+}
+
+html[data-theme-variant='sky'] .app-shell .app-main:has(.projects-page) .topbar {
+  color: #eef6ff;
+  background:
+    linear-gradient(90deg, rgba(10, 40, 84, .94), rgba(7, 25, 55, .91)),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-blend-mode: normal, soft-light;
+  background-size: auto, 220px 220px;
+  border-bottom-color: rgba(130, 187, 246, .16);
+}
+
+html[data-theme-variant='sky'] .app-shell .app-main:has(.projects-page) :is(
+  .breadcrumb-workspace,
+  .breadcrumb-slash
+) {
+  color: #a9caee;
+}
+
+html[data-theme-variant='sky'] .app-shell .app-main:has(.projects-page) :is(
+  .global-search,
+  .icon-button
+) {
+  color: #d0e7ff;
+  background: rgba(255, 255, 255, .08);
+  border-color: rgba(154, 205, 255, .24);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > .projects-page {
+  --projects-surface: rgba(16, 48, 79, .52);
+  --projects-surface-raised: rgba(10, 28, 61, .56);
+  --projects-line: rgba(196, 225, 250, .26);
+  --projects-muted: #b8cee2;
+  color: #f4f8ff;
+  background: transparent;
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) .form-footer {
+  background: rgba(10, 28, 61, .3);
+  border-color: rgba(196, 225, 250, .22);
+  backdrop-filter: blur(14px) saturate(120%);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(
+  .form-field > span,
+  .settings-card label,
+  .setting-row
+) {
+  color: rgba(222, 235, 250, .82);
+}
+
+html[data-theme-variant='sky'] .app-shell .workspace-builder {
+  --builder-accent-soft: rgba(100, 183, 255, .16);
+  color: #f4f8ff;
+  background: transparent;
+}
+
+html[data-theme-variant='sky'] .app-shell .workspace-builder__main {
+  background: transparent;
+}
+
+html[data-theme-variant='sky'] .app-shell .workspace-builder__rail {
+  background: linear-gradient(155deg, rgba(10, 40, 84, .78), rgba(7, 25, 55, .84));
+  border-right: 1px solid rgba(173, 202, 234, .24);
+  box-shadow: 18px 0 45px rgba(3, 22, 51, .14);
+  backdrop-filter: blur(18px) saturate(120%);
+}
+
+html[data-theme-variant='sky'] .app-shell .workspace-builder :is(
+  .workspace-builder__topbar,
+  .workspace-builder__footer,
+  .builder-welcome__promise,
+  .builder-ai__intro,
+  .builder-launch-grid article
+) {
+  color: rgba(236, 243, 255, .92);
+  background: linear-gradient(150deg, rgba(16, 48, 79, .42), rgba(10, 28, 61, .46));
+  border-color: rgba(173, 202, 234, .3);
+  box-shadow: inset 0 1px rgba(255, 255, 255, .07);
+  backdrop-filter: blur(18px) saturate(120%);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(
+  .builder-primary,
+  .builder-choice.is-selected
+) {
+  color: #fff;
+  background: linear-gradient(180deg, rgba(57, 161, 255, .96), rgba(34, 133, 237, .92));
+  border-color: rgba(136, 207, 255, .72);
+  box-shadow: 0 11px 28px rgba(18, 105, 219, .36), inset 0 1px rgba(255, 255, 255, .32);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(
+  input:not([type='color']),
+  select,
+  textarea
+) {
+  color: #f4f8ff;
+  background: rgba(10, 28, 61, .38);
+  border-color: rgba(196, 225, 250, .3);
+  box-shadow: inset 0 1px rgba(255, 255, 255, .04);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(input, textarea)::placeholder {
+  color: rgba(205, 222, 240, .62);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(
+  .dashboard-table,
+  .data-table,
+  .projects-table,
+  .invoice-table,
+  .intelligence-table,
+  .drive-folder-table,
+  .file-explorer__file-table
+) {
+  color: rgba(236, 243, 255, .92);
+  background: transparent;
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(
+  .dashboard-table,
+  .data-table,
+  .projects-table,
+  .intelligence-table,
+  .drive-folder-table,
+  .file-explorer__file-table
+) :is(th, td) {
+  color: inherit;
+  background: transparent;
+  border-color: rgba(196, 225, 250, .2);
+}
+
+html[data-theme-variant='sky'] .app-shell .content > :not(.page--overview) :is(
+  .dashboard-table,
+  .data-table,
+  .projects-table,
+  .intelligence-table,
+  .drive-folder-table,
+  .file-explorer__file-table
+) tbody tr:hover {
+  background: rgba(100, 183, 255, .12);
+}
+
+html[data-theme-variant='sky'] .app-shell .data-table :is(th, td) {
+  border-color: var(--line);
+}
+
+html[data-theme-variant='sky'] .app-shell .page--overview::before {
+  background: linear-gradient(90deg, rgba(13, 68, 126, .47), rgba(55, 143, 207, .11) 58%, rgba(229, 247, 255, .04));
+}
+
+html[data-theme-variant='sky'] .app-shell .overview-glass-card,
+html[data-theme-variant='sky'] .app-shell .overview-weather,
+html[data-theme-variant='sky'] .app-shell .overview-quick-actions button {
+  border-color: rgba(218, 243, 255, .44);
+}
+
+/* Home keeps its layout while following the selected dashboard theme. */
+html[data-theme='dark'] .app-shell .app-main > .content > .page.page--overview {
+  background-color: #0b0f18;
+  background-image:
+    radial-gradient(circle at 76% 8%, rgba(54, 93, 180, .24), transparent 34rem),
+    radial-gradient(circle at 18% 28%, rgba(35, 79, 151, .16), transparent 28rem),
+    linear-gradient(145deg, #111925, #080d16);
+}
+
+html[data-theme='dark'] .app-shell .page--overview::before {
+  background:
+    linear-gradient(90deg, rgba(5, 14, 29, .38), rgba(10, 27, 52, .08) 62%),
+    linear-gradient(0deg, rgba(3, 9, 18, .72), transparent 66%);
+}
+
+html[data-theme='light']:not([data-theme-variant='sky']) .app-shell .app-main > .content > .page.page--overview {
+  color: var(--ink);
+  background-color: #f3f4ef;
+  background-image:
+    radial-gradient(circle at 82% 4%, rgba(112, 167, 255, .2), transparent 31rem),
+    radial-gradient(circle at 8% 26%, rgba(110, 140, 255, .1), transparent 25rem),
+    linear-gradient(145deg, #fbfcf8, #eef2f5);
+}
+
+html[data-theme='light']:not([data-theme-variant='sky']) .app-shell .page--overview::before {
+  background: linear-gradient(0deg, rgba(224, 230, 236, .42), transparent 58%);
+}
+
+html[data-theme='light']:not([data-theme-variant='sky']) .app-shell .overview-welcome {
+  text-shadow: none;
+}
+
+html[data-theme='light']:not([data-theme-variant='sky']) .app-shell :is(
+  .overview-welcome h1,
+  .overview-welcome__weather-line
+) {
+  color: #172b46;
+}
+
+html[data-theme='light']:not([data-theme-variant='sky']) .app-shell .overview-welcome__eyebrow {
+  color: #667f9a;
+}
+
+html[data-theme='light']:not([data-theme-variant='sky']) .app-shell .overview-welcome__note {
+  color: #3d536d;
+}
+
+html[data-theme='light']:not([data-theme-variant='sky']) .app-shell :is(
+  .overview-weather,
+  .overview-glass-card
+) {
+  color: var(--ink);
+  background: linear-gradient(145deg, rgba(255, 255, 255, .72), rgba(224, 235, 245, .52));
+  border-color: rgba(255, 255, 255, .82);
+  box-shadow: 0 18px 45px rgba(55, 78, 104, .12), inset 0 1px rgba(255, 255, 255, .68);
+}
+
+html[data-theme='light']:not([data-theme-variant='sky']) .app-shell .overview-weather__details {
+  border-top-color: rgba(54, 82, 112, .14);
+}
+
+html[data-theme='light']:not([data-theme-variant='sky']) .app-shell :is(
+  .overview-weather__summary strong,
+  .overview-glass-card header strong,
+  .overview-footer__brand strong
+) {
+  color: #172b46;
+}
+
+html[data-theme='light']:not([data-theme-variant='sky']) .app-shell :is(
+  .overview-weather__summary small,
+  .overview-weather__summary em,
+  .overview-weather__details small,
+  .overview-weather__details strong,
+  .overview-glass-card header small,
+  .overview-signal-list button strong,
+  .overview-project-list button strong,
+  .overview-ai-card p,
+  .overview-footer,
+  .overview-footer__brand small
+) {
+  color: #667f9a;
+}
+
+html[data-theme='light']:not([data-theme-variant='sky']) .app-shell :is(
+  .overview-card-list button,
+  .overview-signal-list button,
+  .overview-project-list button
+) {
+  color: #294561;
+}
+
+html[data-theme='light']:not([data-theme-variant='sky']) .app-shell .overview-quick-actions button {
+  color: #294561;
+  background: rgba(255, 255, 255, .58);
+  border-color: rgba(255, 255, 255, .8);
+  box-shadow: 0 12px 32px rgba(55, 78, 104, .1);
+}
+
+html[data-theme='light']:not([data-theme-variant='sky']) .app-shell .overview-quick-actions button:hover {
+  background: rgba(255, 255, 255, .82);
+  border-color: #fff;
+}
+
+html[data-theme='light']:not([data-theme-variant='sky']) .app-shell .overview-quick-actions button.is-primary {
+  color: #fff;
+  background: linear-gradient(180deg, #55aaff, #327dd8);
+  border-color: #78bbff;
+}

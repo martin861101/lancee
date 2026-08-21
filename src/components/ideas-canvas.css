@@ -800,3 +800,110 @@ html[data-theme='light'] .ideas-dialog__cancel {
   background: var(--surface-soft);
   border-color: var(--line);
 }
+
+/* Light-blue dashboard variant. */
+html[data-theme-variant='sky'] .ideas-page {
+  color: var(--ink);
+}
+
+html[data-theme-variant='sky'] :is(.ideas-eyebrow, .ideas-empty__mark) {
+  color: var(--accent);
+}
+
+html[data-theme-variant='sky'] :is(.ideas-header p, .ideas-connection, .ideas-empty p, .ideas-dialog > p) {
+  color: var(--muted);
+}
+
+html[data-theme-variant='sky'] :is(.ideas-export-pdf, .ideas-library-toggle, .ideas-library-panel__header button, .ideas-library-item, .ideas-board-tab, .ideas-capabilities span, .ideas-dialog__cancel) {
+  color: var(--ink-soft);
+  background: var(--surface-soft);
+  border-color: var(--line);
+}
+
+html[data-theme-variant='sky'] :is(.ideas-export-pdf:hover, .ideas-library-toggle:hover, .ideas-library-panel__header button:hover, .ideas-library-item:hover) {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+html[data-theme-variant='sky'] .ideas-library-toggle.is-active {
+  color: var(--accent);
+  background: rgba(43, 144, 231, .12);
+  border-color: rgba(43, 144, 231, .35);
+}
+
+html[data-theme-variant='sky'] .ideas-library-panel {
+  background: rgba(246, 252, 255, .88);
+  border-left-color: var(--line);
+  box-shadow: -18px 0 42px rgba(42, 104, 159, .16);
+}
+
+html[data-theme-variant='sky'] :is(.ideas-library-panel__header, .ideas-library-group) {
+  border-color: var(--line);
+}
+
+html[data-theme-variant='sky'] .ideas-library-group summary {
+  color: var(--ink);
+}
+
+html[data-theme-variant='sky'] :is(.ideas-library-group summary::before, .ideas-library-group__count) {
+  color: var(--muted);
+}
+
+html[data-theme-variant='sky'] .ideas-boardbar {
+  background: linear-gradient(145deg, rgba(255, 255, 255, .72), rgba(229, 246, 255, .68));
+  border-color: var(--line);
+  box-shadow: 7px 9px 0 rgba(42, 104, 159, .06), 0 18px 42px rgba(42, 104, 159, .1);
+}
+
+html[data-theme-variant='sky'] .ideas-board-tab.is-active {
+  background: linear-gradient(180deg, rgba(43, 144, 231, .2), rgba(43, 144, 231, .12));
+  border-color: rgba(43, 144, 231, .4);
+}
+
+html[data-theme-variant='sky'] .ideas-board-tab > button {
+  color: var(--muted);
+}
+
+html[data-theme-variant='sky'] .ideas-board-tab.is-active > button:first-child {
+  color: var(--ink);
+}
+
+html[data-theme-variant='sky'] .ideas-boardbar__add {
+  color: var(--muted);
+  border-color: var(--line-strong);
+}
+
+html[data-theme-variant='sky'] .ideas-boardbar__add:hover {
+  color: var(--ink);
+  background: rgba(43, 144, 231, .1);
+}
+
+html[data-theme-variant='sky'] .ideas-excalidraw-shell,
+html[data-theme-variant='sky'] .ideas-empty {
+  background: rgba(255, 255, 255, .72);
+  border-color: var(--line);
+  box-shadow: 12px 14px 0 rgba(42, 104, 159, .05), 0 34px 76px rgba(42, 104, 159, .13);
+}
+
+html[data-theme-variant='sky'] .ideas-empty {
+  background:
+    radial-gradient(circle at 50% 40%, rgba(43, 144, 231, .14), transparent 18rem),
+    linear-gradient(145deg, rgba(255, 255, 255, .86), rgba(229, 246, 255, .82));
+}
+
+html[data-theme-variant='sky'] .ideas-dialog {
+  color: var(--ink);
+  background: linear-gradient(145deg, rgba(255, 255, 255, .9), rgba(229, 246, 255, .88));
+  border-color: var(--line);
+  box-shadow: 12px 14px 0 rgba(42, 104, 159, .08), 0 36px 90px rgba(42, 104, 159, .16);
+}
+
+html[data-theme-variant='sky'] .ideas-dialog label {
+  color: var(--ink-soft);
+}
+
+html[data-theme-variant='sky'] .ideas-dialog input {
+  color: var(--ink);
+  background: var(--surface-soft);
+  border-color: var(--line);
+}

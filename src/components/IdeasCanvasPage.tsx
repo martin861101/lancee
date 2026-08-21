@@ -206,6 +206,7 @@ async function loadScene(
   workspaceId: string,
   theme: Theme,
 ): Promise<ExcalidrawInitialDataState> {
+  const canvasTheme = theme === 'dark' ? 'dark' : 'light'
   try {
     const stored = (await api.ideas.getScene(boardId)) as
       | ExcalidrawInitialDataState
@@ -215,7 +216,7 @@ async function loadScene(
         ...stored,
         appState: {
           ...(stored.appState || {}),
-          theme,
+          theme: canvasTheme,
         },
         libraryItems: await availableLibrary(workspaceId),
       }
@@ -225,8 +226,8 @@ async function loadScene(
   }
   return {
     appState: {
-      theme,
-      viewBackgroundColor: theme === 'dark' ? '#0f151f' : '#ffffff',
+      theme: canvasTheme,
+      viewBackgroundColor: theme === 'dark' ? '#0f151f' : theme === 'sky' ? '#e4f4ff' : '#ffffff',
     },
     libraryItems: await availableLibrary(workspaceId),
   }
@@ -256,6 +257,7 @@ function ExcalidrawBoard({
   onSaveError: (message: string) => void
   onReady: (api: ExcalidrawImperativeAPI) => void
 }) {
+  const canvasTheme = theme === 'dark' ? 'dark' : 'light'
   const saveTimer = useRef<number | null>(null)
   const pendingScene = useRef<ExcalidrawInitialDataState | null>(null)
 
@@ -283,12 +285,12 @@ function ExcalidrawBoard({
 
   const handleChange = useCallback<NonNullable<ExcalidrawProps['onChange']>>(
     (elements, appState, files) => {
-      pendingScene.current = {
+      const scene: ExcalidrawInitialDataState = {
         elements,
         files,
         appState: {
           name: appState.name,
-          theme,
+          theme: canvasTheme,
           viewBackgroundColor: appState.viewBackgroundColor,
           scrollX: appState.scrollX,
           scrollY: appState.scrollY,
@@ -298,11 +300,12 @@ function ExcalidrawBoard({
           objectsSnapModeEnabled: appState.objectsSnapModeEnabled,
         },
       }
-      onSceneChange(pendingScene.current)
+      pendingScene.current = scene
+      onSceneChange(scene)
       if (saveTimer.current !== null) window.clearTimeout(saveTimer.current)
       saveTimer.current = window.setTimeout(flushScene, 450)
     },
-    [flushScene, onSceneChange, theme],
+    [canvasTheme, flushScene, onSceneChange],
   )
 
   return (
@@ -314,7 +317,7 @@ function ExcalidrawBoard({
       onChange={handleChange}
       onLibraryChange={(items) => cacheLibrary(workspaceId, items)}
       excalidrawAPI={onReady}
-      theme={theme}
+      theme={canvasTheme}
     />
   )
 }

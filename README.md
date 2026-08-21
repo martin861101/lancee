@@ -67,10 +67,10 @@ The repository audit quarantine is documented in [`junk/README.md`](junk/README.
 - **Public landing page** — freelancer-focused product narrative, workflow
   explanation, connection highlights, security posture, and sign-in calls to
   action.
-- **Home** — a weather-responsive Workspace Pulse built around the local date,
-  time, city, current conditions, and a short contextual summary. It leads into
-  a bounded Today list, then keeps Quick Task, saved automations, and recent
-  activity available without turning the page into a KPI wall. See
+- **Home** — a scenic, weather-responsive workspace built around the local
+  time, city, current conditions, and a short contextual summary. It includes
+  glass weather and quick-action controls plus a compact dock for Today,
+  upcoming work, active projects, and the AI assistant. See
   [`docs/WORKSPACE_PULSE.md`](docs/WORKSPACE_PULSE.md).
 - **Clients** — a sidebar-accessible client directory with search, contact
   details, status controls, project counts, confirmed deletion, and a focused
@@ -172,11 +172,20 @@ All motion is disabled when the visitor requests reduced motion. See
 [`docs/LANDING_MOTION.md`](docs/LANDING_MOTION.md) for configuration and
 maintenance notes.
 
-The authenticated Home page uses `public/img/sunny.png` as its scenic visual
-anchor and applies restrained weather and night overlays without swapping the
-product theme or typography. The backend resolves the session's public IP to a
-city, country, and timezone, then requests current conditions for those
-coordinates. A deterministic pulse renders immediately; `GET
+The authenticated Home page keeps the welcome, weather card, quick actions,
+and four-card workspace dock in every theme. Dark and light retain their
+original dashboard palettes, including their Home treatment. The optional
+light-blue theme keeps `public/img/sunny.png` on Home only. Every other
+authenticated page uses a restrained textured gradient from `#174d83` to
+`#0f3a6e`, slightly lighter than the sidebar. Cards and containers use rounded
+translucent navy glass with diffuse shadows, while primary actions retain the
+brighter blue accent. Its sidebar and top navigation keep the navy treatment
+with restrained texture. The original dark and light themes are not overridden,
+and the public landing page always uses the original Lancee navy presentation
+instead of inheriting a saved dashboard theme. The backend resolves the
+session's public IP to a city,
+country, and timezone, then requests current conditions for those coordinates.
+A deterministic pulse renders immediately; `GET
 /api/workspace/pulse` may replace its copy with a cached, schema-validated AI
 summary generated through the bounded chat-completion path. Provider failures,
 missing weather, and malformed AI output remain invisible to the user. See

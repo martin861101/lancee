@@ -903,22 +903,7 @@ function workspacePulseItemIcon(kind: WorkspacePulseItem['kind']): IconName {
   return 'check-circle'
 }
 
-function OverviewPage({
-  user,
-  automations,
-  runs,
-  notifications,
-  workspaceContext,
-  prompt,
-  selectedAutomation,
-  busy,
-  analytics,
-  onPromptChange,
-  onAutomationChange,
-  onDispatch,
-  onNavigate,
-  onCreateProject,
-}: {
+function OverviewPage(props: {
   user: User
   automations: Automation[]
   runs: Run[]
@@ -937,6 +922,15 @@ function OverviewPage({
   onNavigate: (page: Page) => void
   onCreateProject: () => void
 }) {
+  const {
+    user,
+    runs,
+    notifications,
+    workspaceContext,
+    analytics,
+    onNavigate,
+    onCreateProject,
+  } = props
   const [now, setNow] = useState(() => new Date())
   const [remotePulse, setRemotePulse] = useState<WorkspacePulse | null>(null)
   const [fallbackGeneratedAt] = useState(() => new Date().toISOString())
@@ -956,6 +950,8 @@ function OverviewPage({
   const weatherInfo = weatherPresentation(weather ?? null)
   const locationLabel = overviewLocationLabel(workspaceContext?.location || null)
   const temperatureLabel = weather ? `${Math.round(weather.temperatureC)}°C` : '—'
+  const firstName = user.name.split(' ')[0] || 'there'
+  const runningAutomations = runs.filter((run) => run.status === 'running').length
   const fallbackPulse = useMemo(() => localWorkspacePulse({
     user,
     workspaceContext,
@@ -995,157 +991,100 @@ function OverviewPage({
 
   return (
     <div className="page page--overview">
-      <section className="workspace-pulse" data-mood={pulse.mood} aria-labelledby="workspace-pulse-title">
-        <div className="workspace-pulse__shade" aria-hidden="true" />
-        <div className="workspace-pulse__content">
-          <div className="workspace-pulse__meta" aria-label={`${today} at ${localTime}`}>
-            <span><Icon name="calendar" size={14} /> {today}</span>
-            <span aria-hidden="true" />
-            <strong>{localTime}</strong>
+      <div className="overview-scene" data-mood={pulse.mood}>
+        <section className="overview-welcome" aria-labelledby="workspace-pulse-title">
+          <span className="overview-welcome__eyebrow">Welcome back</span>
+          <h1 id="workspace-pulse-title">{firstName} <span aria-hidden="true">👋</span></h1>
+          <div className="overview-welcome__weather-line">
+            {weather ? `${weatherInfo.label} today.` : `${greeting}, your workspace is ready.`}
+            <span className="overview-welcome__sun" aria-hidden="true"><Icon name={weatherInfo.icon} size={30} /></span>
           </div>
-          <div className="workspace-pulse__copy" aria-live="polite" key={`${pulse.source}-${pulse.generatedAt}`}>
-            <span className="micro-label">{greeting} · Workspace pulse</span>
-            <h1 id="workspace-pulse-title">{pulse.headline}</h1>
-            <p>{pulse.message}</p>
-          </div>
-        </div>
-        <div className="workspace-pulse__weather">
-          <span className={`workspace-pulse__weather-icon workspace-pulse__weather-icon--${weatherInfo.icon}`} aria-hidden="true">
-            <Icon name={weatherInfo.icon} size={25} />
-          </span>
-          <span>
-            <span className="workspace-pulse__weather-reading"><strong>{temperatureLabel}</strong> {weatherInfo.label}</span>
-            <span className="workspace-pulse__weather-location"><Icon name="map-pin" size={12} /> {locationLabel}</span>
-          </span>
-        </div>
-      </section>
+          <p className="overview-welcome__note" aria-live="polite" key={`${pulse.source}-${pulse.generatedAt}`}>
+            {pulse.message}
+          </p>
+        </section>
 
-      <section className="today-panel" aria-labelledby="today-heading">
-        <div className="panel-heading today-panel__heading">
-          <div>
-            <span className="micro-label">Next best steps</span>
-            <h2 id="today-heading">Today</h2>
-            <p>A few useful signals, kept intentionally short.</p>
+        <aside className="overview-weather" aria-label={`Weather in ${locationLabel}`}>
+          <div className="overview-weather__summary">
+            <span className="overview-weather__icon" aria-hidden="true"><Icon name={weatherInfo.icon} size={50} /></span>
+            <span>
+              <strong>{temperatureLabel}</strong>
+              <small><Icon name="map-pin" size={12} /> {locationLabel}</small>
+              <em>{weatherInfo.label}</em>
+            </span>
           </div>
-          <button className="button button--primary" onClick={onCreateProject}>
-            <Icon name="plus" size={16} /> New project
-          </button>
-        </div>
-        <div className="today-list">
-          {pulse.items.map((item) => (
-            <button className={`today-item today-item--${item.kind}`} key={item.id} onClick={() => onNavigate(item.target)}>
-              <span className="today-item__icon" aria-hidden="true"><Icon name={workspacePulseItemIcon(item.kind)} size={17} /></span>
-              <span className="today-item__copy"><strong>{item.title}</strong><small>{item.detail}</small></span>
-              <Icon name="arrow-right" size={15} />
-            </button>
-          ))}
-        </div>
-      </section>
+          <div className="overview-weather__details">
+            <span><small>Now</small><Icon name={weatherInfo.icon} size={23} /><strong>{temperatureLabel}</strong></span>
+            <span><small>Today</small><Icon name="calendar" size={22} /><strong>{today.split(',')[0]}</strong></span>
+            <span><small>Local</small><Icon name={hour >= 18 || hour < 6 ? 'moon' : 'sun'} size={22} /><strong>{localTime}</strong></span>
+          </div>
+        </aside>
 
-      <section className="command-card command-card--compact">
-        <div className="command-card__glow" aria-hidden="true" />
-        <div className="command-card__header">
-          <div className="command-orb">
-            <BrandMark compact />
-          </div>
-          <div>
-            <span className="micro-label">Quick task</span>
-            <h2>What would you like to move forward?</h2>
-          </div>
-        </div>
-        <form className="command-box" onSubmit={onDispatch}>
-          <textarea
-            value={prompt}
-            onChange={(event) => onPromptChange(event.target.value)}
-            placeholder="Describe a task, such as preparing a client update or following up on an invoice…"
-            rows={2}
-          />
-          <div className="command-box__footer">
-            <label className="automation-select">
-              <span className="automation-select__dot" />
-              <select
-                aria-label="Choose an automation"
-                value={selectedAutomation}
-                onChange={(event) => onAutomationChange(event.target.value)}
-              >
-                {automations.map((automation) => (
-                  <option key={automation.id} value={automation.id}>
-                    {automation.name}
-                  </option>
-                ))}
-              </select>
-              <Icon name="chevron-down" size={14} />
-            </label>
-            <button
-              className="dispatch-button"
-              type="submit"
-              disabled={busy || !prompt.trim()}
-              aria-label="Start task"
-            >
-              {busy ? <span className="spinner" /> : <Icon name="arrow-up-right" size={18} />}
-            </button>
-          </div>
-        </form>
-        <div className="prompt-suggestions">
-          <span>Quick starts:</span>
-          <button onClick={() => onPromptChange('Turn the latest client feedback into a revision checklist')}>
-            Make a revision list
-          </button>
-          <button onClick={() => onPromptChange('Prepare a friendly reminder for the oldest unpaid invoice')}>
-            Follow up an invoice
-          </button>
-          <button onClick={() => onPromptChange('Prepare a short client update for every project due this week')}>
-            Draft client updates
-          </button>
-        </div>
-      </section>
+        <nav className="overview-quick-actions" aria-label="Quick actions">
+          <button className="is-primary" onClick={onCreateProject}><Icon name="plus" size={19} /> Create Project</button>
+          <button onClick={() => onNavigate('work')}><Icon name="check-circle" size={18} /> Add Task</button>
+          <button onClick={() => onNavigate('clients')}><Icon name="user" size={18} /> New Client</button>
+          <button onClick={() => onNavigate('intelligence')}><Icon name="sparkles" size={18} /> Ask AI</button>
+        </nav>
+      </div>
 
-      <section className="overview-grid overview-grid--supporting">
-        <article className="panel workforce-panel">
-          <div className="panel-heading">
-            <div>
-              <h3>Saved automations</h3>
-              <p>Small routines handling repeat work</p>
-            </div>
-            <button className="text-button" onClick={() => onNavigate('automations')}>
-              View all <Icon name="arrow-right" size={14} />
-            </button>
-          </div>
-          <div className="workforce-list">
-            {automations.slice(0, 4).map((automation) => (
-              <button
-                className="workforce-row"
-                key={automation.id}
-                onClick={() => onNavigate('automations')}
-              >
-                <span className={`automation-avatar automation-avatar--${automation.accent}`}>
-                  <Icon name={automation.icon as IconName} size={17} />
-                </span>
-                <span className="workforce-row__name">
-                  <strong>{automation.name}</strong>
-                  <small>{automation.lastRun}</small>
-                </span>
-                <StatusPill status={automation.status} />
+      <section className="overview-dock" aria-label="Workspace at a glance">
+        <article className="overview-glass-card overview-focus-card">
+          <header>
+            <span className="overview-card-icon overview-card-icon--gold"><Icon name="target" size={22} /></span>
+            <span><strong>Today’s Focus</strong><small>{pulse.items.length} items</small></span>
+          </header>
+          <div className="overview-card-list">
+            {pulse.items.slice(0, 3).map((item, index) => (
+              <button key={item.id} onClick={() => onNavigate(item.target)}>
+                <span className={index === 0 ? 'is-complete' : ''}><Icon name={index === 0 ? 'check' : workspacePulseItemIcon(item.kind)} size={12} /></span>
+                <strong>{item.title}</strong>
               </button>
             ))}
-            {automations.length === 0 && (
-              <p className="empty-copy">No automations saved yet.</p>
-            )}
           </div>
+          <button className="overview-card-link" onClick={() => onNavigate('work')}>View all tasks <Icon name="arrow-right" size={13} /></button>
         </article>
-        <article className="panel runs-panel">
-          <div className="panel-heading">
-            <div>
-              <h3>Recent activity</h3>
-              <p>What changed across your business</p>
-            </div>
-            <button className="text-button" onClick={() => onNavigate('runs')}>
-              View history <Icon name="arrow-right" size={14} />
-            </button>
+
+        <article className="overview-glass-card">
+          <header>
+            <span className="overview-card-icon"><Icon name="calendar" size={21} /></span>
+            <span><strong>Upcoming</strong><small>{analytics?.dueThisWeek || 0} due this week</small></span>
+          </header>
+          <div className="overview-signal-list">
+            <button onClick={() => onNavigate('work')}><span>Projects</span><strong>{analytics?.dueSoonProjects || 0} due soon</strong></button>
+            <button onClick={() => onNavigate('money')}><span>Invoices</span><strong>{analytics?.pendingInvoices || 0} pending</strong></button>
+            <button onClick={() => onNavigate('automations')}><span>Automations</span><strong>{runningAutomations} running</strong></button>
           </div>
-          <RunsTable runs={runs.slice(0, 4)} />
+          <button className="overview-card-link" onClick={() => onNavigate('work')}>Open calendar <Icon name="arrow-right" size={13} /></button>
+        </article>
+
+        <article className="overview-glass-card">
+          <header>
+            <span className="overview-card-icon overview-card-icon--amber"><Icon name="layers" size={21} /></span>
+            <span><strong>Active Projects</strong><small>{analytics?.openProjects || 0} ongoing</small></span>
+          </header>
+          <div className="overview-project-list">
+            <button onClick={() => onNavigate('work')}><i className="is-blue" /><span>Open projects</span><strong>{analytics?.openProjects || 0}</strong></button>
+            <button onClick={() => onNavigate('work')}><i className="is-pink" /><span>Due this week</span><strong>{analytics?.dueThisWeek || 0}</strong></button>
+            <button onClick={() => onNavigate('clients')}><i className="is-amber" /><span>Active clients</span><strong>{analytics?.totalClients || 0}</strong></button>
+          </div>
+          <button className="overview-card-link" onClick={() => onNavigate('work')}>View all projects <Icon name="arrow-right" size={13} /></button>
+        </article>
+
+        <article className="overview-glass-card overview-ai-card">
+          <header>
+            <span className="overview-card-icon overview-card-icon--violet"><Icon name="sparkles" size={22} /></span>
+            <span><strong>AI Assistant</strong><small className="is-online">● Online</small></span>
+          </header>
+          <p>Need help with something? I can research, create documents, analyse data and more.</p>
+          <button className="overview-ai-card__button" onClick={() => onNavigate('intelligence')}><BrandMark compact /> Chat with AI</button>
         </article>
       </section>
+
+      <footer className="overview-footer">
+        <span className="overview-footer__brand"><BrandMark compact /><strong>lancee</strong><small>Work smarter, not harder.</small></span>
+        <span>Perfect day for progress <Icon name={weatherInfo.icon} size={17} /></span>
+      </footer>
     </div>
   )
 }
@@ -6205,8 +6144,14 @@ function WorkspaceApp() {
   }
 
   useEffect(() => {
+    if (sessionLoading) return
+    if (!user && (authView === 'landing' || publicPricingPage())) {
+      document.documentElement.setAttribute('data-theme', 'dark')
+      document.documentElement.removeAttribute('data-theme-variant')
+      return
+    }
     applyTheme(theme)
-  }, [theme])
+  }, [authView, sessionLoading, theme, user])
 
   useEffect(() => {
     try {
@@ -7423,11 +7368,11 @@ function WorkspaceApp() {
             </button>
             <button
               className="icon-button theme-toggle"
-              aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-              title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+              aria-label={theme === 'dark' ? 'Switch to light theme' : theme === 'light' ? 'Switch to light blue theme' : 'Switch to dark theme'}
+              title={theme === 'dark' ? 'Switch to light theme' : theme === 'light' ? 'Switch to light blue theme' : 'Switch to dark theme'}
               onClick={() => setTheme(toggleTheme())}
             >
-              <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
+              <Icon name={theme === 'dark' ? 'sun' : theme === 'light' ? 'cloud-sun' : 'moon'} size={18} />
             </button>
             <div className="notification-wrap">
               <button
