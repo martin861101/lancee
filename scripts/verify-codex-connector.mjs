@@ -64,15 +64,11 @@ async function startAiProvider() {
         ? 'lancee_list_decision_warnings'
         : availableToolNames.includes('lancee_list_decision_reviews') && /decision|outcome|priorit/i.test(userMessage)
         ? 'lancee_list_decision_reviews'
-        : availableToolNames.includes('lancee_web_search') && /search|research/i.test(userMessage)
-        ? 'lancee_web_search'
-        : availableToolNames.includes('lancee_create_pdf') && /pdf|untrusted_tool_result/i.test(userMessage)
-          ? 'lancee_create_pdf'
-          : /create.*file|file.*containing/i.test(userMessage)
-            ? 'lancee_create_file'
-            : /run workflow/i.test(userMessage)
-              ? 'lancee_run_workflow'
-              : 'lancee_create_workflow'
+        : /create.*file|file.*containing/i.test(userMessage)
+          ? 'lancee_create_file'
+          : /run workflow/i.test(userMessage)
+            ? 'lancee_run_workflow'
+            : 'lancee_create_workflow'
       const workflowId = userMessage.match(/aut_[a-f0-9]{12}/)?.[0]
       const argumentsValue = requestedTool === 'lancee_run_workflow'
         ? { workflow_id: workflowId, instruction: 'Summarize this workspace.' }
@@ -82,14 +78,6 @@ async function startAiProvider() {
           ? { status: 'active', limit: 10 }
         : requestedTool === 'lancee_list_decision_reviews'
           ? { status: 'open', limit: 10 }
-        : requestedTool === 'lancee_web_search'
-          ? { query: 'notable baking companies', limit: 10 }
-          : requestedTool === 'lancee_create_pdf'
-            ? {
-                name: 'baking-companies.pdf',
-                title: 'Notable Baking Companies',
-                content: '1. Grupo Bimbo — Global baking company.\n   Source: https://example.com/bimbo\n\n2. Flowers Foods — Packaged bakery foods producer.\n   Source: https://example.com/flowers',
-              }
         : requestedTool === 'lancee_create_file'
           ? { name: 'assistant-note.md', content: '# Saved by Lancee', mime_type: 'text/markdown' }
           : {
@@ -100,7 +88,7 @@ async function startAiProvider() {
             activate: true,
           }
       assert(body.tools.some((tool) => tool.function?.name === requestedTool))
-      if (['lancee_create_file', 'lancee_web_search', 'lancee_create_pdf'].includes(requestedTool)) {
+      if (requestedTool === 'lancee_create_file') {
         assert.deepEqual(body.tools.map((tool) => tool.function?.name), [requestedTool])
       }
       if (requestedTool === 'lancee_list_decisions') {
@@ -317,7 +305,7 @@ try {
   assert.equal(servicesResponse.status, 200)
   const builtInService = (await servicesResponse.json()).services.find((service) => service.id === 'lancee')
   assert.equal(builtInService.active, true)
-  assert.equal(builtInService.tools.length, 61)
+  assert.equal(builtInService.tools.length, 49)
 
   const assistantDecisionResponse = await sessionRequest(
     application.origin,
@@ -508,106 +496,6 @@ try {
   assert.equal(createFileResponse.status, 200)
   assert.match((await createFileResponse.json()).data.file.id, /^doc_[a-f0-9]{16}$/)
 
-  const researchRequest = 'Search for notable baking companies, extract a sourced list, and save it to Files as a PDF.'
-  const assistantSearchResponse = await sessionRequest(
-    application.origin,
-    cookie,
-    '/api/ai/chat',
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: researchRequest }),
-    },
-  )
-  assert.equal(assistantSearchResponse.status, 200)
-  const assistantSearch = await assistantSearchResponse.json()
-  assert.equal(assistantSearch.proposedAction.toolId, 'web_search')
-  assert.equal(assistantSearch.proposedAction.continueAfterSuccess, true)
-
-  const approvedSearchResponse = await sessionRequest(
-    application.origin,
-    cookie,
-    '/api/mcp/invoke',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Idempotency-Key': 'assistant-web-search-0001',
-      },
-      body: JSON.stringify(assistantSearch.proposedAction),
-    },
-  )
-  // The connector fixture is loopback-only HTTP, so the production network policy
-  // must reject it rather than weakening transport/SSRF protection for a test.
-  assert.equal(approvedSearchResponse.status, 400)
-  const blockedSearch = await approvedSearchResponse.json()
-  assert.equal(blockedSearch.code, 'MCP_HTTPS_REQUIRED')
-  const searchFixture = {
-    query: 'notable baking companies',
-    results: [
-      {
-        title: 'Grupo Bimbo company profile',
-        url: 'https://example.com/bimbo',
-        snippet: 'Global baking company with bread and snack brands.',
-      },
-      {
-        title: 'Flowers Foods company profile',
-        url: 'https://example.com/flowers',
-        snippet: 'Producer of packaged bakery foods.',
-      },
-    ],
-  }
-
-  const assistantPdfResponse = await sessionRequest(
-    application.origin,
-    cookie,
-    '/api/ai/chat',
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: researchRequest,
-        history: [
-          { role: 'user', content: researchRequest },
-          { role: 'assistant', content: assistantSearch.content },
-        ],
-        continuation: {
-          serviceId: assistantSearch.proposedAction.serviceId,
-          toolId: assistantSearch.proposedAction.toolId,
-          data: searchFixture,
-        },
-      }),
-    },
-  )
-  assert.equal(assistantPdfResponse.status, 200)
-  const assistantPdf = await assistantPdfResponse.json()
-  assert.equal(assistantPdf.proposedAction.toolId, 'create_pdf')
-
-  const approvedPdfResponse = await sessionRequest(
-    application.origin,
-    cookie,
-    '/api/mcp/invoke',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Idempotency-Key': 'assistant-create-pdf-0001',
-      },
-      body: JSON.stringify(assistantPdf.proposedAction),
-    },
-  )
-  assert.equal(approvedPdfResponse.status, 200)
-  const approvedPdf = await approvedPdfResponse.json()
-  assert.equal(approvedPdf.data.file.mimeType, 'application/pdf')
-  const pdfDownloadResponse = await sessionRequest(
-    application.origin,
-    cookie,
-    `/api/documents/${approvedPdf.data.file.id}/download`,
-  )
-  assert.equal(pdfDownloadResponse.status, 200)
-  assert.equal(pdfDownloadResponse.headers.get('content-type'), 'application/pdf')
-  assert.equal(Buffer.from(await pdfDownloadResponse.arrayBuffer()).subarray(0, 5).toString(), '%PDF-')
-
   const requestConnectorResponse = await sessionRequest(
     application.origin,
     cookie,
@@ -742,18 +630,8 @@ try {
       'read_file',
       'search_files',
       'get_file_metadata',
-      'web_search',
-      'access_webpage',
-      'extract_web_content',
-      'crawl_website',
-      'browser_read',
-      'browser_snapshot',
-      'browser_screenshot',
-      'browser_pdf',
-      'browser_research',
       'analyze_visual',
       'extract_visual_palette',
-      'create_pdf',
       'create_document',
       'merge_documents',
       'list_artifacts',
@@ -769,8 +647,6 @@ try {
       'delete_workspace_resource',
       'get_workflow_status',
       'search_workflows',
-      'execute_python',
-      'execute_javascript',
       'schedule_job',
       'get_logs',
       'create_decision',
@@ -811,22 +687,6 @@ try {
     arguments: { resource: 'connections', limit: 10 },
   })
   assert(Array.isArray(dashboardQuery.result.structuredContent.data.results))
-
-  const javascriptExecution = await connector.rpc('tools/call', {
-    name: 'execute_javascript',
-    arguments: { code: 'console.log(6 * 7)' },
-  })
-  assert.equal(javascriptExecution.result.isError, undefined)
-  assert.equal(javascriptExecution.result.structuredContent.data.exitCode, 0)
-  assert.match(javascriptExecution.result.structuredContent.data.stdout, /42/)
-
-  const pythonExecution = await connector.rpc('tools/call', {
-    name: 'execute_python',
-    arguments: { code: 'print(6 * 7)' },
-  })
-  assert.equal(pythonExecution.result.isError, undefined)
-  assert.equal(pythonExecution.result.structuredContent.data.exitCode, 0)
-  assert.match(pythonExecution.result.structuredContent.data.stdout, /42/)
 
   const createdWorkflow = await connector.rpc('tools/call', {
     name: 'create_workflow',
@@ -955,7 +815,7 @@ try {
   database.close()
 
   console.log(
-    'Codex connector verified: Connections catalog state, device approval, local HTTP MCP tools, code execution, durable scheduling, revocation, and hashed token storage.',
+    'Codex connector verified: Connections catalog state, device approval, the current local HTTP MCP catalog, durable scheduling, revocation, and hashed token storage.',
   )
 } finally {
   await stopChild(application?.child)

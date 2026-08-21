@@ -270,14 +270,11 @@ approval card and the server binds that one-use decision to the exact tool and
 argument hash. The built-in Lancee tools are always available to an
 authenticated workspace and execute with that user's workspace context.
 
-The base catalog exposes 42 public tools across workspace operations, web
-research, browser read/snapshot/screenshot, visual inspection, files,
-documents, artifacts, jobs, approvals, integrations, scheduling, logs, and
-optional code execution. The 40-to-42 increase is intentional: `browser_pdf`
-and `browser_research` are now part of the base browser capability set. Four
-additional tools are feature-gated behind OpenConnector. Workspace and role
-policy is enforced before every call. Destructive deletion, external API calls,
-and enabled code execution are additionally restricted to workspace owners.
+The current catalog exposes 49 public tools across workspace operations, visual
+inspection, files, documents, artifacts, jobs, approvals, integrations,
+scheduling, logs, and Decision Intelligence. Workspace and role policy is
+enforced before every call. Destructive deletion and external API calls are
+additionally restricted to workspace owners.
 
 OpenConnector is enabled by default in the Docker Compose deployment and can be
 disabled with `OPENCONNECTOR_ENABLED=false`. When enabled, four
@@ -304,8 +301,8 @@ workspace-scoped public tool contracts and authorization mapping, and
 [`server/capabilities/`](server/capabilities), which owns typed local capability
 contracts and adapters.
 
-The registry dynamically maps the 42 base tools—and four optional
-OpenConnector gateway tools—to typed local capabilities.
+The registry dynamically maps the current 49-tool catalog to typed local
+capabilities.
 Native MCP responses use the canonical envelope below; raw
 `/api/mcp/invoke` responses remain backward-compatible for the workspace UI.
 
@@ -450,11 +447,10 @@ security, packaging, configuration, and verification details.
 
 The Lancee MCP bridge is the agent-facing surface for the platform itself. It
 uses the same device approval flow as the AI connector, but requires the
-separate `mcp:invoke` scope. Its 42 base tools expose workspace operations, web and
-browser research, visual analysis, file/document/artifact operations, durable
-jobs, approvals, workflow execution/status/logs/scheduling, bounded external
-API calls, and explicitly enabled Python/JavaScript execution. Enabling the
-OpenConnector gateway adds four dynamic integration tools.
+separate `mcp:invoke` scope. Its 49 public tools expose workspace operations,
+visual analysis, file/document/artifact operations, durable jobs, approvals,
+workflow execution/status/logs/scheduling, bounded external API calls, and
+Decision Intelligence operations.
 
 The floating dashboard assistant uses the persisted planner/executor runtime
 over that same registry. Runs are workspace/user scoped, budgeted, cancellable,
@@ -693,11 +689,13 @@ uses the named profile `lancee_ws_<workspaceId>`; the adapter never uses
 Hermes’ default/personal profile and fails closed when a workspace profile is
 not configured. Set `HERMES_PROFILE_ENDPOINT_TEMPLATE` when the exposed
 Hermes server does not use the default `/p/{profileId}` route. The agent
-gateway uses Hermes’ native sessions and runs API, sends explicit persisted
-conversation history, restores the scoped WorkspaceChat conversation after a
-reload, and links recognized Hermes files to Lancee Files/artifacts. The
-existing Lancee runtime remains the configured fallback, and provider health is
-available at `/api/agent/status` and within `/api/ai/status`. Configure
+gateway verifies the native Hermes session before each run, sends explicit
+persisted conversation history, restores the scoped WorkspaceChat conversation
+after a reload, and exposes a file as saved only after its workspace-scoped
+Lancee Files artifact is verified. Hermes preferences are scoped to both the
+authenticated workspace and user. The existing Lancee runtime remains the
+configured fallback, and provider health is available at `/api/agent/status`
+and within `/api/ai/status`. Configure
 `AGENT_FALLBACK_PROVIDER` and `AGENT_FALLBACK_ENABLED` as needed. See
 [`docs/HERMES.md`](docs/HERMES.md).
 
@@ -715,10 +713,11 @@ The Hermes runtime implementation and verification records are in
 
 Lancee now enforces the basic three-state memory boundary: the current Session
 holds temporary conversation/task context, Hermes memory holds only stable
-personal preferences and working conventions, and workspace business knowledge
-is persisted through authoritative Lancee records. Ambiguous information stays
-in Session. Business decisions, evidence, outcomes, and organisational learning
-are never stored as Hermes preferences.
+personal preferences and working conventions scoped to the authenticated
+workspace and user, and workspace business knowledge is persisted through
+authoritative Lancee records. Ambiguous information stays in Session. Business
+decisions, evidence, outcomes, and organisational learning are never stored as
+Hermes preferences.
 
 Decision Intelligence Phase 1A records authorized workspace activity in the
 activity ledger, applies deterministic relevance and decision-language filters,
@@ -951,6 +950,8 @@ npm --prefix remotion run render
 The application lint and production build complete without errors. Because the
 full Ideas editor is lazy-loaded as an isolated route, Vite may report some of
 its feature-complete chunks as larger than the default advisory threshold.
+The Files section is covered by the production typecheck and
+`pnpm verify:client-files`.
 
 ## Production
 

@@ -170,7 +170,7 @@ async function defaultRenderDocx({ title, html }) {
   })
 }
 
-async function renderDocument({ format, title, representations, renderPdf, renderDocx }) {
+async function renderDocument({ format, title, representations, renderPdf, renderDocx, style = 'professional' }) {
   try {
     if (format === 'markdown') {
       return renderedBuffer(Buffer.from(`# ${markdownHeading(title)}\n\n${representations.markdown}\n`, 'utf8'))
@@ -178,7 +178,7 @@ async function renderDocument({ format, title, representations, renderPdf, rende
     const html = htmlDocument(title, representations.html)
     if (format === 'html') return renderedBuffer(Buffer.from(html, 'utf8'))
     if (format === 'docx') return renderedBuffer(await renderDocx({ title, html }))
-    return renderedBuffer(await renderPdf({ title, content: representations.text }))
+    return renderedBuffer(await renderPdf({ title, content: representations.text, style }))
   } catch (error) {
     if (error instanceof LanceeCapabilityError) throw error
     throw new LanceeCapabilityError('DOCUMENT_RENDER_FAILED', 'The document could not be rendered.', 500)
@@ -258,11 +258,15 @@ export function createDocumentCapabilities({
     throw new TypeError('The document capability requires the Lancee database adapter.')
   }
   const pdfRenderer = renderPdf || (async (input) => {
-    if (typeof browserWorker?.renderDocumentPdf !== 'function') return createTextPdf(input)
+    if (typeof browserWorker?.renderDocumentPdf !== 'function') {
+      return createTextPdf({ ...input, fallbackReason: 'browserWorker not available' })
+    }
     try {
       return await browserWorker.renderDocumentPdf(input)
     } catch (error) {
-      if (error?.code === 'BROWSER_UNAVAILABLE') return createTextPdf(input)
+      if (error?.code === 'BROWSER_UNAVAILABLE') {
+        return createTextPdf({ ...input, fallbackReason: error.message || 'BROWSER_UNAVAILABLE' })
+      }
       throw error
     }
   })
@@ -282,7 +286,7 @@ export function createDocumentCapabilities({
     id: 'pdf.create',
     namespace: 'pdf',
     version: '1.0.0',
-    description: 'Render approved text as a PDF and store it in the workspace Files library.',
+    description: 'Render complete, pre-written content as a PDF and store it in the workspace Files library. The renderer does not expand or generate content; you must provide the full document content including all headings, structure, tables, and lists appropriate to the requested depth. Use structured Markdown or HTML for best results. Optional style parameter: professional, report, proposal, brief, minimal.',
     provider: 'lancee.documents.pdf',
     inputSchema: {
       type: 'object',
@@ -290,6 +294,7 @@ export function createDocumentCapabilities({
         name: { type: 'string', minLength: 1, maxLength: 240 },
         title: { type: 'string', minLength: 1, maxLength: 200 },
         content: { type: 'string', minLength: 1, maxLength: MAX_DOCUMENT_CONTENT_LENGTH },
+        style: { type: 'string', enum: ['professional', 'report', 'proposal', 'brief', 'minimal'] },
       },
       required: ['name', 'title', 'content'],
       additionalProperties: false,
@@ -303,13 +308,14 @@ export function createDocumentCapabilities({
       const name = rawName.toLowerCase().endsWith('.pdf') ? rawName : `${rawName}.pdf`
       const title = textInput(input, 'title', { required: true, maxLength: 200 })
       const content = String(input.content ?? '')
+      const style = textInput(input, 'style', { maxLength: 20 }) || 'professional'
       if (name.length > 240 || name.includes('/') || name.includes('\\') || name.includes('\0') || content.length === 0) {
         throw new LanceeCapabilityError('INVALID_ARGUMENTS', 'Use a valid PDF name, title, and non-empty content.')
       }
       if (Buffer.byteLength(content, 'utf8') > MAX_DOCUMENT_CONTENT_LENGTH) {
         throw new LanceeCapabilityError('BODY_TOO_LARGE', 'The PDF source content exceeds 200 KB.', 413)
       }
-      const body = renderedBuffer(await pdfRenderer({ title, content }))
+      const body = renderedBuffer(await pdfRenderer({ title, content, style }))
       const stored = await storeDocument({
         database,
         context,
@@ -318,7 +324,7 @@ export function createDocumentCapabilities({
         format: 'pdf',
         body,
         source: 'pdf.create',
-        metadata: { title, format: 'pdf' },
+        metadata: { title, format: 'pdf', style },
       })
       return { file: stored.file, artifact: stored.artifact, artifacts: stored.artifacts }
     },
@@ -326,7 +332,7 @@ export function createDocumentCapabilities({
     id: 'document.create',
     namespace: 'document',
     version: '1.0.0',
-    description: 'Create a bounded PDF, DOCX, HTML, or Markdown document and register it in the workspace Files library.',
+    description: 'Create a PDF, DOCX, HTML, or Markdown document from complete, pre-written content and register it in the workspace Files library. The renderer does not expand or generate content; you must provide the full document content including all headings, structure, tables, and lists appropriate to the requested depth. Use structured Markdown or HTML for best results. For a brief summary, provide concise content. For a comprehensive analysis, provide substantial structured content with headings, tables, and lists before calling this tool. Optional style parameter for PDF: professional, report, proposal, brief, minimal.',
     provider: 'lancee.documents.renderer',
     inputSchema: {
       type: 'object',
@@ -336,6 +342,7 @@ export function createDocumentCapabilities({
         format: { type: 'string', enum: Object.keys(documentFormats) },
         source_format: { type: 'string', enum: [...sourceFormats] },
         content: { type: 'string', minLength: 1, maxLength: MAX_DOCUMENT_CONTENT_LENGTH },
+        style: { type: 'string', enum: ['professional', 'report', 'proposal', 'brief', 'minimal'] },
       },
       required: ['name', 'title', 'format', 'content'],
       additionalProperties: false,
@@ -347,6 +354,7 @@ export function createDocumentCapabilities({
       const title = textInput(input, 'title', { required: true, maxLength: 200 })
       const selectedSourceFormat = sourceFormat(input)
       const content = boundedContent(input.content)
+      const style = textInput(input, 'style', { maxLength: 20 }) || 'professional'
       const name = outputName(input, format)
       const body = await renderDocument({
         format,
@@ -354,6 +362,7 @@ export function createDocumentCapabilities({
         representations: sourceRepresentations(content, selectedSourceFormat),
         renderPdf,
         renderDocx,
+        style,
       })
       const stored = await storeDocument({
         database,
@@ -363,15 +372,15 @@ export function createDocumentCapabilities({
         format,
         body,
         source: 'document.create',
-        metadata: { title, format, sourceFormat: selectedSourceFormat },
+        metadata: { title, format, sourceFormat: selectedSourceFormat, style },
       })
-      return { ...stored, format, sourceFormat: selectedSourceFormat }
+      return { ...stored, format, sourceFormat: selectedSourceFormat, style }
     },
   }, {
     id: 'document.merge',
     namespace: 'document',
     version: '1.0.0',
-    description: 'Merge bounded inline document parts in a deterministic order and register one workspace document.',
+    description: 'Merge complete, pre-written document parts in a deterministic order and register one workspace document. Each part must contain complete content with appropriate structure (headings, tables, lists). The renderer does not expand content.',
     provider: 'lancee.documents.renderer',
     inputSchema: {
       type: 'object',

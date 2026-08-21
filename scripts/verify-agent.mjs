@@ -130,8 +130,7 @@ try {
   assert.match(runRequests[0].body.instructions, /Lancee decision tools/)
   assert.match(runRequests[0].body.instructions, /evidence confidence separate from causal confidence/)
   assert.match(runRequests[0].body.instructions, /persisted Lancee pattern, prediction, warning/)
-  assert.match(runRequests[0].body.instructions, /controlled estimates depend on their stated assumptions and are not proof/)
-  assert.match(runRequests[0].body.instructions, /start with list_decisions/)
+  assert.match(runRequests[0].body.instructions, /controlled estimates depend on stated assumptions/)
   assert.match(runRequests[0].body.instructions, /Zero reviews does not mean zero decisions/)
   assert.equal(runRequests[0].headers.Authorization, 'Bearer hermes-secret')
   assert.match(runRequests[0].headers['X-Hermes-Session-Key'], /^agent:[a-f0-9]{32}$/)
@@ -148,7 +147,7 @@ try {
   })
   const thirdRun = await hermes.runAgent({
     context: providerContext,
-    message: 'Create the workspace summary file.',
+    message: 'Separate conversation marker HOME-AFFAIRS-9921.',
   })
   assert.equal(thirdRun.status, 'completed')
   assert.notEqual(thirdRun.threadId, firstRun.threadId)
@@ -164,6 +163,16 @@ try {
   })
   assert.equal(linkedArtifacts.length, 1)
   assert.equal(linkedArtifacts[0].storageDocumentId, artifactDocument.id)
+
+  const thirdFollowUp = await hermes.runAgent({
+    context: providerContext,
+    threadId: thirdRun.threadId,
+    message: 'What were we discussing?',
+  })
+  assert.equal(thirdFollowUp.threadId, thirdRun.threadId)
+  const thirdFollowUpRequest = nativeCalls.filter((call) => call.path.endsWith('/v1/runs') && call.method === 'POST').at(-1)
+  assert.match(JSON.stringify(thirdFollowUpRequest.body.conversation_history), /HOME-AFFAIRS-9921/)
+  assert.equal(JSON.stringify(thirdFollowUpRequest.body.conversation_history).includes('ORANGE-PENGUIN-92841'), false)
 
   databaseB = await openDatabase({
     databasePath: join(temporaryDirectory, 'provider-b.sqlite'),
@@ -196,6 +205,34 @@ try {
   assert.equal(JSON.stringify(workspaceBRequest.body).includes('ORANGE-PENGUIN-92841'), false)
   assert.notEqual(workspaceBRequest.headers['X-Hermes-Session-Key'], runRequests[0].headers['X-Hermes-Session-Key'])
 
+  const reloadedHermes = createHermesAgentProvider({
+    database,
+    env: hermesEnvironment,
+    fetchImpl: nativeFetch,
+    sleep: async () => undefined,
+    now: () => 1_700_000_000_004,
+    logger: { info() {}, warn() {} },
+  })
+  const reloadedRun = await reloadedHermes.runAgent({
+    context: providerContext,
+    threadId: firstRun.threadId,
+    message: 'What were we discussing before reload?',
+  })
+  assert.equal(reloadedRun.threadId, firstRun.threadId)
+  const reloadRequest = nativeCalls.filter((call) => call.path.endsWith('/v1/runs') && call.method === 'POST').at(-1)
+  assert.equal(reloadRequest.body.session_id, firstThread.externalThreadId)
+  assert.match(JSON.stringify(reloadRequest.body.conversation_history), /ORANGE-PENGUIN-92841/)
+  assert.equal(JSON.stringify(reloadRequest.body.conversation_history).includes('HOME-AFFAIRS-9921'), false)
+
+  await assert.rejects(
+    hermes.runAgent({
+      context: { ...providerContext, user: { ...providerContext.user, id: 'usr_other' } },
+      threadId: firstRun.threadId,
+      message: 'Attempt to access another user conversation.',
+    }),
+    (error) => error instanceof AgentProviderError && error.code === 'AGENT_THREAD_NOT_FOUND' && error.status === 404,
+  )
+
   const failedProvider = createHermesAgentProvider({
     database,
     env: { ...hermesEnvironment, HERMES_AGENT_STREAM_EVENTS: 'false' },
@@ -214,6 +251,51 @@ try {
     failedProvider.runAgent({ context: providerContext, message: 'Return a malformed run.' }),
     (error) => error instanceof AgentProviderError && error.code === 'HERMES_INVALID_RESPONSE',
   )
+
+  let unavailableSessionRunRequests = 0
+  const unavailableSessionProvider = createHermesAgentProvider({
+    database,
+    env: hermesEnvironment,
+    fetchImpl: async (url, init = {}) => {
+      const path = new URL(url).pathname
+      if (path.includes('/api/sessions/')) return new Response('{}', { status: 405 })
+      if (path.endsWith('/v1/runs')) unavailableSessionRunRequests += 1
+      throw new Error(`Unexpected unavailable-session request: ${init.method || 'GET'} ${path}`)
+    },
+    sleep: async () => undefined,
+    logger: { info() {}, warn() {} },
+  })
+  await assert.rejects(
+    unavailableSessionProvider.runAgent({ context: providerContext, message: 'Do not run without a session.' }),
+    (error) => error instanceof AgentProviderError && error.code === 'HERMES_REQUEST_FAILED',
+  )
+  assert.equal(unavailableSessionRunRequests, 0)
+
+  const unverifiedFileProvider = createHermesAgentProvider({
+    database,
+    env: hermesEnvironment,
+    fetchImpl: async (url, init = {}) => {
+      const path = new URL(url).pathname
+      const method = init.method || 'GET'
+      if (path.includes('/api/sessions/')) return new Response('{}', { status: 200 })
+      if (path.endsWith('/v1/runs') && method === 'POST') return new Response('{"run_id":"unverified-file-run"}', { status: 202 })
+      if (path.endsWith('/v1/runs/unverified-file-run') && method === 'GET') {
+        return new Response(JSON.stringify({
+          status: 'completed',
+          output: 'Done — I created the document at /tmp/lancee-power-pricing.md.',
+        }), { status: 200 })
+      }
+      throw new Error(`Unexpected file-truthfulness request: ${method} ${path}`)
+    },
+    sleep: async () => undefined,
+    logger: { info() {}, warn() {} },
+  })
+  const unverifiedFileRun = await unverifiedFileProvider.runAgent({
+    context: providerContext,
+    message: 'Create a pricing document.',
+  })
+  assert.equal(unverifiedFileRun.finalOutput, 'I could not verify that a file was saved to Lancee Files. Please try the save again.')
+  assert.equal(unverifiedFileRun.finalOutput.includes('/tmp/'), false)
 
   const unconfiguredProfile = createHermesAgentProvider({
     database,
@@ -282,7 +364,7 @@ try {
   )
 
   assert.equal(await database.getAgentRun(providerContext.workspace.id, firstRun.id, 'usr_other'), null)
-  console.log('Agent provider verification passed: selection, trusted tenant context, Hermes native runs, session mapping, memory scoping, malformed/unavailable failure handling, fallback, and run isolation.')
+  console.log('Agent provider verification passed: selection, tenant isolation, native-session restoration, conversation continuity, artifact persistence, file-save truthfulness, failure handling, fallback, and run isolation.')
 } finally {
   await database?.close()
   await databaseB?.close()

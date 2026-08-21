@@ -75,6 +75,24 @@ function serializeValue(value) {
   return json
 }
 
+function scopedPreferenceKey(workspaceId, preferenceKey) {
+  return `workspace:${encodeURIComponent(workspaceId)}:preference:${encodeURIComponent(preferenceKey)}`
+}
+
+function scopedPreferencePrefix(workspaceId) {
+  return `workspace:${encodeURIComponent(workspaceId)}:preference:`
+}
+
+function preferenceKeyFromStorageKey(storageKey, workspaceId) {
+  const prefix = scopedPreferencePrefix(workspaceId)
+  if (!String(storageKey || '').startsWith(prefix)) return null
+  try {
+    return decodeURIComponent(String(storageKey).slice(prefix.length))
+  } catch {
+    return null
+  }
+}
+
 function parseValue(value) {
   try {
     return JSON.parse(value)
@@ -140,7 +158,7 @@ export function createMemoryRouter({
   }
 
   async function rememberHermes(context, input, route) {
-    const { userId } = trustedScope(context)
+    const { workspaceId, userId } = trustedScope(context)
     const requestedCategory = normalizeTaxonomyValue(input.category ?? input.kind ?? input.type)
     const category = requestedCategory === 'user_preference' ? 'working_convention' : requestedCategory
     if (!hermesCategories.has(category)) {
@@ -168,7 +186,16 @@ export function createMemoryRouter({
          source = EXCLUDED.source,
          confidence = EXCLUDED.confidence,
          updated_at = EXCLUDED.updated_at`,
-      [userId, preferenceKey, category, valueJson, source, storedConfidence, updatedAt, updatedAt],
+      [
+        userId,
+        scopedPreferenceKey(workspaceId, preferenceKey),
+        category,
+        valueJson,
+        source,
+        storedConfidence,
+        updatedAt,
+        updatedAt,
+      ],
     )
     return {
       destination: 'hermes',
@@ -225,21 +252,24 @@ export function createMemoryRouter({
   }
 
   async function getHermesPreferences(context) {
-    const { userId } = trustedScope(context)
+    const { workspaceId, userId } = trustedScope(context)
     const rows = await database.query(
       `SELECT preference_key, category, value_json, source, confidence, created_at, updated_at
        FROM hermes_user_preferences WHERE user_id = $1 ORDER BY preference_key`,
       [userId],
     )
-    return rows.map((row) => ({
-      key: row.preference_key,
-      category: row.category,
-      value: parseValue(row.value_json),
-      source: row.source,
-      confidence: Number(row.confidence),
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }))
+    return rows.flatMap((row) => {
+      const key = preferenceKeyFromStorageKey(row.preference_key, workspaceId)
+      return key ? [{
+        key,
+        category: row.category,
+        value: parseValue(row.value_json),
+        source: row.source,
+        confidence: Number(row.confidence),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }] : []
+    })
   }
 
   return Object.freeze({

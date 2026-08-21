@@ -21,6 +21,7 @@ import {
   getAgentProviderConfig,
 } from './agents/agent-provider.mjs'
 import { createHermesAgentProvider } from './agents/hermes-agent-provider.mjs'
+import { createMemoryRouter } from './memory-router.mjs'
 import { createLanceeAgentProvider } from './agents/lancee-agent-provider.mjs'
 import { recordWorkspaceEvent } from './workspace-events.mjs'
 import { createBrowserWorker } from './browser-worker.mjs'
@@ -8429,8 +8430,10 @@ const agentRuntime = createAgentRuntime({
   capabilityRegistry: lanceeMcp.capabilities,
 })
 
+const memoryRouter = createMemoryRouter({ database })
+
 const agentProviderConfig = getAgentProviderConfig()
-const hermesAgentProvider = createHermesAgentProvider({ database })
+const hermesAgentProvider = createHermesAgentProvider({ database, memoryRouter })
 const lanceeAgentProvider = createLanceeAgentProvider({ runtime: agentRuntime })
 const agentGateway = createAgentProviderGateway({
   database,

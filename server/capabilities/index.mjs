@@ -1,11 +1,9 @@
-import { createBrowserCapabilities } from './browser.mjs'
 import { createDocumentCapabilities } from './documents.mjs'
 import { createFileCapabilities } from './files.mjs'
 import { createIntegrationCapabilities } from './integrations.mjs'
 import { createCapabilityRegistry } from './registry.mjs'
 import { createRuntimeCapabilities } from './runtime.mjs'
 import { createVisualCapabilities } from './visual.mjs'
-import { createWebCapabilities } from './web.mjs'
 
 export { LanceeCapabilityError } from './registry.mjs'
 
@@ -20,18 +18,8 @@ export const lanceeMcpCapabilityBindings = Object.freeze({
   read_file: 'file.read',
   search_files: 'file.search',
   get_file_metadata: 'file.metadata',
-  web_search: 'web.search',
-  access_webpage: 'web.access',
-  extract_web_content: 'web.extract',
-  crawl_website: 'web.crawl',
-  browser_read: 'browser.read',
-  browser_snapshot: 'browser.snapshot',
-  browser_screenshot: 'browser.screenshot',
-  browser_pdf: 'browser.pdf',
-  browser_research: 'browser.research',
   analyze_visual: 'visual.inspect',
   extract_visual_palette: 'visual.extract-palette',
-  create_pdf: 'pdf.create',
   create_document: 'document.create',
   merge_documents: 'document.merge',
   list_artifacts: 'artifact.list',
@@ -51,8 +39,6 @@ export const lanceeMcpCapabilityBindings = Object.freeze({
   delete_workspace_resource: 'workspace.delete-resource',
   get_workflow_status: 'automation.status',
   search_workflows: 'automation.search',
-  execute_python: 'system.execute-python',
-  execute_javascript: 'system.execute-javascript',
   schedule_job: 'job.schedule-automation',
   get_logs: 'automation.logs',
   create_decision: 'decision.create',
@@ -133,18 +119,10 @@ export function createLanceeCapabilityRegistry({
         return value instanceof Date ? value.getTime() : Number(value)
       }
     : undefined
-  const webCapabilities = createWebCapabilities({ requestImpl, dnsLookup, env, now })
-  const webSearch = webCapabilities.find((capability) => capability.id === 'web.search')
   const definitions = [
-    ...webCapabilities,
     ...createFileCapabilities({ database }),
     ...createDocumentCapabilities({ database, renderPdf, renderDocx, browserWorker }),
     ...createIntegrationCapabilities({ requestImpl, dnsLookup, env, integrationGateway }),
-    ...createBrowserCapabilities({
-      database,
-      browserWorker,
-      webSearch: webSearch ? ({ input, signal }) => webSearch.execute({ input, signal }) : null,
-    }),
     ...createVisualCapabilities({ database, sharpImpl }),
     ...createRuntimeCapabilities({ database, executionWorker }),
     ...additionalCapabilities,

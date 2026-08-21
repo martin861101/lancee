@@ -30,8 +30,149 @@ function normalizedMarkdown(value) {
     .replace(/([.!?])\s+([-*]\s+(?=\*\*))/g, '$1\n\n$2')
 }
 
-function professionalPdfHtml({ title, content }) {
-  const safeTitle = String(title || '').trim() || 'Lancee report'
+function getPdfStyle(style = 'professional') {
+  const styles = {
+    professional: {
+      brandLabel: 'Lancee · Executive document',
+      pageBorder: 'position: fixed; z-index: -1; inset: -10mm -9mm -12mm; border: 1.5px solid #2f6fed; border-top-width: 7px; border-radius: 4px;',
+      brandStyle: 'color: #2f6fed; font-size: 8pt; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase;',
+      titleCard: 'margin: 5mm 0 9mm; padding: 9mm 10mm; color: #fff; background: linear-gradient(135deg, #17315f, #2f6fed); border-left: 5px solid #6ee7d8; border-radius: 8px;',
+      titleCardH1: 'margin: 0; color: #fff; font-size: 25pt; line-height: 1.12; letter-spacing: -.35px;',
+      titleCardP: 'margin: 4mm 0 0; color: #dbeafe; font-size: 9pt;',
+      h1: 'margin: 8mm 0 3mm; padding-bottom: 2.5mm; font-size: 19pt; border-bottom: 2px solid #6ee7d8;',
+      h2: 'margin: 7mm 0 3mm; padding-left: 3mm; font-size: 14pt; border-left: 4px solid #2f6fed;',
+      h3: 'margin: 5mm 0 2mm; color: #2f6fed; font-size: 11.5pt;',
+      h4: 'margin: 4mm 0 2mm; font-size: 10.5pt;',
+      bodyFont: '10.2pt/1.55 Arial, Helvetica, sans-serif',
+      bodyColor: '#243147',
+      headingColor: '#17315f',
+      linkColor: '#245dc1',
+      blockquoteBg: '#eef5ff',
+      blockquoteBorder: '#6ee7d8',
+      codeBg: '#eef2f7',
+      codeColor: '#17315f',
+      preBg: '#172235',
+      preColor: '#e5eefc',
+      tableThBg: '#2f6fed',
+      tableThColor: '#fff',
+      tableTdBorder: '#cbd8ea',
+      tableAltRowBg: '#f5f8fc',
+      hrBorder: '#b9c9de',
+    },
+    report: {
+      brandLabel: 'Lancee · Report',
+      pageBorder: 'position: fixed; z-index: -1; inset: -10mm -9mm -12mm; border: 1px solid #374151; border-top-width: 4px; border-radius: 4px;',
+      brandStyle: 'color: #374151; font-size: 7.5pt; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase;',
+      titleCard: 'margin: 4mm 0 8mm; padding: 8mm 10mm; color: #fff; background: #111827; border-left: 4px solid #6366f1; border-radius: 6px;',
+      titleCardH1: 'margin: 0; color: #fff; font-size: 22pt; line-height: 1.15; letter-spacing: -.3px;',
+      titleCardP: 'margin: 3mm 0 0; color: #d1d5db; font-size: 8.5pt;',
+      h1: 'margin: 7mm 0 2.5mm; padding-bottom: 2mm; font-size: 17pt; border-bottom: 1.5px solid #6366f1;',
+      h2: 'margin: 6mm 0 2.5mm; padding-left: 2.5mm; font-size: 13pt; border-left: 3px solid #6366f1;',
+      h3: 'margin: 4.5mm 0 2mm; color: #6366f1; font-size: 11pt;',
+      h4: 'margin: 3.5mm 0 1.5mm; font-size: 10pt;',
+      bodyFont: '10pt/1.55 Arial, Helvetica, sans-serif',
+      bodyColor: '#1f2937',
+      headingColor: '#111827',
+      linkColor: '#4f46e5',
+      blockquoteBg: '#f3f4f6',
+      blockquoteBorder: '#6366f1',
+      codeBg: '#f3f4f6',
+      codeColor: '#111827',
+      preBg: '#1f2937',
+      preColor: '#f3f4f6',
+      tableThBg: '#111827',
+      tableThColor: '#fff',
+      tableTdBorder: '#d1d5db',
+      tableAltRowBg: '#f9fafb',
+      hrBorder: '#d1d5db',
+    },
+    proposal: {
+      brandLabel: 'Lancee · Proposal',
+      pageBorder: 'position: fixed; z-index: -1; inset: -10mm -9mm -12mm; border: 1.5px solid #059669; border-top-width: 6px; border-radius: 4px;',
+      brandStyle: 'color: #059669; font-size: 8pt; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase;',
+      titleCard: 'margin: 5mm 0 9mm; padding: 9mm 10mm; color: #fff; background: linear-gradient(135deg, #064e3b, #059669); border-left: 5px solid #34d399; border-radius: 8px;',
+      titleCardH1: 'margin: 0; color: #fff; font-size: 25pt; line-height: 1.12; letter-spacing: -.35px;',
+      titleCardP: 'margin: 4mm 0 0; color: #a7f3d0; font-size: 9pt;',
+      h1: 'margin: 8mm 0 3mm; padding-bottom: 2.5mm; font-size: 19pt; border-bottom: 2px solid #34d399;',
+      h2: 'margin: 7mm 0 3mm; padding-left: 3mm; font-size: 14pt; border-left: 4px solid #059669;',
+      h3: 'margin: 5mm 0 2mm; color: #059669; font-size: 11.5pt;',
+      h4: 'margin: 4mm 0 2mm; font-size: 10.5pt;',
+      bodyFont: '10.2pt/1.55 Arial, Helvetica, sans-serif',
+      bodyColor: '#1f2937',
+      headingColor: '#064e3b',
+      linkColor: '#047857',
+      blockquoteBg: '#ecfdf5',
+      blockquoteBorder: '#34d399',
+      codeBg: '#ecfdf5',
+      codeColor: '#064e3b',
+      preBg: '#064e3b',
+      preColor: '#ecfdf5',
+      tableThBg: '#059669',
+      tableThColor: '#fff',
+      tableTdBorder: '#a7f3d0',
+      tableAltRowBg: '#f0fdf4',
+      hrBorder: '#a7f3d0',
+    },
+    brief: {
+      brandLabel: 'Lancee · Brief',
+      pageBorder: 'position: fixed; z-index: -1; inset: -8mm -7mm -10mm; border: 1px solid #6b7280; border-top-width: 3px; border-radius: 3px;',
+      brandStyle: 'color: #6b7280; font-size: 7pt; font-weight: 600; letter-spacing: 1.4px; text-transform: uppercase;',
+      titleCard: 'margin: 3mm 0 6mm; padding: 6mm 8mm; color: #fff; background: #374151; border-left: 3px solid #9ca3af; border-radius: 4px;',
+      titleCardH1: 'margin: 0; color: #fff; font-size: 20pt; line-height: 1.15; letter-spacing: -.25px;',
+      titleCardP: 'margin: 2.5mm 0 0; color: #d1d5db; font-size: 8pt;',
+      h1: 'margin: 6mm 0 2mm; padding-bottom: 1.5mm; font-size: 16pt; border-bottom: 1px solid #9ca3af;',
+      h2: 'margin: 5mm 0 2mm; padding-left: 2mm; font-size: 12pt; border-left: 3px solid #6b7280;',
+      h3: 'margin: 4mm 0 1.5mm; color: #6b7280; font-size: 10.5pt;',
+      h4: 'margin: 3mm 0 1mm; font-size: 9.5pt;',
+      bodyFont: '9.5pt/1.5 Arial, Helvetica, sans-serif',
+      bodyColor: '#374151',
+      headingColor: '#1f2937',
+      linkColor: '#4b5563',
+      blockquoteBg: '#f9fafb',
+      blockquoteBorder: '#9ca3af',
+      codeBg: '#f3f4f6',
+      codeColor: '#1f2937',
+      preBg: '#1f2937',
+      preColor: '#f3f4f6',
+      tableThBg: '#374151',
+      tableThColor: '#fff',
+      tableTdBorder: '#d1d5db',
+      tableAltRowBg: '#f9fafb',
+      hrBorder: '#d1d5db',
+    },
+    minimal: {
+      brandLabel: '',
+      pageBorder: '',
+      brandStyle: '',
+      titleCard: 'margin: 4mm 0 6mm; padding: 0; border-bottom: 1px solid #d1d5db;',
+      titleCardH1: 'margin: 0; color: #111827; font-size: 22pt; line-height: 1.2; letter-spacing: -.4px;',
+      titleCardP: 'margin: 2mm 0 0; color: #6b7280; font-size: 8.5pt;',
+      h1: 'margin: 7mm 0 2.5mm; font-size: 18pt; color: #111827;',
+      h2: 'margin: 6mm 0 2mm; font-size: 13pt; color: #374151;',
+      h3: 'margin: 4mm 0 1.5mm; color: #4b5563; font-size: 10.5pt;',
+      h4: 'margin: 3mm 0 1mm; font-size: 9.5pt; color: #6b7280;',
+      bodyFont: '10pt/1.6 Arial, Helvetica, sans-serif',
+      bodyColor: '#1f2937',
+      headingColor: '#111827',
+      linkColor: '#374151',
+      blockquoteBg: '#f9fafb',
+      blockquoteBorder: '#d1d5db',
+      codeBg: '#f3f4f6',
+      codeColor: '#1f2937',
+      preBg: '#1f2937',
+      preColor: '#f3f4f6',
+      tableThBg: '#1f2937',
+      tableThColor: '#fff',
+      tableTdBorder: '#e5e7eb',
+      tableAltRowBg: '#f9fafb',
+      hrBorder: '#e5e7eb',
+    },
+  }
+  return styles[style] || styles.professional
+}
+
+function documentPdfHtml({ title, content, style = 'professional' }) {
+  const safeTitle = String(title || '').trim() || 'Lancee document'
   let markdown = normalizedMarkdown(content)
   const firstHeading = markdown.match(/^\s*#\s+(.+)\s*(?:\n|$)/)
   if (firstHeading && firstHeading[1].trim().toLowerCase() === safeTitle.toLowerCase()) {
@@ -43,37 +184,45 @@ function professionalPdfHtml({ title, content }) {
     allowedAttributes: { a: ['href'] },
     allowedSchemes: ['http', 'https'],
   })
+  const s = getPdfStyle(style)
+  const brandHtml = s.brandLabel ? `<div class="brand">${s.brandLabel}</div>` : ''
+  const pageBorderHtml = s.pageBorder ? `<div class="page-border"></div>` : ''
+  const pageBorderStyle = s.pageBorder ? `.page-border { ${s.pageBorder} }` : ''
+  const brandStyle = s.brandStyle ? `.brand { ${s.brandStyle} }` : ''
+  const titleCardStyle = `.title-card { ${s.titleCard} }`
+  const titleCardH1Style = `.title-card h1 { ${s.titleCardH1} }`
+  const titleCardPStyle = `.title-card p { ${s.titleCardP} }`
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     @page { size: A4; margin: 18mm 17mm 20mm; }
     * { box-sizing: border-box; }
     html { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-    body { margin: 0; color: #243147; font: 10.2pt/1.55 Arial, Helvetica, sans-serif; }
-    .page-border { position: fixed; z-index: -1; inset: -10mm -9mm -12mm; border: 1.5px solid #2f6fed; border-top-width: 7px; border-radius: 4px; }
-    .brand { color: #2f6fed; font-size: 8pt; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; }
-    .title-card { margin: 5mm 0 9mm; padding: 9mm 10mm; color: #fff; background: linear-gradient(135deg, #17315f, #2f6fed); border-left: 5px solid #6ee7d8; border-radius: 8px; }
-    .title-card h1 { margin: 0; color: #fff; font-size: 25pt; line-height: 1.12; letter-spacing: -.35px; }
-    .title-card p { margin: 4mm 0 0; color: #dbeafe; font-size: 9pt; }
-    h1, h2, h3, h4 { break-after: avoid; color: #17315f; line-height: 1.2; }
-    h1 { margin: 8mm 0 3mm; padding-bottom: 2.5mm; font-size: 19pt; border-bottom: 2px solid #6ee7d8; }
-    h2 { margin: 7mm 0 3mm; padding-left: 3mm; font-size: 14pt; border-left: 4px solid #2f6fed; }
-    h3 { margin: 5mm 0 2mm; color: #2f6fed; font-size: 11.5pt; }
-    h4 { margin: 4mm 0 2mm; font-size: 10.5pt; }
+    body { margin: 0; color: ${s.bodyColor}; font: ${s.bodyFont}; }
+    ${pageBorderStyle}
+    ${brandStyle}
+    ${titleCardStyle}
+    ${titleCardH1Style}
+    ${titleCardPStyle}
+    h1, h2, h3, h4 { break-after: avoid; color: ${s.headingColor}; line-height: 1.2; }
+    h1 { ${s.h1} }
+    h2 { ${s.h2} }
+    h3 { ${s.h3} }
+    h4 { ${s.h4} }
     p { margin: 0 0 3.3mm; orphans: 3; widows: 3; }
     ul, ol { margin: 2mm 0 4mm; padding-left: 7mm; }
     li { margin: 1.4mm 0; padding-left: 1.5mm; }
-    li::marker { color: #2f6fed; font-weight: 700; }
-    strong { color: #17315f; }
-    a { color: #245dc1; text-decoration: none; word-break: break-word; }
-    blockquote { margin: 5mm 0; padding: 4mm 5mm; color: #334a68; background: #eef5ff; border-left: 4px solid #6ee7d8; border-radius: 0 6px 6px 0; }
-    code { padding: 1px 4px; color: #17315f; background: #eef2f7; border-radius: 3px; font: 8.5pt Consolas, monospace; }
-    pre { overflow: hidden; padding: 4mm; color: #e5eefc; background: #172235; border-radius: 6px; white-space: pre-wrap; }
+    li::marker { color: ${s.headingColor}; font-weight: 700; }
+    strong { color: ${s.headingColor}; }
+    a { color: ${s.linkColor}; text-decoration: none; word-break: break-word; }
+    blockquote { margin: 5mm 0; padding: 4mm 5mm; color: ${s.bodyColor}; background: ${s.blockquoteBg}; border-left: 4px solid ${s.blockquoteBorder}; border-radius: 0 6px 6px 0; }
+    code { padding: 1px 4px; color: ${s.codeColor}; background: ${s.codeBg}; border-radius: 3px; font: 8.5pt Consolas, monospace; }
+    pre { overflow: hidden; padding: 4mm; color: ${s.preColor}; background: ${s.preBg}; border-radius: 6px; white-space: pre-wrap; }
     pre code { padding: 0; color: inherit; background: transparent; }
     table { width: 100%; margin: 5mm 0; border-collapse: collapse; break-inside: avoid; font-size: 8.7pt; }
-    th { padding: 2.6mm; color: #fff; background: #2f6fed; text-align: left; }
-    td { padding: 2.4mm; border: 1px solid #cbd8ea; vertical-align: top; }
-    tr:nth-child(even) td { background: #f5f8fc; }
-    hr { margin: 7mm 0; border: 0; border-top: 1px solid #b9c9de; }
-  </style></head><body><div class="page-border"></div><div class="brand">Lancee · Executive document</div><header class="title-card"><h1>${escapeHtml(safeTitle)}</h1><p>Prepared ${escapeHtml(new Date().toISOString().slice(0, 10))}</p></header><main>${body}</main></body></html>`
+    th { padding: 2.6mm; color: ${s.tableThColor}; background: ${s.tableThBg}; text-align: left; }
+    td { padding: 2.4mm; border: 1px solid ${s.tableTdBorder}; vertical-align: top; }
+    tr:nth-child(even) td { background: ${s.tableAltRowBg}; }
+    hr { margin: 7mm 0; border: 0; border-top: 1px solid ${s.hrBorder}; }
+  </style></head><body>${pageBorderHtml}${brandHtml}<header class="title-card"><h1>${escapeHtml(safeTitle)}</h1><p>Prepared ${escapeHtml(new Date().toISOString().slice(0, 10))}</p></header><main>${body}</main></body></html>`
 }
 
 function accentTextColor(accent) {
@@ -378,7 +527,7 @@ function createLocalBrowserWorker({
         }
       }, options)
     },
-    async renderDocumentPdf({ title, content }) {
+    async renderDocumentPdf({ title, content, style = 'professional' }) {
       const runningBrowser = await browser()
       const context = await runningBrowser.newContext({
         javaScriptEnabled: false,
@@ -389,7 +538,7 @@ function createLocalBrowserWorker({
       await context.route('**/*', (route) => route.abort('blockedbyclient'))
       const page = await context.newPage()
       try {
-        await page.setContent(professionalPdfHtml({ title, content }), { waitUntil: 'domcontentloaded', timeout: 20_000 })
+        await page.setContent(documentPdfHtml({ title, content, style }), { waitUntil: 'domcontentloaded', timeout: 20_000 })
         const body = await page.pdf({
           format: 'A4',
           printBackground: true,
@@ -547,8 +696,8 @@ function createIsolatedBrowserWorker(runAsUser) {
     snapshot: (url, options) => invoke('snapshot', url, options),
     screenshot: (url, options) => invoke('screenshot', url, options),
     pdf: (url, options) => invoke('pdf', url, options),
-    async renderDocumentPdf({ title, content }) {
-      const result = await invoke('renderDocumentPdf', null, { title, content })
+    async renderDocumentPdf({ title, content, style = 'professional' }) {
+      const result = await invoke('renderDocumentPdf', null, { title, content, style })
       return result.body
     },
     async renderInvoicePdf(invoice) {

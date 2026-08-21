@@ -63,6 +63,31 @@ try {
     (await reloadedRouter.getHermesPreferences(context)).map((item) => [item.key, item.value]),
     [['response_length', 'concise']],
   )
+  const alternateWorkspaceId = 'wsp_memory_alternate'
+  const timestamp = new Date().toISOString()
+  await database.query(
+    `INSERT INTO workspaces (id, name, created_at, updated_at) VALUES ($1, $2, $3, $4)`,
+    [alternateWorkspaceId, 'Alternate Memory Workspace', timestamp, timestamp],
+  )
+  await database.query(
+    `INSERT INTO workspace_members (workspace_id, user_id, role, created_at) VALUES ($1, $2, 'owner', $3)`,
+    [alternateWorkspaceId, context.user.id, timestamp],
+  )
+  const alternateContext = await database.getContextByIds(context.user.id, alternateWorkspaceId)
+  assert.deepEqual(await reloadedRouter.getHermesPreferences(alternateContext), [])
+  await reloadedRouter.remember(alternateContext, {
+    kind: 'response_preference',
+    key: 'response_length',
+    value: 'detailed',
+  })
+  assert.deepEqual(
+    (await reloadedRouter.getHermesPreferences(context)).map((item) => [item.key, item.value]),
+    [['response_length', 'concise']],
+  )
+  assert.deepEqual(
+    (await reloadedRouter.getHermesPreferences(alternateContext)).map((item) => [item.key, item.value]),
+    [['response_length', 'detailed']],
+  )
   await assert.rejects(
     router.remember(context, {
       kind: 'working_convention',
@@ -96,7 +121,7 @@ try {
     (error) => error instanceof MemoryRouterError && error.code === 'LANCEE_DOMAIN_HANDLER_REQUIRED',
   )
 
-  console.log('Memory Router verified: ephemeral Session context, persistent user-scoped Hermes preferences, authoritative Lancee business routing, deterministic defaults, and secret rejection.')
+  console.log('Memory Router verified: ephemeral Session context, workspace-and-user-scoped Hermes preferences, authoritative Lancee business routing, deterministic defaults, and secret rejection.')
 } finally {
   await database?.close()
   rmSync(directory, { recursive: true, force: true })

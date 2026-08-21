@@ -23,7 +23,7 @@ subsequent bounded semantic-comparison layer is documented separately in
 
 - temporary/current/ambiguous context → process-local Session memory;
 - stable user response, communication, approval, and working preferences →
-  `hermes_user_preferences`, scoped by authenticated user;
+  `hermes_user_preferences`, keyed by the authenticated workspace and user;
 - events, decisions, evidence, outcomes, business facts, and organisational
   learning → the relevant authoritative Lancee domain service.
 

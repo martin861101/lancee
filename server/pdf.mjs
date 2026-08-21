@@ -81,7 +81,8 @@ function pdfObject(id, body) {
   return Buffer.from(`${id} 0 obj\n${body}\nendobj\n`, 'ascii')
 }
 
-export function createTextPdf({ title, content, generatedAt = new Date().toISOString() }) {
+export function createTextPdf({ title, content, generatedAt = new Date().toISOString(), logger = console, fallbackReason = 'Playwright renderer unavailable' }) {
+  logger.warn?.('pdf.fallback_used', { reason: fallbackReason, title: String(title || '').slice(0, 200) })
   const safeTitle = printableText(title).trim() || 'Lancee report'
   const bodyLines = markdownText(content)
     .replace(/\r\n?/g, '\n')

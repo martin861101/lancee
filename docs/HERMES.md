@@ -86,8 +86,9 @@ Lancee provider fallback without exposing prompts or provider secrets in logs.
 `server/agents/hermes-agent-provider.mjs` now uses Hermes’ native runtime
 surface:
 
-- `POST /api/sessions` and `GET /api/sessions/{id}` when native sessions are
-  available.
+- `POST /api/sessions` and `GET /api/sessions/{id}` before every native run.
+  A session endpoint that is unavailable or rejects the request prevents the
+  Hermes run; the adapter never continues with an unverified session.
 - `POST /v1/runs` with the bounded user message, a minimal trusted instruction
   block, the persisted external session id, and explicit history reconstructed
   from the scoped Lancee agent runs and artifacts.
@@ -118,6 +119,13 @@ workspace profile remains the durable business identity. Workspace-level
 business intelligence should be exchanged through authoritative Lancee records,
 not by allowing unrelated chat transcript memory to bleed between conversations.
 Hermes credentials remain server-only.
+
+Stable Hermes preferences use the existing `hermes_user_preferences` table, but
+their stored keys are namespaced by the authenticated workspace and user before
+they are injected into a run. Older unscoped preference rows are retained but
+never retrieved, so they cannot cross a workspace boundary. Conversation context
+is never stored there: it is reconstructed only from the exact persisted agent
+thread and its workspace-scoped runs and artifacts.
 
 Hermes owns reasoning, planning, and its tool loop. Lancee owns business
 authorization, tenant scoping, approvals surfaced to the UI, durable run
@@ -153,7 +161,9 @@ asynchronous runs, explicit conversation history, status polling, progress
 events, approval responses, stop, and scoped session headers. Recognized Hermes
 file/artifact results are checked against the authenticated workspace, linked to
 the persisted run and conversation through the existing artifact tables, and
-returned as Lancee Files attachments. The UI restores the selected conversation
+returned as Lancee Files attachments. A Hermes text response that claims a file
+was saved but has no verified Lancee Files artifact is replaced with a clear
+save-verification failure; internal paths never become downloads. The UI restores the selected conversation
 from workspace/user-scoped browser storage and reloads its server-side run
 history; it does not select a latest conversation implicitly.
 
@@ -168,8 +178,9 @@ configured as an `AI_PROVIDER`.
 The focused `verify:agent` command covers provider selection, trusted tenant
 context rejection, named profile routing, native run format and authentication,
 conversation history continuity, same-workspace conversation separation,
-cross-workspace memory separation, artifact/file persistence and links,
-malformed responses, unavailable and timeout failures, fallback, and run
+cross-workspace and cross-user separation, same-session restoration after a
+provider reload, artifact/file persistence and links, file-save truthfulness,
+malformed responses, unavailable sessions and timeouts, fallback, and run
 isolation. The existing `verify:ai` command continues to cover OpenAI,
 Anthropic, Gemini, and Hermes completion requests, while
 `verify:codex-connector` covers device-issued MCP token scope and workspace
