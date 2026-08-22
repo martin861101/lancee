@@ -305,7 +305,7 @@ try {
   assert.equal(servicesResponse.status, 200)
   const builtInService = (await servicesResponse.json()).services.find((service) => service.id === 'lancee')
   assert.equal(builtInService.active, true)
-  assert.equal(builtInService.tools.length, 49)
+  assert.equal(builtInService.tools.length, 50)
 
   const assistantDecisionResponse = await sessionRequest(
     application.origin,
@@ -627,6 +627,7 @@ try {
       'create_project',
       'set_project_status',
       'create_file',
+      'rename_file',
       'read_file',
       'search_files',
       'get_file_metadata',

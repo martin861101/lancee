@@ -85,6 +85,50 @@ export function createFileCapabilities({ database }) {
       return { file, artifact, artifacts: artifact ? [artifact] : [] }
     },
   }, {
+    id: 'file.rename',
+    namespace: 'file',
+    version: '1.0.0',
+    description: 'Rename one workspace-owned file by its authoritative Lancee document ID.',
+    provider: 'lancee.files',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_id: { type: 'string', pattern: '^doc_[a-f0-9]{16}$' },
+        name: { type: 'string', minLength: 1, maxLength: 240 },
+      },
+      required: ['file_id', 'name'],
+      additionalProperties: false,
+    },
+    outputSchema: { type: 'object', required: ['file'], properties: { file: { type: 'object' } } },
+    requiredPermissions: ['files:write'],
+    riskLevel: 'internal-write',
+    requiresApproval: true,
+    timeoutMs: 10_000,
+    supportsAsync: false,
+    tags: ['file', 'artifact', 'workspace', 'rename'],
+    async execute({ input, context }) {
+      const fileId = textInput(input, 'file_id', { required: true, maxLength: 100 })
+      const name = textInput(input, 'name', { required: true, maxLength: 240 })
+      if (!/^doc_[a-f0-9]{16}$/.test(fileId)) {
+        throw new LanceeCapabilityError('INVALID_ARGUMENTS', 'A valid workspace file ID is required.')
+      }
+      if (name.includes('/') || name.includes('\\') || name.includes('\0')) {
+        throw new LanceeCapabilityError('INVALID_ARGUMENTS', 'The file name cannot contain path separators or null characters.')
+      }
+      const file = await database.renameWorkspaceDocument(context.workspace.id, fileId, name)
+      if (!file) throw new LanceeCapabilityError('NOT_FOUND', 'The workspace file was not found.', 404)
+      await recordWorkspaceEvent({
+        database,
+        context,
+        eventType: 'file.renamed',
+        entityType: 'workspace_document',
+        entityId: file.id,
+        payload: { name: file.name, mimeType: file.mimeType, size: file.size, source: 'file.rename' },
+        importance: 55,
+      })
+      return { file }
+    },
+  }, {
     id: 'file.read',
     namespace: 'file',
     version: '1.0.0',

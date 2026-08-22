@@ -161,19 +161,26 @@ principles, information architecture, role of AI, and delivery roadmap.
 
 ## Connected Intelligence
 
-The first Connected Intelligence production slice treats Calendar as an
-authoritative workspace source. Persisted meetings emit sanitized
+Connected Intelligence treats Calendar and the existing provider-neutral Mail
+connector as authoritative workspace sources. Persisted meetings emit sanitized
 `meeting.created` and idempotent `meeting.completed` records through the
-existing workspace-event ledger. Deterministic features provide per-meeting,
-per-project, and per-client duration aggregates.
+existing workspace-event ledger. Successful Inbox ingestion and accepted SMTP
+sends emit idempotent `communication.received` / `communication.sent` metadata
+events without duplicating bodies or credentials. Exact workspace-scoped email
+identity lets Mail participants and Calendar attendees resolve to the same
+Person, then conservatively to a Client and confirmed thread/project link.
 
 The `project_meeting_load` detector compares an active project's coordination
 minutes with the median and 75th percentile of completed projects in the same
 workspace. It returns `insufficient_evidence` below three historical projects
 and stores one evidence-backed, idempotent opportunity only when the
 workspace-specific baseline is exceeded. No LLM performs arithmetic or creates
-evidence. Architecture, schema, APIs, detector policy, and the Phase 2 mail map
-are documented in
+evidence. The cross-source `client_attention_load` detector combines transparent
+Mail message/thread percentiles with completed Calendar meeting-minute
+percentiles, requires at least three observed comparison clients, and reuses
+the same evidence-backed opportunity store. Architecture, schema, APIs,
+detector policies, privacy limits, and deferred semantic extension points are
+documented in
 [`docs/CONNECTED_INTELLIGENCE.md`](docs/CONNECTED_INTELLIGENCE.md).
 
 ## Visual system
@@ -297,7 +304,7 @@ approval card and the server binds that one-use decision to the exact tool and
 argument hash. The built-in Lancee tools are always available to an
 authenticated workspace and execute with that user's workspace context.
 
-The current catalog exposes 49 public tools across workspace operations, visual
+The current catalog exposes 50 public tools across workspace operations, visual
 inspection, files, documents, artifacts, jobs, approvals, integrations,
 scheduling, logs, and Decision Intelligence. Workspace and role policy is
 enforced before every call. Destructive deletion and external API calls are
@@ -328,7 +335,7 @@ workspace-scoped public tool contracts and authorization mapping, and
 [`server/capabilities/`](server/capabilities), which owns typed local capability
 contracts and adapters.
 
-The registry dynamically maps the current 49-tool catalog to typed local
+The registry dynamically maps the current 50-tool catalog to typed local
 capabilities.
 Native MCP responses use the canonical envelope below; raw
 `/api/mcp/invoke` responses remain backward-compatible for the workspace UI.
@@ -474,7 +481,7 @@ security, packaging, configuration, and verification details.
 
 The Lancee MCP bridge is the agent-facing surface for the platform itself. It
 uses the same device approval flow as the AI connector, but requires the
-separate `mcp:invoke` scope. Its 49 public tools expose workspace operations,
+separate `mcp:invoke` scope. Its 50 public tools expose workspace operations,
 visual analysis, file/document/artifact operations, durable jobs, approvals,
 workflow execution/status/logs/scheduling, bounded external API calls, and
 Decision Intelligence operations.
@@ -552,7 +559,10 @@ Mailbox passwords are encrypted with `ENCRYPTION_MASTER_KEY`, never returned to
 the browser, and tested against both incoming and outgoing servers before the
 connection is saved. Private network mail hosts are rejected by default. The
 mail app supports live folders, server-side search, reading sanitized message
-content, compose/reply, and automatic polling every 60 seconds.
+content, compose/reply, automatic polling every 60 seconds, and a small
+confirmed project selector for authoritatively observed threads. Connected
+Intelligence stores only bounded message metadata and canonical event
+provenance; it does not copy message bodies or alter IMAP/SMTP transport.
 
 Message automation rules can match sender, recipient, subject, and body/subject
 keywords using all/any semantics. Each match dispatches an active native Core
@@ -719,7 +729,14 @@ Hermes server does not use the default `/p/{profileId}` route. The agent
 gateway verifies the native Hermes session before each run, sends explicit
 persisted conversation history, restores the scoped WorkspaceChat conversation
 after a reload, and exposes a file as saved only after its workspace-scoped
-Lancee Files artifact is verified. Hermes preferences are scoped to both the
+Lancee Files document is verified. Structured Hermes artifacts are canonicalized
+to their `doc_…` storage document before WorkspaceChat renders a download; an
+`art_…` record, metadata-only tool result, missing document, or cross-workspace
+identifier is never treated as an openable file. Conversation history includes
+bounded, per-turn live file metadata, and the approved `rename_file` MCP tool
+renames the authoritative document and its linked artifact metadata. Run
+`npm run verify:hermes` for the focused durability and continuity matrix.
+Hermes preferences are scoped to both the
 authenticated workspace and user. The existing Lancee runtime remains the
 configured fallback, and provider health is available at `/api/agent/status`
 and within `/api/ai/status`. Configure

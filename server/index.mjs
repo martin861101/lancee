@@ -1492,6 +1492,14 @@ function normalizeMailRuleInput(input) {
 
 const mailSyncInFlight = new Set()
 
+function authoritativeMailIdentity(message) {
+  return String(message?.messageId || '').trim() || `${message?.folder || 'INBOX'}:uid:${message?.uid}`
+}
+
+function authoritativeMailThread(message) {
+  return String(message?.references?.[0] || message?.inReplyTo || authoritativeMailIdentity(message)).trim()
+}
+
 async function syncMailWorkspace(account) {
   if (!account || mailSyncInFlight.has(account.workspaceId)) return { newMessages: 0, triggered: 0, skipped: true }
   mailSyncInFlight.add(account.workspaceId)
@@ -1499,8 +1507,31 @@ async function syncMailWorkspace(account) {
     const password = mailPassword(account)
     const result = await fetchNewMailMessages(account, password, account.lastSeenUid, 50)
     const rules = (await database.listMailAutomationRules(account.workspaceId)).filter((rule) => rule.enabled)
+    const context = await database.getContextByIds(account.connectedBy, account.workspaceId)
+    if (!context) throw new Error('The mailbox owner no longer has access to this workspace.')
     let triggered = 0
     for (const message of result.messages) {
+      const observation = await connectedIntelligence.observeCommunication(context, {
+        sourceAccountId: account.email,
+        provider: account.provider,
+        externalMessageId: authoritativeMailIdentity(message),
+        externalThreadId: authoritativeMailThread(message),
+        direction: 'inbound',
+        from: message.from,
+        to: message.to,
+        cc: message.cc,
+        subject: message.subject,
+        occurredAt: message.date,
+        folder: message.folder,
+        providerUid: message.uid,
+      })
+      if (observation.relationship?.clientId) {
+        await connectedIntelligence.detectClientAttentionLoad(
+          context,
+          observation.relationship.clientId,
+          { persist: true },
+        )
+      }
       for (const rule of rules) {
         if (!mailRuleMatches(rule, message)) continue
         const automation = await database.getAutomation(account.workspaceId, rule.automationId)
@@ -1513,8 +1544,8 @@ async function syncMailWorkspace(account) {
         })
         if (!eventId) continue
         try {
-          const context = await database.getContextByIds(rule.createdBy, account.workspaceId)
-          if (!context) throw new Error('The rule owner no longer has access to this workspace.')
+          const ruleContext = await database.getContextByIds(rule.createdBy, account.workspaceId)
+          if (!ruleContext) throw new Error('The rule owner no longer has access to this workspace.')
           const run = await database.createAutomationRun({
             workspaceId: account.workspaceId,
             automationId: automation.id,
@@ -1544,7 +1575,7 @@ async function syncMailWorkspace(account) {
             mailEventId: eventId,
           })
           if (!queued) {
-            void executeAutomationRun(context, automation, run, null, { mailEventId: eventId }).catch((error) => {
+            void executeAutomationRun(ruleContext, automation, run, null, { mailEventId: eventId }).catch((error) => {
               console.error('Mail-triggered automation failed:', error)
             })
           }
@@ -5778,11 +5809,26 @@ app.get('/api/connected-intelligence/meeting-features', requireAuth, async (requ
   response.json(await connectedIntelligence.getMeetingFeatures(request.auth.context))
 })
 
+app.get('/api/connected-intelligence/communication-features', requireAuth, async (request, response) => {
+  response.json(await connectedIntelligence.getCommunicationFeatures(request.auth.context))
+})
+
 app.get(
   '/api/connected-intelligence/projects/:id/meeting-load',
   requireAuth,
   async (request, response) => {
     response.json(await connectedIntelligence.detectProjectMeetingLoad(
+      request.auth.context,
+      String(request.params.id || ''),
+    ))
+  },
+)
+
+app.get(
+  '/api/connected-intelligence/clients/:id/attention-load',
+  requireAuth,
+  async (request, response) => {
+    response.json(await connectedIntelligence.detectClientAttentionLoad(
       request.auth.context,
       String(request.params.id || ''),
     ))
@@ -8841,10 +8887,18 @@ app.get('/api/mail/messages/:uid', requireAuth, async (request, response) => {
   const uid = Number(request.params.uid)
   if (!Number.isInteger(uid) || uid < 1) throw new HttpError(400, 'A valid message UID is required.')
   const { account, password } = await connectedMailAccount(request.auth.context)
-  response.json(await getMailMessage(account, password, {
+  const message = await getMailMessage(account, password, {
     folder: mailFolder(request.query.folder),
     uid,
-  }))
+  })
+  response.json({
+    ...message,
+    relationship: await connectedIntelligence.getCommunicationRelationship(
+      request.auth.context,
+      authoritativeMailIdentity(message),
+      account.email,
+    ),
+  })
 })
 
 app.post(
@@ -8863,6 +8917,29 @@ app.post(
           ? request.body.to.map((value) => String(value || '').trim()).filter(Boolean)
           : []
         const subject = String(request.body?.subject || '').trim() || '(No subject)'
+        const observation = await connectedIntelligence.observeCommunication(
+          request.auth.context,
+          {
+            sourceAccountId: account.email,
+            provider: account.provider,
+            externalMessageId: sent.messageId,
+            externalThreadId: String(request.body?.references?.[0] || request.body?.inReplyTo || sent.messageId),
+            direction: 'outbound',
+            from: [{ name: account.displayName, address: account.email }],
+            to: recipients.map((address) => ({ address })),
+            cc: (Array.isArray(request.body?.cc) ? request.body.cc : []).map((address) => ({ address })),
+            subject,
+            occurredAt: nowIso(),
+          },
+          { transactional: false },
+        )
+        if (observation.relationship?.clientId) {
+          await connectedIntelligence.detectClientAttentionLoad(
+            request.auth.context,
+            observation.relationship.clientId,
+            { persist: true, completeDue: false },
+          )
+        }
         await database.createWorkspaceNotification({
           workspaceId: request.auth.context.workspace.id,
           kind: 'mail.sent',
@@ -8891,6 +8968,21 @@ app.post(
     const account = await database.getMailAccount(request.auth.context.workspace.id, true)
     if (!account) throw new HttpError(409, 'Connect a mailbox in Messages settings first.')
     response.json(await syncMailWorkspace(account))
+  },
+)
+
+app.post(
+  '/api/mail/messages/project-link',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const account = await database.getMailAccount(request.auth.context.workspace.id)
+    if (!account) throw new HttpError(409, 'Connect a mailbox in Messages settings first.')
+    response.json(await connectedIntelligence.confirmThreadProject(request.auth.context, {
+      externalMessageId: request.body?.externalMessageId,
+      sourceAccountId: account.email,
+      projectId: request.body?.projectId,
+    }))
   },
 )
 

@@ -197,7 +197,7 @@ function isArtifactRecord(value) {
 }
 
 function collectArtifactRecords(value, records = [], depth = 0) {
-  if (depth > 5 || value === null || value === undefined) return records
+  if (depth > 8 || records.length >= 100 || value === null || value === undefined) return records
   if (Array.isArray(value)) {
     for (const item of value) collectArtifactRecords(item, records, depth + 1)
     return records
@@ -212,13 +212,12 @@ function collectArtifactRecords(value, records = [], depth = 0) {
 }
 
 function artifactFileMetadata(artifact, file) {
-  const storageDocumentId = artifact?.storageDocumentId || file?.id || null
-  if (!storageDocumentId) return null
+  if (!file?.id || artifact?.storageDocumentId !== file.id) return null
   return {
-    id: storageDocumentId,
-    name: artifact?.name || file?.name || 'Lancee file',
-    mimeType: artifact?.mimeType || file?.mimeType || 'application/octet-stream',
-    ...(Number(artifact?.size || file?.size || 0) > 0 ? { size: Number(artifact?.size || file?.size) } : {}),
+    id: file.id,
+    name: file.name || artifact?.name || 'Lancee file',
+    mimeType: file.mimeType || artifact?.mimeType || 'application/octet-stream',
+    ...(Number(file.size || 0) > 0 ? { size: Number(file.size) } : {}),
     ...(artifact?.id ? { artifactId: artifact.id } : {}),
   }
 }
@@ -486,33 +485,53 @@ export function createHermesAgentProvider({
   }
 
   async function conversationHistory(thread, context) {
-    const runs = await database.listAgentRuns(context.workspace.id, {
-      userId: context.user.id,
-      threadId: thread.id,
-      limit: 40,
-    })
+    const [runs, artifacts] = await Promise.all([
+      database.listAgentRuns(context.workspace.id, {
+        userId: context.user.id,
+        threadId: thread.id,
+        limit: 40,
+      }),
+      typeof database.listArtifacts === 'function'
+        ? database.listArtifacts(context.workspace.id, {
+            subjectType: 'agent_thread',
+            subjectId: thread.id,
+            limit: 50,
+          })
+        : [],
+    ])
+    const artifactsByRun = new Map()
+    for (const artifact of artifacts) {
+      if (!artifact.runId || !artifact.storageDocumentId) continue
+      const file = await database.getWorkspaceDocument(context.workspace.id, artifact.storageDocumentId)
+      const metadata = artifactFileMetadata(artifact, file)
+      if (!metadata) continue
+      const values = artifactsByRun.get(artifact.runId) || []
+      if (!values.some((value) => value.storageDocumentId === metadata.id)) {
+        values.push({
+          artifactId: artifact.id,
+          storageDocumentId: metadata.id,
+          name: metadata.name,
+          mimeType: metadata.mimeType,
+        })
+      }
+      artifactsByRun.set(artifact.runId, values)
+    }
     const messages = []
     for (const priorRun of [...runs].reverse()) {
+      if (priorRun.status !== 'completed') continue
       if (priorRun.objective) {
         messages.push({ role: 'user', content: historyText(priorRun.objective) })
       }
       if (priorRun.finalOutput) {
         messages.push({ role: 'assistant', content: historyText(priorRun.finalOutput) })
       }
-    }
-    if (typeof database.listArtifacts === 'function') {
-      const artifacts = await database.listArtifacts(context.workspace.id, {
-        subjectType: 'agent_thread',
-        subjectId: thread.id,
-        limit: 50,
-      })
-      if (artifacts.length) {
+      const runArtifacts = artifactsByRun.get(priorRun.id) || []
+      if (runArtifacts.length) {
         messages.push({
           role: 'assistant',
           content: historyText(
-            `Persisted Lancee Files in this conversation: ${artifacts
-              .map((artifact) => `${artifact.name} (${artifact.storageDocumentId || artifact.id})`)
-              .join(', ')}. Use Lancee file tools to inspect them.`,
+            `Authoritative Lancee Files created in the preceding turn: ${JSON.stringify(runArtifacts)}. ` +
+            'Resolve references such as "that file" to these workspace-scoped document IDs and use Lancee file tools.',
           ),
         })
       }
@@ -615,24 +634,62 @@ export function createHermesAgentProvider({
     const persisted = []
     const seenArtifacts = new Set()
     const seenDocuments = new Set()
+    const reject = async (candidate, reason) => {
+      const candidateId = boundedText(candidate?.id || candidate?.file_id, 120) || null
+      const documentId = boundedText(candidate?.storageDocumentId || candidate?.storage_document_id, 120) || null
+      const diagnostic = {
+        reason,
+        candidateId,
+        documentId,
+        mimeType: boundedText(candidate?.mimeType || candidate?.mime_type, 160) || null,
+        hasName: Boolean(boundedText(candidate?.name, 240)),
+      }
+      await database.appendAgentRunEvent({
+        workspaceId: context.workspace.id,
+        runId: run.id,
+        eventType: 'hermes.artifact.rejected',
+        message: 'A Hermes artifact was not exposed because no durable workspace file was verified.',
+        data: diagnostic,
+        level: 'warn',
+      }).catch(() => undefined)
+      logger.warn?.('agent.hermes.artifact_rejected', {
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        runId: run.id,
+        hermesRunId: externalRunId,
+        hermesProfileId: profile.id,
+        ...diagnostic,
+      })
+    }
     for (const candidate of candidates) {
       const candidateId = String(candidate.id || candidate.file_id || '').trim()
       const documentId = String(
         candidate.storageDocumentId || candidate.storage_document_id || (candidateId.startsWith('doc_') ? candidateId : ''),
       ).trim() || null
       if (documentId && seenDocuments.has(documentId)) continue
-      if (documentId) seenDocuments.add(documentId)
-      let artifact = null
-      if (candidateId.startsWith('art_') && typeof database.getArtifact === 'function') {
-        artifact = await database.getArtifact(context.workspace.id, candidateId)
+      if (!documentId) {
+        await reject(candidate, 'storage_document_id_missing')
+        continue
       }
-      if (!artifact && documentId && typeof database.getArtifactByStorageDocumentId === 'function') {
-        artifact = await database.getArtifactByStorageDocumentId(context.workspace.id, documentId)
-      }
-      if (artifact?.id && seenArtifacts.has(artifact.id)) continue
-      if (!artifact && documentId) {
+      try {
         const file = await database.getWorkspaceDocument(context.workspace.id, documentId)
-        if (file) {
+        if (!file) {
+          await reject(candidate, 'workspace_document_not_found')
+          continue
+        }
+        let artifact = null
+        if (candidateId.startsWith('art_') && typeof database.getArtifact === 'function') {
+          artifact = await database.getArtifact(context.workspace.id, candidateId)
+        }
+        if (artifact && artifact.storageDocumentId !== file.id) {
+          await reject(candidate, 'artifact_document_mismatch')
+          continue
+        }
+        if (!artifact && typeof database.getArtifactByStorageDocumentId === 'function') {
+          artifact = await database.getArtifactByStorageDocumentId(context.workspace.id, documentId)
+        }
+        if (artifact?.id && seenArtifacts.has(artifact.id)) continue
+        if (!artifact) {
           artifact = await database.createArtifact({
             workspaceId: context.workspace.id,
             createdBy: context.user.id,
@@ -653,37 +710,31 @@ export function createHermesAgentProvider({
             },
           })
         }
+        const metadata = artifactFileMetadata(artifact, file)
+        if (!metadata) {
+          await reject(candidate, 'durable_file_verification_failed')
+          continue
+        }
+        seenArtifacts.add(artifact.id)
+        await database.linkArtifact({
+          workspaceId: context.workspace.id,
+          artifactId: artifact.id,
+          subjectType: 'agent_run',
+          subjectId: run.id,
+          relation: 'output',
+        })
+        await database.linkArtifact({
+          workspaceId: context.workspace.id,
+          artifactId: artifact.id,
+          subjectType: 'agent_thread',
+          subjectId: thread.id,
+          relation: 'conversation-output',
+        })
+        persisted.push({ artifact, file: metadata })
+        seenDocuments.add(documentId)
+      } catch (error) {
+        await reject(candidate, boundedText(error?.code || 'artifact_import_failed', 120))
       }
-      if (!artifact) continue
-      seenArtifacts.add(artifact.id)
-      await database.linkArtifact({
-        workspaceId: context.workspace.id,
-        artifactId: artifact.id,
-        subjectType: 'agent_run',
-        subjectId: run.id,
-        relation: 'output',
-      })
-      await database.linkArtifact({
-        workspaceId: context.workspace.id,
-        artifactId: artifact.id,
-        subjectType: 'agent_thread',
-        subjectId: thread.id,
-        relation: 'conversation-output',
-      })
-      const file = artifact.storageDocumentId
-        ? await database.getWorkspaceDocument(context.workspace.id, artifact.storageDocumentId)
-        : null
-      const metadata = artifactFileMetadata(artifact, file)
-      if (metadata) persisted.push({ artifact, file: metadata })
-    }
-    if (candidates.length && persisted.length < new Set(candidates.map((candidate) => (
-      String(candidate.storageDocumentId || candidate.storage_document_id || candidate.id || '').trim()
-    )).filter(Boolean)).size) {
-      throw new AgentProviderError(
-        'HERMES_ARTIFACT_PERSISTENCE_FAILED',
-        'Hermes created an artifact that Lancee could not persist.',
-        { status: 502, retryable: false, fallbackEligible: false },
-      )
     }
     return persisted
   }

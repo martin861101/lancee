@@ -15,6 +15,7 @@ export const lanceeMcpCapabilityBindings = Object.freeze({
   create_project: 'project.create',
   set_project_status: 'project.set-status',
   create_file: 'file.write',
+  rename_file: 'file.rename',
   read_file: 'file.read',
   search_files: 'file.search',
   get_file_metadata: 'file.metadata',

@@ -1,8 +1,8 @@
 # Connected Intelligence
 
-This document describes the first production Connected Intelligence slice:
-Calendar → Project → Client → workspace event → meeting features → project
-meeting-load opportunity.
+This document describes the production Connected Intelligence path across
+Calendar and Mail: shared Person/Client/Project identity → workspace events →
+deterministic features → evidence-backed coordination opportunities.
 
 Lancee remains the source of truth. Hermes is not used to create durations,
 aggregates, detector metrics, confidence, or evidence.
@@ -21,6 +21,18 @@ deterministic meeting features
 project_meeting_load detector
     ↓
 connected_opportunities
+
+Existing Mail (IMAP/SMTP)
+    ↓
+metadata-only communication observation
+    ↓
+shared Person → Client → confirmed Project
+    ↓
+workspace_events (communication.received / communication.sent)
+    ↓
+communication features + meeting features
+    ↓
+client_attention_load → connected_opportunities
 ```
 
 The implementation reuses `server/workspace-events.mjs`; there is no second
@@ -130,44 +142,176 @@ All routes require the authenticated workspace session.
 
 Calendar creation requires the existing `Idempotency-Key` mutation header.
 
-## Phase 2: mail connection map
+## Mail as an authoritative source
 
-Current mail behaviour:
+The working Lancee Mail feature remains unchanged at its transport boundary:
+`server/mail.mjs` reads live folders/messages through IMAP and sends through
+SMTP. Connected Intelligence does not add a connector, provider API, mailbox
+copy, or body store.
 
-- `server/mail.mjs` reads IMAP messages live and sends SMTP messages.
-- `syncMailWorkspace` polls new Inbox UIDs and advances
-  `mail_accounts.last_seen_uid`.
-- Incoming messages can claim `mail_rule_events`, trigger a Core automation,
-  and create a notification.
-- Sent messages create a notification.
-- Mail messages and conversations are not currently persisted as authoritative
-  workspace entities.
-- Mail send/sync does not currently record `communication.sent` or
-  `communication.received` in `workspace_events`.
+Instrumentation occurs at two narrow authoritative points:
 
-Phase 2 should:
+- after a new Inbox message has been fetched successfully and before the IMAP
+  sync cursor advances: `communication.received`
+- after SMTP accepts an outbound message: `communication.sent`
 
-1. Add a small workspace-scoped communication/conversation persistence model
-   using provider message ID plus mailbox/folder/UID as idempotent provenance.
-2. Record `communication.received` during successful Inbox ingestion and
-   `communication.sent` after accepted SMTP send, using
-   `recordWorkspaceEvent`.
-3. Use `connection_id = mail`, `source_channel = email`, a stable provider
-   message identifier, timestamp, and permitted participant references so the
-   existing connected-communication authorization boundary remains active.
-4. Resolve client candidates deterministically from exact participant email or
-   verified domain matches. Ambiguous matches must remain unlinked.
-5. Link a project only through explicit user association, an existing
-   conversation/thread relationship, or another authoritative workspace
-   relationship. Do not guess a project from message text.
-6. Persist `conversation_id`/thread provenance so later events in the same
-   provider thread can reuse confirmed client/project links.
-7. Send only bounded decision-language candidates to the existing Signal
-   Engine semantic stage; ordinary mail remains authoritative activity without
-   an unnecessary Hermes call.
+`communication_messages` stores only the provider-neutral metadata needed for
+intelligence: workspace, source mailbox, message/thread identity, direction,
+addresses, subject, timestamp, resolved entity IDs, folder/UID fallback
+provenance, and the canonical workspace-event ID. Bodies, attachment content,
+credentials, tokens, and raw provider payloads are not copied.
 
-Phase 2 must not store mailbox passwords, OAuth tokens, full private provider
-payloads, or unrelated attachment content in `workspace_events`.
+Message identity uses the provider `Message-ID`. If it is absent, the scoped
+folder/UID pair is the fallback. A unique workspace/source-account/message key
+claims the observation before its workspace event is written, so repeated IMAP
+polling emits one event. SMTP message IDs receive the same treatment.
+
+Reliable `References`/`In-Reply-To` headers identify a reply thread. Otherwise
+the message ID is its standalone thread. Because arbitrary chronology is not a
+reliable conversation model for all providers, response-time features are
+deferred.
+
+## Person and client identity
+
+`connected_people` is the smallest shared identity layer. It stores a
+workspace-scoped, case-normalized email, optional display name, optional client
+relationship, provenance, and timestamps. Mail participants and Calendar
+attendee emails resolve through the same table and therefore produce the same
+Person ID inside one workspace.
+
+Resolution is deterministic:
+
+1. retain an existing explicit Person relationship
+2. match an existing Person by exact canonical email
+3. for a new Person, link only when exactly one workspace Client has that exact
+   email
+4. otherwise leave the Person and communication client unresolved
+
+Names and domains are never fuzzy-matched. Duplicate client-email matches are
+ambiguous. Every lookup includes `workspace_id`; the same email in another
+workspace creates a different Person and cannot inherit a client relationship.
+
+Calendar continues storing its original bounded attendee strings for display,
+but meeting workspace events now reference the shared Person IDs. No Calendar
+UI redesign was required.
+
+## Project relationships
+
+Project assignment is confirmation-only. The authenticated Mail reader exposes
+a small project selector for an already observed message. Confirmation creates
+one workspace/source-account/thread link with the confirming user and
+`manual_confirmation` provenance. Existing and subsequent observations in that
+thread inherit the confirmed project and its client. Prior thread events are
+updated to carry the same confirmed relationship.
+
+Projects are validated in the authenticated workspace. Subject text, client
+ownership, names, and AI output never infer a project. A message not yet seen by
+the authoritative Inbox ingestion path cannot be linked from the reader.
+
+## Communication features
+
+Only metadata rows joined to a real `communication.received` or
+`communication.sent` workspace event enter features.
+
+Per project and client the service calculates message count, inbound/outbound
+counts, distinct thread count, participant count, distinct UTC communication
+days, average messages per thread, related-project count, and evidence-event
+IDs. Per Person it calculates message count, thread count, and last
+communication timestamp. Response-time metrics are not emitted because a
+provider-neutral reliable reply chronology is not yet guaranteed.
+
+## Client attention detector
+
+Detector key: `client_attention_load`
+
+Policy version: `client-attention-load-v1`
+
+For one client, the detector combines:
+
+- Mail message percentile
+- Mail thread percentile
+- completed Calendar meeting-minute percentile
+
+Each percentile is calculated against other clients in the same workspace that
+have at least one observed message or completed meeting. The transparent
+`attention_index` is the arithmetic mean of the three percentile ranks.
+
+- fewer than three comparison clients: `insufficient_evidence`
+- attention index at or below 0.75: `normal`
+- attention index above 0.75 with observed activity: `opportunity`
+
+Confidence grows deterministically with comparison sample size and receives a
+small cross-source increase when both Mail and Calendar evidence exist. The
+detector reports raw observed values, medians, percentile components, sample
+IDs, confidence, and authoritative event references. It makes no profitability,
+waste, or client-value claim.
+
+Active results upsert into the existing `connected_opportunities` table under
+the client subject. Repeated runs update the same row, dismissed rows remain
+dismissed, and a normal result resolves an active opportunity.
+
+## Evidence, privacy, and Signal Engine
+
+Communication evidence references canonical workspace events; Calendar
+evidence references `meeting.completed`. Evidence reads and detector routes use
+the authenticated workspace context. Stable source identifiers are hashed and
+cannot select data outside that context.
+
+The existing connected-communication authorization check still requires the
+workspace's active Mail account. Event payloads contain only thread identity,
+direction, and subject and pass through the existing sensitive-key sanitizer.
+IMAP/SMTP secrets never enter Person, communication, event, feature, evidence,
+or opportunity records.
+
+Signal Engine compatibility is preserved: `communication.*` remains an
+intelligence-relevant prefix. Ordinary metadata-only events are activity. The
+existing bounded decision-language gate remains separate and is not replaced.
+
+## Limitations and extension points
+
+- IMAP coverage begins at the stored sync cursor; Phase 2 does not backfill the
+  whole mailbox.
+- Missing reply headers create standalone threads, so thread counts can be
+  conservative and response-time metrics are deferred.
+- Client resolution supports exact client/contact email only; unresolved and
+  ambiguous identities require explicit future confirmation tooling.
+- The Phase 1 `Ready` project state is the repository's completed lifecycle
+  state and remains its historical baseline. Ready projects with zero meetings
+  remain included, but Calendar has no coverage-start marker, so those zeroes
+  are a documented confidence limitation.
+
+Future semantic mail intelligence must follow:
+
+```text
+Authoritative Message metadata/body at source
+    ↓
+Derived Semantic Signal
+    ↓
+source message reference + model/version + confidence
+    ↓
+Connected Intelligence evidence gate
+```
+
+It must not overwrite authoritative identity or relationships. Scope changes,
+sentiment, complaints, urgency, objections, approvals, body analysis, and
+semantic project inference are not implemented in Phase 2.
+
+Phase 3 should connect authoritative Time, Invoice, Payment, and Revenue
+evidence to measured attention and delivery. Only then can Lancee evaluate a
+client value/attention relationship; Phase 2 does not manufacture financial
+claims.
+
+## Phase 2 API
+
+All routes require the authenticated workspace session.
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/connected-intelligence/communication-features` | Read communication aggregates and evidence |
+| `GET` | `/api/connected-intelligence/clients/:id/attention-load` | Evaluate client coordination attention |
+| `POST` | `/api/mail/messages/project-link` | Confirm an observed thread/project relationship |
+
+Opening an IMAP message also returns its optional resolved relationship.
 
 ## Verification
 
@@ -177,8 +321,9 @@ npm run verify:signals
 npm run verify:dynamics
 ```
 
-The focused verification covers tenant-scoped calendar relationships,
-canonical creation/completion events, completion idempotence, duration and
-aggregates, insufficient history, abnormal load, evidence provenance,
-opportunity idempotence, cross-workspace isolation, and Signal Engine
-compatibility.
+The focused verification covers Mail observation/event idempotence, canonical
+Person identity, exact and ambiguous client resolution, tenant isolation,
+Calendar/Mail identity reuse, confirmed thread/project inheritance,
+communication and meeting aggregates, insufficient/normal/abnormal client
+attention, cross-source evidence, opportunity deduplication/resolution, Phase 1
+meeting load, and Signal Engine compatibility.

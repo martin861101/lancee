@@ -9,6 +9,7 @@ import {
   type MailFolder,
   type MailMessage,
   type MailMessageSummary,
+  type Project,
 } from '../../lib/api'
 import './messages-page.css'
 
@@ -137,10 +138,13 @@ export default function MessagesPage({
   const [folder, setFolder] = useState('INBOX')
   const [messages, setMessages] = useState<MailMessageSummary[]>([])
   const [selected, setSelected] = useState<MailMessage | null>(null)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [linkingProject, setLinkingProject] = useState(false)
   const [mailLoading, setMailLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [composeOpen, setComposeOpen] = useState(false)
   const [compose, setCompose] = useState({ to: '', cc: '', bcc: '', subject: '', body: '' })
+  const [replyContext, setReplyContext] = useState<{ inReplyTo: string; references: string[] } | null>(null)
   const [sending, setSending] = useState(false)
   const [discovery, setDiscovery] = useState<MailDiscovery | null>(null)
   const [setup, setSetup] = useState<SetupValues>(emptySetup)
@@ -215,6 +219,7 @@ export default function MessagesPage({
               })
           }),
           loadRules(),
+          api.projects.list().then(setProjects),
         ])
       })
       .catch((caught) => {
@@ -336,14 +341,32 @@ export default function MessagesPage({
         bcc: compose.bcc.split(',').map((value) => value.trim()).filter(Boolean),
         subject: compose.subject,
         body: compose.body,
+        inReplyTo: replyContext?.inReplyTo,
+        references: replyContext?.references,
       })
       setComposeOpen(false)
       setCompose({ to: '', cc: '', bcc: '', subject: '', body: '' })
+      setReplyContext(null)
       onToast('Message sent.')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to send the message.')
     } finally {
       setSending(false)
+    }
+  }
+
+  const linkSelectedProject = async (projectId: string) => {
+    if (!selected?.relationship || !projectId) return
+    setLinkingProject(true)
+    setError('')
+    try {
+      const relationship = await api.mail.linkProject(selected.relationship.externalMessageId, projectId)
+      setSelected((current) => current ? { ...current, relationship } : current)
+      onToast('Message thread linked to project.')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to link this message thread.')
+    } finally {
+      setLinkingProject(false)
     }
   }
 
@@ -555,7 +578,7 @@ export default function MessagesPage({
       ) : (
         <main className="mail-shell">
           <aside className="mail-folders">
-            <button className="button button--primary mail-compose-button" onClick={() => setComposeOpen(true)}>＋ Compose</button>
+            <button className="button button--primary mail-compose-button" onClick={() => { setReplyContext(null); setComposeOpen(true) }}>＋ Compose</button>
             <div className="mail-folder-list">
               {folders.map((item) => (
                 <button key={item.path} className={folder === item.path ? 'is-active' : ''} onClick={() => chooseFolder(item.path)}>
@@ -591,8 +614,28 @@ export default function MessagesPage({
                   <div className="mail-reader__eyebrow">{messageDate(selected.date)} · {readableBytes(selected.size)}</div>
                   <h2>{selected.subject}</h2>
                   <div className="mail-reader__sender"><span className="mail-account-avatar">{(selected.from[0]?.name || selected.from[0]?.address || '?').slice(0, 1).toUpperCase()}</span><div><strong>{fullAddresses(selected.from)}</strong><small>To {fullAddresses(selected.to)}{selected.cc.length ? ` · Cc ${fullAddresses(selected.cc)}` : ''}</small></div></div>
+                  {selected.relationship && (
+                    <div className="mail-reader__relationship">
+                      <span>Client: <strong>{selected.relationship.clientName || 'Unresolved'}</strong></span>
+                      <label>Project
+                        <select
+                          value={selected.relationship.projectId || ''}
+                          disabled={linkingProject}
+                          onChange={(event) => void linkSelectedProject(event.target.value)}
+                        >
+                          <option value="">Not linked</option>
+                          {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+                        </select>
+                      </label>
+                      <small>{selected.relationship.confirmed ? 'Relationship confirmed for this thread' : 'Exact contact match; project not confirmed'}</small>
+                    </div>
+                  )}
                   <button className="button button--secondary" onClick={() => {
                     setCompose({ to: selected.replyTo[0]?.address || selected.from[0]?.address || '', cc: '', bcc: '', subject: /^re:/i.test(selected.subject) ? selected.subject : `Re: ${selected.subject}`, body: '' })
+                    setReplyContext({
+                      inReplyTo: selected.messageId,
+                      references: [...selected.references, selected.messageId].filter(Boolean),
+                    })
                     setComposeOpen(true)
                   }}>Reply</button>
                 </header>

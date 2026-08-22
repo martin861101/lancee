@@ -193,11 +193,241 @@ try {
   assert.equal(persistedLink.clientId, clientA.id)
   assert(persistedLink.completionEventId)
 
+  const connectMail = (context, email) => database.saveMailAccount({
+    workspaceId: context.workspace.id,
+    connectedBy: context.user.id,
+    email,
+    displayName: 'Connected mailbox',
+    username: email,
+    provider: 'custom',
+    passwordCiphertext: 'ciphertext',
+    passwordIv: 'iv',
+    passwordTag: 'tag',
+    imapHost: 'imap.example.test',
+    imapPort: 993,
+    imapSecure: true,
+    smtpHost: 'smtp.example.test',
+    smtpPort: 465,
+    smtpSecure: true,
+  })
+  await connectMail(contextA, 'owner@example.test')
+  await connectMail(contextB, 'owner-b@example.test')
+
+  const observe = (context, input) => intelligence.observeCommunication(context, {
+    sourceAccountId: context === contextA ? 'owner@example.test' : 'owner-b@example.test',
+    provider: 'custom',
+    externalMessageId: input.messageId,
+    externalThreadId: input.threadId || input.messageId,
+    direction: input.direction || 'inbound',
+    from: input.from || [{ name: 'Acme Contact', address: 'acme@example.test' }],
+    to: input.to || [{ address: 'owner@example.test' }],
+    cc: input.cc || [],
+    subject: input.subject || 'Coordination update',
+    occurredAt: input.occurredAt || '2026-09-02T09:00:00.000Z',
+    folder: input.direction === 'outbound' ? null : 'INBOX',
+    providerUid: input.uid || null,
+  })
+
+  const inbound = await observe(contextA, {
+    messageId: '<acme-1@example.test>',
+    threadId: '<acme-thread@example.test>',
+    from: [{ name: 'John Smith', address: 'ACME@EXAMPLE.TEST' }],
+    uid: 101,
+  })
+  assert.equal(inbound.observed, true)
+  assert.equal(inbound.event.eventType, 'communication.received')
+  assert.equal(inbound.relationship.clientId, clientA.id)
+  assert.equal(inbound.relationship.projectId, null)
+
+  const duplicateInbound = await observe(contextA, {
+    messageId: '<acme-1@example.test>',
+    threadId: '<acme-thread@example.test>',
+    from: [{ name: 'John Smith', address: 'acme@example.test' }],
+    uid: 101,
+  })
+  assert.equal(duplicateInbound.observed, false)
+  assert.equal((await database.query(
+    `SELECT id FROM workspace_events
+     WHERE workspace_id = $1 AND event_type = 'communication.received' AND entity_id = $2`,
+    [contextA.workspace.id, inbound.relationship.messageId],
+  )).length, 1)
+
+  const outbound = await observe(contextA, {
+    messageId: '<acme-2@example.test>',
+    threadId: '<acme-thread@example.test>',
+    direction: 'outbound',
+    from: [{ address: 'owner@example.test' }],
+    to: [{ name: 'John Smith', address: 'Acme@Example.Test' }],
+    occurredAt: '2026-09-02T10:00:00.000Z',
+  })
+  assert.equal(outbound.event.eventType, 'communication.sent')
+  assert.equal((await observe(contextA, {
+    messageId: '<acme-2@example.test>',
+    threadId: '<acme-thread@example.test>',
+    direction: 'outbound',
+    from: [{ address: 'owner@example.test' }],
+    to: [{ address: 'acme@example.test' }],
+  })).observed, false)
+  assert.equal((await database.query(
+    `SELECT id FROM workspace_events
+     WHERE workspace_id = $1 AND event_type = 'communication.sent' AND entity_id = $2`,
+    [contextA.workspace.id, outbound.relationship.messageId],
+  )).length, 1)
+
+  const peopleA = await database.query(
+    `SELECT * FROM connected_people WHERE workspace_id = $1 AND canonical_email = $2`,
+    [contextA.workspace.id, 'acme@example.test'],
+  )
+  assert.equal(peopleA.length, 1)
+  assert.equal(peopleA[0].client_id, clientA.id)
+
+  const calendarIdentity = await intelligence.createCalendarEvent(contextA, {
+    title: 'Shared contact identity',
+    kind: 'meeting',
+    clientId: clientA.id,
+    startAt: '2027-01-10T09:00:00.000Z',
+    endAt: '2027-01-10T10:00:00.000Z',
+    participants: ['Acme@Example.Test'],
+  })
+  const calendarIdentityEvent = (await database.query(
+    `SELECT participant_refs_json FROM workspace_events WHERE workspace_id = $1 AND id = $2`,
+    [contextA.workspace.id, calendarIdentity.creationEventId],
+  ))[0]
+  assert.deepEqual(JSON.parse(calendarIdentityEvent.participant_refs_json), [peopleA[0].id])
+  assert.equal((await database.query(
+    `SELECT id FROM connected_people WHERE workspace_id = $1 AND canonical_email = $2`,
+    [contextA.workspace.id, 'acme@example.test'],
+  )).length, 1)
+
+  const crossWorkspaceIdentity = await observe(contextB, {
+    messageId: '<acme-other-workspace@example.test>',
+    from: [{ address: 'Acme@Example.Test' }],
+    to: [{ address: 'owner-b@example.test' }],
+  })
+  assert.equal(crossWorkspaceIdentity.relationship.clientId, null)
+  const peopleB = await database.query(
+    `SELECT * FROM connected_people WHERE workspace_id = $1 AND canonical_email = $2`,
+    [contextB.workspace.id, 'acme@example.test'],
+  )
+  assert.equal(peopleB.length, 1)
+  assert.notEqual(peopleB[0].id, peopleA[0].id)
+
+  await database.createClient({ workspaceId: contextA.workspace.id, name: 'Ambiguous One', email: 'shared@example.test' })
+  await database.createClient({ workspaceId: contextA.workspace.id, name: 'Ambiguous Two', email: 'shared@example.test' })
+  const ambiguous = await observe(contextA, {
+    messageId: '<ambiguous@example.test>',
+    from: [{ address: 'SHARED@example.test' }],
+    subject: currentProject.name,
+  })
+  assert.equal(ambiguous.relationship.clientId, null)
+  assert.equal(ambiguous.relationship.projectId, null)
+
+  const confirmed = await intelligence.confirmThreadProject(contextA, {
+    externalMessageId: '<acme-1@example.test>',
+    sourceAccountId: 'owner@example.test',
+    projectId: currentProject.id,
+  })
+  assert.equal(confirmed.projectId, currentProject.id)
+  assert.equal(confirmed.relationshipSource, 'confirmed_thread')
+  await assert.rejects(
+    intelligence.confirmThreadProject(contextA, {
+      externalMessageId: '<acme-1@example.test>',
+      sourceAccountId: 'owner@example.test',
+      projectId: otherProject.id,
+    }),
+    (error) => error.code === 'COMMUNICATION_PROJECT_NOT_FOUND',
+  )
+  const inherited = await observe(contextA, {
+    messageId: '<acme-3@example.test>',
+    threadId: '<acme-thread@example.test>',
+    from: [{ address: 'acme@example.test' }],
+    occurredAt: '2026-09-03T09:00:00.000Z',
+  })
+  assert.equal(inherited.relationship.projectId, currentProject.id)
+  assert.equal(inherited.relationship.relationshipSource, 'confirmed_thread')
+
+  const communicationFeatures = await intelligence.getCommunicationFeatures(contextA)
+  const projectCommunication = communicationFeatures.projects.find((item) => item.projectId === currentProject.id)
+  assert.equal(projectCommunication.messageCount, 3)
+  assert.equal(projectCommunication.inboundMessageCount, 2)
+  assert.equal(projectCommunication.outboundMessageCount, 1)
+  assert.equal(projectCommunication.threadCount, 1)
+  assert.equal(projectCommunication.communicationDays, 2)
+  assert.equal(projectCommunication.averageMessagesPerThread, 3)
+  const personCommunication = communicationFeatures.people.find((item) => item.personId === peopleA[0].id)
+  assert.equal(personCommunication.messageCount, 3)
+  assert.equal(personCommunication.threadCount, 1)
+  assert.equal(personCommunication.lastCommunicationAt, '2026-09-03T09:00:00.000Z')
+
+  const insufficientAttention = await intelligence.detectClientAttentionLoad(contextB, clientB.id)
+  assert.equal(insufficientAttention.status, 'insufficient_evidence')
+
+  const comparisonClients = await Promise.all([
+    database.createClient({ workspaceId: contextA.workspace.id, name: 'Baseline Alpha', email: 'alpha@example.test' }),
+    database.createClient({ workspaceId: contextA.workspace.id, name: 'Baseline Beta', email: 'beta@example.test' }),
+    database.createClient({ workspaceId: contextA.workspace.id, name: 'Baseline Gamma', email: 'gamma@example.test' }),
+  ])
+  for (const [index, comparisonClient] of comparisonClients.entries()) {
+    await observe(contextA, {
+      messageId: `<baseline-${index}@example.test>`,
+      from: [{ address: comparisonClient.email }],
+      occurredAt: `2026-09-0${index + 2}T08:00:00.000Z`,
+    })
+  }
+  for (let index = 4; index <= 8; index += 1) {
+    await observe(contextA, {
+      messageId: `<acme-${index}@example.test>`,
+      threadId: `<acme-thread-${index}@example.test>`,
+      from: [{ address: 'acme@example.test' }],
+      occurredAt: `2026-09-${String(index).padStart(2, '0')}T09:00:00.000Z`,
+    })
+  }
+  const abnormalAttention = await intelligence.detectClientAttentionLoad(contextA, clientA.id, { persist: true })
+  assert.equal(abnormalAttention.status, 'opportunity')
+  assert.equal(abnormalAttention.baseline.sampleSize, 3)
+  assert(abnormalAttention.observed.messageCount > abnormalAttention.baseline.medianMessages)
+  assert(abnormalAttention.observed.meetingMinutes > 0)
+  assert(abnormalAttention.comparison.attentionIndex > 0.75)
+  assert(abnormalAttention.evidence.some((item) => item.eventType === 'communication'))
+  assert(abnormalAttention.evidence.some((item) => item.eventType === 'meeting.completed'))
+  for (const evidence of abnormalAttention.evidence) {
+    assert.equal((await database.query(
+      `SELECT id FROM workspace_events WHERE workspace_id = $1 AND id = $2`,
+      [contextA.workspace.id, evidence.id],
+    )).length, 1)
+  }
+  const repeatedAttention = await intelligence.detectClientAttentionLoad(contextA, clientA.id, { persist: true })
+  assert.equal(repeatedAttention.opportunity.id, abnormalAttention.opportunity.id)
+  const normalAttention = await intelligence.detectClientAttentionLoad(contextA, comparisonClients[0].id, { persist: true })
+  assert.notEqual(normalAttention.status, 'opportunity')
+
+  for (const [clientIndex, comparisonClient] of comparisonClients.entries()) {
+    for (let index = 0; index < 10; index += 1) {
+      await observe(contextA, {
+        messageId: `<normalized-${clientIndex}-${index}@example.test>`,
+        threadId: `<normalized-${clientIndex}-${index}@example.test>`,
+        from: [{ address: comparisonClient.email }],
+        occurredAt: `2026-10-${String(index + 1).padStart(2, '0')}T08:00:00.000Z`,
+      })
+    }
+  }
+  const normalizedAttention = await intelligence.detectClientAttentionLoad(contextA, clientA.id, { persist: true })
+  assert.equal(normalizedAttention.status, 'normal')
+  const resolvedAttention = await database.query(
+    `SELECT status FROM connected_opportunities
+     WHERE workspace_id = $1 AND detector_key = 'client_attention_load' AND subject_id = $2`,
+    [contextA.workspace.id, clientA.id],
+  )
+  assert.equal(resolvedAttention[0].status, 'resolved')
+
   const signalEngine = createSignalEngine({ database })
   const signalResult = await signalEngine.processWorkspaceEvent(linkedMeeting.creationEventId, contextA)
   assert.equal(signalResult.classification, 'activity_only')
 
-  console.log('Connected Intelligence verified: calendar persistence and tenant-scoped relationships, canonical meeting events, idempotent completion, deterministic duration and aggregates, evidence-backed meeting-load detection, opportunity idempotence, cross-workspace isolation, and Signal Engine compatibility.')
+  const communicationSignal = await signalEngine.processWorkspaceEvent(inbound.event.id, contextA)
+  assert.equal(communicationSignal.classification, 'activity_only')
+
+  console.log('Connected Intelligence verified: authoritative inbound/outbound Mail observations, idempotent communication events, workspace-scoped Person/Client identity, shared Calendar identity, confirmed thread/project inheritance, deterministic communication and meeting features, cross-source client attention detection, evidence provenance, opportunity deduplication/resolution, tenant isolation, Phase 1 meeting load, and Signal Engine compatibility.')
 } finally {
   await database?.close()
   rmSync(directory, { recursive: true, force: true })

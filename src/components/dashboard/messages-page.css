@@ -395,6 +395,34 @@
   white-space: nowrap;
 }
 
+.mail-reader__relationship {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+
+.mail-reader__relationship label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mail-reader__relationship select {
+  min-width: 180px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: var(--surface);
+  color: inherit;
+}
+
+.mail-reader__relationship small {
+  color: var(--muted);
+}
+
 .mail-account-card strong {
   font-size: 11px;
 }

@@ -1856,6 +1856,17 @@ export async function openDatabase({
       UNIQUE (workspace_id, name)
     )`,
     `ALTER TABLE clients ADD COLUMN IF NOT EXISTS logo_url TEXT NOT NULL DEFAULT ''`,
+    `CREATE TABLE IF NOT EXISTS connected_people (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      canonical_email TEXT NOT NULL,
+      display_name TEXT NOT NULL DEFAULT '',
+      client_id TEXT REFERENCES clients(id) ON DELETE SET NULL,
+      provenance_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, canonical_email)
+    )`,
     `CREATE TABLE IF NOT EXISTS storefront_domains (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1902,6 +1913,43 @@ export async function openDatabase({
       completed_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS communication_messages (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      source_account_id TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      external_message_id TEXT NOT NULL,
+      external_thread_id TEXT,
+      direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+      from_json TEXT NOT NULL DEFAULT '[]',
+      to_json TEXT NOT NULL DEFAULT '[]',
+      cc_json TEXT NOT NULL DEFAULT '[]',
+      subject TEXT NOT NULL DEFAULT '',
+      occurred_at TEXT NOT NULL,
+      person_ids_json TEXT NOT NULL DEFAULT '[]',
+      client_id TEXT REFERENCES clients(id) ON DELETE SET NULL,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      relationship_source TEXT NOT NULL DEFAULT 'unresolved',
+      folder TEXT,
+      provider_uid TEXT,
+      provenance_json TEXT NOT NULL DEFAULT '{}',
+      workspace_event_id TEXT UNIQUE REFERENCES workspace_events(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, source_account_id, external_message_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS communication_thread_links (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      source_account_id TEXT NOT NULL,
+      external_thread_id TEXT NOT NULL,
+      client_id TEXT REFERENCES clients(id) ON DELETE SET NULL,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      confirmed_by TEXT NOT NULL REFERENCES users(id),
+      provenance TEXT NOT NULL DEFAULT 'manual_confirmation',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, source_account_id, external_thread_id)
     )`,
     `CREATE TABLE IF NOT EXISTS connected_opportunities (
       id TEXT PRIMARY KEY,
@@ -2257,6 +2305,14 @@ export async function openDatabase({
       ON calendar_events (workspace_id, project_id, start_at)`,
     `CREATE INDEX IF NOT EXISTS idx_calendar_events_client
       ON calendar_events (workspace_id, client_id, start_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_connected_people_client
+      ON connected_people (workspace_id, client_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_communication_messages_client
+      ON communication_messages (workspace_id, client_id, occurred_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_communication_messages_project
+      ON communication_messages (workspace_id, project_id, occurred_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_communication_messages_thread
+      ON communication_messages (workspace_id, source_account_id, external_thread_id)`,
     `CREATE INDEX IF NOT EXISTS idx_connected_opportunities_workspace_status
       ON connected_opportunities (workspace_id, status, last_detected_at)`,
     `CREATE INDEX IF NOT EXISTS idx_project_tasks_workspace_project_bucket
@@ -8536,6 +8592,26 @@ export async function openDatabase({
           selectedWorkspaceId,
           id,
         ],
+      )
+      return await this.getWorkspaceDocument(selectedWorkspaceId, id)
+    },
+
+    async renameWorkspaceDocument(selectedWorkspaceId, id, name) {
+      const timestamp = nowIso()
+      const rows = await query(
+        `UPDATE workspace_documents
+         SET name = $1, updated_at = $2
+         WHERE workspace_id = $3 AND id = $4
+         RETURNING id`,
+        [String(name).slice(0, 240), timestamp, selectedWorkspaceId, id],
+      )
+      if (!rows.length) return null
+      await query(
+        `UPDATE artifacts
+         SET name = $1, updated_at = $2
+         WHERE workspace_id = $3 AND storage_document_id = $4
+           AND deleted_at IS NULL`,
+        [String(name).slice(0, 240), timestamp, selectedWorkspaceId, id],
       )
       return await this.getWorkspaceDocument(selectedWorkspaceId, id)
     },

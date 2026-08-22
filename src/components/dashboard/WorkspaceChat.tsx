@@ -64,11 +64,11 @@ function attachmentsFromResults(results: unknown[] = []) {
     ]
     for (const candidate of candidates) {
       const file = objectValue(candidate)
-      const id = typeof file.id === 'string'
-        ? file.id
-        : typeof file.storageDocumentId === 'string' ? file.storageDocumentId : ''
+      const id = typeof file.storageDocumentId === 'string'
+        ? file.storageDocumentId
+        : typeof file.id === 'string' ? file.id : ''
       const name = typeof file.name === 'string' ? file.name : ''
-      if (!id || !name) continue
+      if (!/^doc_[a-f0-9]{16}$/.test(id) || !name || attachments.has(id)) continue
       attachments.set(id, {
         id,
         name,
@@ -141,11 +141,13 @@ export default function WorkspaceChat({ user }: { user: User }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [busy, setBusy] = useState(false)
   const [agentThreadId, setAgentThreadId] = useState<string | undefined>()
+  const agentThreadIdRef = useRef<string | undefined>(undefined)
   const messagesElement = useRef<HTMLDivElement>(null)
 
   const conversationStorageKey = `lancee:agent-conversation:${user.workspaceId}:${user.id}`
 
   const persistThreadId = (threadId: string) => {
+    agentThreadIdRef.current = threadId
     setAgentThreadId(threadId)
     try {
       window.localStorage.setItem(conversationStorageKey, threadId)
@@ -163,6 +165,7 @@ export default function WorkspaceChat({ user }: { user: User }) {
       storedThreadId = ''
     }
     setMessages([])
+    agentThreadIdRef.current = storedThreadId || undefined
     setAgentThreadId(storedThreadId || undefined)
     if (!storedThreadId) return () => { active = false }
     void api.chat.history(storedThreadId)
@@ -176,6 +179,7 @@ export default function WorkspaceChat({ user }: { user: User }) {
         } catch {
           // Ignore unavailable browser storage.
         }
+        agentThreadIdRef.current = undefined
         setAgentThreadId(undefined)
       })
     return () => { active = false }
@@ -205,7 +209,7 @@ export default function WorkspaceChat({ user }: { user: User }) {
     setMessage('')
     setBusy(true)
     try {
-      const result = await api.chat.agent(content, agentThreadId)
+      const result = await api.chat.agent(content, agentThreadIdRef.current || agentThreadId)
       persistThreadId(result.run.threadId)
       setMessages([
         ...next,

@@ -441,6 +441,9 @@ export type ClientHistory = {
 
 export type MailMessage = MailMessageSummary & {
   replyTo: MailAddress[]
+  inReplyTo: string | null
+  references: string[]
+  relationship: MailRelationship | null
   text: string
   html: string
   attachments: Array<{
@@ -449,6 +452,18 @@ export type MailMessage = MailMessageSummary & {
     size: number
     contentId: string | null
   }>
+}
+
+export type MailRelationship = {
+  messageId: string
+  externalMessageId: string
+  threadId: string
+  clientId: string | null
+  clientName: string | null
+  projectId: string | null
+  projectName: string | null
+  relationshipSource: 'unresolved' | 'person_client' | 'confirmed_thread'
+  confirmed: boolean
 }
 
 export type MailAutomationRule = {
@@ -1778,7 +1793,7 @@ export const api = {
       if (!response.ok || !payload.uid) throw new Error(payload.error || 'Unable to open the message.')
       return payload
     },
-    async send(input: { to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string }) {
+    async send(input: { to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string; inReplyTo?: string; references?: string[] }) {
       const response = await fetch('/api/mail/send', {
         method: 'POST',
         credentials: 'same-origin',
@@ -1787,6 +1802,17 @@ export const api = {
       })
       const payload = (await response.json()) as { messageId?: string; accepted?: string[]; error?: string }
       if (!response.ok || !payload.messageId) throw new Error(payload.error || 'Unable to send the message.')
+      return payload
+    },
+    async linkProject(externalMessageId: string, projectId: string): Promise<MailRelationship> {
+      const response = await fetch('/api/mail/messages/project-link', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify({ externalMessageId, projectId }),
+      })
+      const payload = (await response.json()) as MailRelationship & { error?: string }
+      if (!response.ok || !payload.messageId) throw new Error(payload.error || 'Unable to link this message thread.')
       return payload
     },
     async sync(): Promise<{ newMessages: number; triggered: number; skipped: boolean }> {

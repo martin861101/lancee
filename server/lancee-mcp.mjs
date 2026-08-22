@@ -164,6 +164,21 @@ export const lanceeMcpToolDefinitions = [
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   },
   {
+    name: 'rename_file',
+    title: 'Rename workspace file',
+    description: 'Rename a workspace-owned Lancee file by its authoritative document ID after human approval.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_id: { type: 'string', pattern: '^doc_[a-f0-9]{16}$' },
+        name: { type: 'string', minLength: 1, maxLength: 240 },
+      },
+      required: ['file_id', 'name'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  {
     name: 'request_connector',
     title: 'Add connector request',
     description: 'Add a requested connector to the Connections tab for workspace follow-up. This does not invent credentials or mark an unsupported provider connected.',

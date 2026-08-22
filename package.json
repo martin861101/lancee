@@ -37,6 +37,7 @@
     "verify:client-files": "node scripts/verify-client-document-workspaces.mjs",
     "verify:project-reviews": "node scripts/verify-project-review-packages.mjs",
     "verify:agent": "node scripts/verify-agent.mjs",
+    "verify:hermes": "node scripts/verify-hermes-integration.mjs",
     "verify:signals": "node scripts/verify-signal-engine.mjs",
     "verify:connected-intelligence": "node scripts/verify-connected-intelligence.mjs",
     "verify:memory": "node scripts/verify-memory-router.mjs",
@@ -48,7 +49,7 @@
     "verify:ui-fixes": "node scripts/verify-ui-fixes.mjs",
     "verify:workspace-pulse": "node scripts/verify-workspace-pulse.mjs",
     "verify:dynamics-postgres": "node scripts/verify-decision-postgresql.mjs",
-    "verify:platform": "npm run build && npm run lint && npm run verify:ai && npm run verify:agent && npm run verify:memory && npm run verify:signals && npm run verify:dynamics && npm run verify:decision-semantic && npm run verify:decision-phase2 && npm run verify:decision-phase3 && npm run verify:mcp && npm run verify:mcp-contracts && npm run verify:capabilities && npm run verify:openconnector && npm run verify:documents && npm run verify:runtime-persistence && npm run verify:agent-runtime && npm run verify:workers-artifacts && npm run verify:core-edge && npm run verify:codex-connector && npm run verify:workspace-flows",
+    "verify:platform": "npm run build && npm run lint && npm run verify:ai && npm run verify:agent && npm run verify:hermes && npm run verify:memory && npm run verify:signals && npm run verify:dynamics && npm run verify:decision-semantic && npm run verify:decision-phase2 && npm run verify:decision-phase3 && npm run verify:mcp && npm run verify:mcp-contracts && npm run verify:capabilities && npm run verify:openconnector && npm run verify:documents && npm run verify:runtime-persistence && npm run verify:agent-runtime && npm run verify:workers-artifacts && npm run verify:core-edge && npm run verify:codex-connector && npm run verify:workspace-flows",
     "migrate:postgres": "node scripts/migrate-sqlite-to-postgres.mjs"
   },
   "dependencies": {

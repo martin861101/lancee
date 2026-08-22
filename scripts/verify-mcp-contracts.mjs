@@ -44,7 +44,7 @@ try {
   const server = createLanceeMcpProtocolServer({ runtime })
 
   const tools = runtime.listTools()
-  assert.equal(tools.length, 49)
+  assert.equal(tools.length, 50)
   for (const tool of tools) {
     assert.deepEqual(tool.outputSchema.required, ['success', 'ok', 'data', 'error'])
   }

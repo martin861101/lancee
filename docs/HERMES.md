@@ -205,6 +205,44 @@ this file, and the timestamped changelog for this change. The legacy Lancee
 runtime remains available through `AGENT_PROVIDER=lancee` or the configured
 fallback; no business capability implementations were duplicated in Hermes.
 
+### Durable artifacts and conversation continuity
+
+WorkspaceChat renders only canonical `doc_…` identifiers. Hermes `art_…`
+records remain internal provenance and are never used as document download
+IDs. Before a structured result is linked or returned, the adapter resolves
+its `storageDocumentId` against the authenticated workspace. Missing,
+metadata-only, failed-import, and cross-workspace candidates are excluded and
+produce bounded `hermes.artifact.rejected` diagnostics containing identifiers,
+MIME type, and reason only—never contents, credentials, or local paths.
+Duplicates from run status and the event stream collapse to one durable file.
+
+The exact Lancee thread remains the conversation authority. Its persisted
+workspace/user-scoped completed runs are ordered into Hermes
+`conversation_history`; verified artifacts are added beside the turn that
+created them using `artifactId`, `storageDocumentId`, current display name, and
+MIME type. The live document lookup means a later turn sees a renamed file by
+its current name. The browser keeps the thread in both workspace/user-scoped
+local storage and a synchronous ref, while `agent_threads.external_thread_id`,
+`session_id`, `X-Hermes-Session-Id`, and the derived session key remain stable.
+Provider reinitialization therefore reconstructs context from Lancee even when
+Hermes native session memory is unavailable.
+
+`rename_file` is the approved, workspace-scoped MCP operation for conversational
+requests such as “rename that file.” It requires `files:write`, accepts only a
+canonical Lancee document ID and safe file name, and updates the linked artifact
+name without changing the document ID or contents.
+
+`npm run verify:hermes` covers TXT, Markdown, JSON, PDF, one and multiple files,
+metadata plus final representations, missing IDs/documents, duplicate status
+and event artifacts, workspace isolation, subsequent-turn survival,
+authenticated-route construction, code-word continuity, create/rename/reference,
+new-conversation separation, and provider reload/resume.
+
+Conversation history is not long-term memory. `hermes_user_preferences` remains
+limited to stable response, communication, approval, and working preferences,
+namespaced to the authenticated workspace and user; ordinary turns and file
+references are never written there.
+
 ## Decision Intelligence readiness
 
 The current foundation keeps the persistent business identity at the workspace

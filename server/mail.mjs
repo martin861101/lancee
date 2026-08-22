@@ -403,6 +403,10 @@ async function parsedMessage(message, folder) {
   return {
     ...summary,
     replyTo: parsed.replyTo?.value || [],
+    inReplyTo: String(parsed.inReplyTo || '').trim() || null,
+    references: (Array.isArray(parsed.references) ? parsed.references : [parsed.references])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean),
     text: String(parsed.text || '').slice(0, MAX_MESSAGE_BYTES),
     html: cleanMessageHtml(parsed.html || ''),
     attachments: (parsed.attachments || []).map((attachment) => ({
@@ -463,6 +467,10 @@ export async function sendMailMessage(settings, password, input) {
       bcc: bcc.length ? bcc : undefined,
       subject,
       text,
+      inReplyTo: input?.inReplyTo || undefined,
+      references: Array.isArray(input?.references) && input.references.length
+        ? input.references
+        : undefined,
     })
     transport.close()
     return { messageId: result.messageId, accepted: result.accepted || [], rejected: result.rejected || [] }
