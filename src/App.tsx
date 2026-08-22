@@ -61,6 +61,7 @@ const IntelligencePage = lazy(() => import('./components/dashboard/IntelligenceP
 const TeamPage = lazy(() => import('./components/dashboard/TeamPage'))
 const FilesPage = lazy(() => import('./components/dashboard/FilesPage'))
 const MessagesPage = lazy(() => import('./components/dashboard/MessagesPage'))
+const DairyPage = lazy(() => import('./components/dashboard/DairyPage'))
 const WorkspaceChat = lazy(() => import('./components/dashboard/WorkspaceChat'))
 const WorkflowsPage = lazy(() => import('./components/WorkflowsPage'))
 const WorkspaceBuilder = lazy(() => import('./components/workspace-builder/WorkspaceBuilder'))
@@ -96,6 +97,7 @@ type Page =
   | 'intelligence'
   | 'files'
   | 'messages'
+  | 'dairy'
   | 'team'
   | 'builder'
   | 'api'
@@ -118,6 +120,7 @@ const pageIds = new Set<Page>([
   'intelligence',
   'files',
   'messages',
+  'dairy',
   'team',
   'builder',
   'api',
@@ -203,6 +206,7 @@ const navItems: { id: Page; label: string; icon: IconName; section: string; modu
   { id: 'ideas', label: 'Ideas', icon: 'lightbulb', section: 'Your work', modules: ['whiteboard', 'notes'] },
   { id: 'files', label: 'Files', icon: 'file', section: 'Your work', modules: ['files', 'annotations', 'knowledge-base'] },
   { id: 'messages', label: 'Messages', icon: 'messages', section: 'Your work', modules: ['clients', 'client-portal'] },
+  { id: 'dairy', label: 'Dairy', icon: 'calendar', section: 'Your work' },
   { id: 'automations', label: 'Automations & Workflows', icon: 'activity', section: 'Business', modules: ['workflows'] },
   { id: 'integrations', label: 'Connected Apps', icon: 'plug', section: 'Business' },
   { id: 'money', label: 'Invoicing', icon: 'wallet', section: 'Business', modules: ['quotes', 'invoices', 'time-tracking'] },
@@ -7246,6 +7250,18 @@ function WorkspaceApp() {
               onToast={setToast}
               focusMessage={messageFocus}
               onMessageFocusHandled={() => setMessageFocus(null)}
+            />
+          </Suspense>
+        )
+        break
+      case 'dairy':
+        page = (
+          <Suspense fallback={<EmptySkeleton />}>
+            <DairyPage
+              workspaceId={user.workspaceId}
+              userName={user.name}
+              onNavigate={navigatePage}
+              onToast={setToast}
             />
           </Suspense>
         )

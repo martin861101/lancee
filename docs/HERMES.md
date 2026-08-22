@@ -133,6 +133,13 @@ records, and MCP capability execution. A Hermes approval is represented as a
 local `ha_...` approval id and is checked against the persisted run before a
 decision is forwarded.
 
+The complete native Hermes agent toolset available in the selected profile
+remains available for general conversation, skills, web and image research,
+browser automation and screenshots, terminal/code execution, files, memory,
+session search, media tools, and subagent orchestration. Lancee MCP is an
+additional business toolset for authenticated workspace data; general Hermes
+requests are not routed through Lancee tools.
+
 The current official Hermes API does not document per-request dynamic MCP
 server credentials. Lancee MCP must therefore be configured on the Hermes
 server with a workspace/profile-scoped Lancee credential; the model cannot
@@ -156,16 +163,22 @@ one Hermes profile or credential per tenant boundary, the native Hermes MCP
 path is unavailable for that deployment and the Lancee provider should be
 selected instead.
 
-Adapter coverage is intentionally narrow. It supports Hermes native sessions,
-asynchronous runs, explicit conversation history, status polling, progress
-events, approval responses, stop, and scoped session headers. Recognized Hermes
-file/artifact results are checked against the authenticated workspace, linked to
-the persisted run and conversation through the existing artifact tables, and
-returned as Lancee Files attachments. A Hermes text response that claims a file
-was saved but has no verified Lancee Files artifact is replaced with a clear
-save-verification failure; internal paths never become downloads. The UI restores the selected conversation
-from workspace/user-scoped browser storage and reloads its server-side run
-history; it does not select a latest conversation implicitly.
+The adapter supports Hermes native sessions, asynchronous runs, explicit
+conversation history, status polling, progress events, approval responses,
+stop, and scoped session headers without reducing the agent's native tool or
+skill inventory. Recognized Hermes file/artifact results are checked against
+the authenticated workspace, linked to the persisted run and conversation
+through the existing artifact tables, and returned as Lancee Files
+attachments. Native image and screenshot `MEDIA:` paths are imported only from
+the active profile's `cache`/`images` directories or the comma-separated roots
+in `HERMES_MEDIA_ROOTS`, are bounded by `HERMES_MEDIA_MAX_BYTES` (10 MB by
+default), and are replaced with authenticated Lancee document URLs. A separate
+Hermes container must expose those roots to Lancee through a shared volume.
+Unverified local paths still never become downloads, while ordinary HTTP(S)
+URLs—including URLs whose path contains `/app`, `/home`, or `/workspace`—remain
+unchanged. The UI restores the selected conversation from workspace/user-scoped
+browser storage and reloads its server-side run history; it does not select a
+latest conversation implicitly.
 
 Hermes features such as native session chat, forking, response chaining, skills
 management, and cron/jobs are not routed by this adapter; scheduled or
@@ -179,9 +192,10 @@ The focused `verify:agent` command covers provider selection, trusted tenant
 context rejection, named profile routing, native run format and authentication,
 conversation history continuity, same-workspace conversation separation,
 cross-workspace and cross-user separation, same-session restoration after a
-provider reload, artifact/file persistence and links, file-save truthfulness,
-malformed responses, unavailable sessions and timeouts, fallback, and run
-isolation. The existing `verify:ai` command continues to cover OpenAI,
+provider reload, structured artifacts, native `MEDIA:` screenshot import,
+public-URL preservation, file-save truthfulness, malformed responses,
+unavailable sessions and timeouts, fallback, and run isolation. The existing
+`verify:ai` command continues to cover OpenAI,
 Anthropic, Gemini, and Hermes completion requests, while
 `verify:codex-connector` covers device-issued MCP token scope and workspace
 authorization. Completion behavior remains separately verified.

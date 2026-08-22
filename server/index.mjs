@@ -178,6 +178,8 @@ const workspaceName = (process.env.WORKSPACE_NAME || 'Hookitup Solutions').trim(
 const n8nBaseUrl =
   process.env.N8N_BASE_URL || 'https://n8n.hygridtech.co.za'
 const n8nDefaultSigningSecret = (process.env.N8N_SIGNING_SECRET || '').trim()
+const zoomMeetingSdkKey = (process.env.ZOOM_MEETING_SDK_KEY || '').trim()
+const zoomMeetingSdkSecret = (process.env.ZOOM_MEETING_SDK_SECRET || '').trim()
 const n8nPrivateNetwork = process.env.N8N_PRIVATE_NETWORK === 'true'
 const n8nAllowPrivate =
   process.env.N8N_ALLOW_PRIVATE === 'true' && (!production || n8nPrivateNetwork)
@@ -1917,9 +1919,9 @@ app.use((_request, response, next) => {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
-    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    'Permissions-Policy': 'camera=(self), microphone=(self), display-capture=(self), geolocation=()',
     'Content-Security-Policy':
-      "default-src 'self'; script-src 'self' https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self'; frame-src 'self' blob: https://apis.google.com https://docs.google.com https://drive.google.com https://accounts.google.com; object-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+      "default-src 'self'; script-src 'self' 'unsafe-eval' blob: https://apis.google.com https://zoom.us https://*.zoom.us https://dmogdx0jrul3u.cloudfront.net; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https://zoom.us https://*.zoom.us wss://*.zoom.us https://zoom.com https://*.zoom.com wss://*.zoom.com https://zoom.com.cn https://*.zoom.com.cn wss://*.zoom.com.cn; frame-src 'self' blob: https://apis.google.com https://docs.google.com https://drive.google.com https://accounts.google.com; object-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
   })
   next()
 })
@@ -4010,6 +4012,36 @@ app.get('/api/ai/status', requireAuth, async (_request, response) => {
 
 app.get('/api/agent/status', requireAuth, async (_request, response) => {
   response.json(await agentGateway.status({ probe: true }))
+})
+
+app.post('/api/zoom/signature', secureMutations, requireAuth, (request, response) => {
+  if (!zoomMeetingSdkKey || !zoomMeetingSdkSecret) {
+    response.status(503).json({ error: 'Zoom Meeting SDK is not configured.' })
+    return
+  }
+  const meetingNumber = String(request.body?.meetingNumber || '').replace(/\D/g, '')
+  if (!/^\d{9,11}$/.test(meetingNumber)) {
+    response.status(400).json({ error: 'A valid Zoom meeting number is required.' })
+    return
+  }
+  const issuedAt = Math.floor(Date.now() / 1000) - 30
+  const expiresAt = issuedAt + 60 * 60 * 2
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+  const header = encode({ alg: 'HS256', typ: 'JWT' })
+  const payload = encode({
+    appKey: zoomMeetingSdkKey,
+    sdkKey: zoomMeetingSdkKey,
+    mn: meetingNumber,
+    role: 0,
+    iat: issuedAt,
+    exp: expiresAt,
+    tokenExp: expiresAt,
+  })
+  const unsignedToken = `${header}.${payload}`
+  const signature = createHmac('sha256', zoomMeetingSdkSecret)
+    .update(unsignedToken)
+    .digest('base64url')
+  response.set('Cache-Control', 'no-store').json({ signature: `${unsignedToken}.${signature}` })
 })
 
 app.post('/api/agent/runs', secureMutations, requireAuth, async (request, response) => {

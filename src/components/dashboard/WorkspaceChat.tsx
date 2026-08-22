@@ -374,7 +374,7 @@ export default function WorkspaceChat({ user }: { user: User }) {
           </header>
           <div className="workspace-chat__messages" ref={messagesElement}>
             {messages.length === 0 && (
-              <p>Ask about any dashboard area. Lancee plans a bounded, persisted run, uses only local capabilities, and pauses for confirmation before write or external actions.</p>
+              <p>Hermes is your Lancee chatmaster. It can use its native tools for conversation, research, browser work, files, memory, and orchestration, and uses Lancee tools when you ask about workspace business data or actions.</p>
             )}
             {messages.map((item, index) => (
               <div className={`workspace-chat__message workspace-chat__message--${item.role}`} key={`${item.role}:${index}`}>

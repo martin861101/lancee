@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AgentProviderError, createAgentProviderGateway, getAgentProviderConfig, trustedAgentRequest } from '../server/agents/agent-provider.mjs'
@@ -8,6 +8,8 @@ import { openDatabase } from '../server/database.mjs'
 
 const temporaryDirectory = mkdtempSync(join(tmpdir(), 'lancee-agent-provider-'))
 const databasePath = join(temporaryDirectory, 'provider.sqlite')
+const hermesMediaDirectory = join(temporaryDirectory, 'hermes-media')
+mkdirSync(hermesMediaDirectory)
 let database
 
 const context = {
@@ -132,6 +134,9 @@ try {
   assert.match(runRequests[0].body.instructions, /persisted Lancee pattern, prediction, warning/)
   assert.match(runRequests[0].body.instructions, /controlled estimates depend on stated assumptions/)
   assert.match(runRequests[0].body.instructions, /Zero reviews does not mean zero decisions/)
+  assert.match(runRequests[0].body.instructions, /full native Hermes capability set/)
+  assert.match(runRequests[0].body.instructions, /browser automation and screenshots/)
+  assert.match(runRequests[0].body.instructions, /normal MEDIA: path/)
   assert.equal(runRequests[0].headers.Authorization, 'Bearer hermes-secret')
   assert.match(runRequests[0].headers['X-Hermes-Session-Key'], /^agent:[a-f0-9]{32}$/)
   assert.equal(runRequests[0].headers['X-Hermes-Session-Id'], firstThread.externalThreadId)
@@ -232,6 +237,48 @@ try {
     }),
     (error) => error instanceof AgentProviderError && error.code === 'AGENT_THREAD_NOT_FOUND' && error.status === 404,
   )
+
+  const screenshotPath = join(hermesMediaDirectory, 'dashboard-screenshot.png')
+  const screenshotBody = Buffer.from('89504e470d0a1a0a00000000', 'hex')
+  writeFileSync(screenshotPath, screenshotBody)
+  const mediaProvider = createHermesAgentProvider({
+    database,
+    env: { ...hermesEnvironment, HERMES_MEDIA_ROOTS: hermesMediaDirectory },
+    fetchImpl: async (url, init = {}) => {
+      const path = new URL(url).pathname
+      const method = init.method || 'GET'
+      if (path.includes('/api/sessions/')) return new Response('{}', { status: 200 })
+      if (path.endsWith('/v1/runs') && method === 'POST') return new Response('{"run_id":"native-media-run"}', { status: 202 })
+      if (path.endsWith('/v1/runs/native-media-run') && method === 'GET') {
+        return new Response(JSON.stringify({
+          status: 'completed',
+          output: `Screenshot ready for https://example.com/app/dashboard.\nMEDIA:${screenshotPath}`,
+        }), { status: 200 })
+      }
+      throw new Error(`Unexpected native-media request: ${method} ${path}`)
+    },
+    sleep: async () => undefined,
+    logger: { info() {}, warn() {} },
+  })
+  const mediaRun = await mediaProvider.runAgent({
+    context: providerContext,
+    message: 'Take a screenshot of the dashboard URL.',
+  })
+  assert.equal(mediaRun.status, 'completed')
+  assert.match(mediaRun.finalOutput, /https:\/\/example\.com\/app\/dashboard/)
+  assert.match(mediaRun.finalOutput, /\/api\/documents\/doc_[a-f0-9]+\/download/)
+  assert.equal(mediaRun.finalOutput.includes(screenshotPath), false)
+  const mediaFile = mediaRun.results[0].data.files[0]
+  assert.equal(mediaFile.name, 'dashboard-screenshot.png')
+  assert.equal(mediaFile.mimeType, 'image/png')
+  const persistedScreenshot = await database.getWorkspaceDocument(providerContext.workspace.id, mediaFile.id)
+  assert.deepEqual(persistedScreenshot.body, screenshotBody)
+  const mediaArtifacts = await database.listArtifacts(providerContext.workspace.id, {
+    subjectType: 'agent_run',
+    subjectId: mediaRun.id,
+  })
+  assert.equal(mediaArtifacts.length, 1)
+  assert.equal(mediaArtifacts[0].source, 'hermes-native-media')
 
   const failedProvider = createHermesAgentProvider({
     database,
@@ -364,7 +411,7 @@ try {
   )
 
   assert.equal(await database.getAgentRun(providerContext.workspace.id, firstRun.id, 'usr_other'), null)
-  console.log('Agent provider verification passed: selection, tenant isolation, native-session restoration, conversation continuity, artifact persistence, file-save truthfulness, failure handling, fallback, and run isolation.')
+  console.log('Agent provider verification passed: selection, tenant isolation, native-session restoration, conversation continuity, artifact and native-media persistence, URL preservation, file-save truthfulness, failure handling, fallback, and run isolation.')
 } finally {
   await database?.close()
   await databaseB?.close()

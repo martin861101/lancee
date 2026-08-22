@@ -109,6 +109,13 @@ The repository audit quarantine is documented in [`junk/README.md`](junk/README.
   guided manual IMAP/SMTP setup, folders, search, message reading, compose and
   reply. New incoming mail can trigger native Core automations by sender,
   recipient, subject, or body keyword; these rules never use n8n.
+- **Dairy** — a lazy-loaded Calendar and Meetings workspace. Tapping any date
+  opens a focused entry form while the persistent form remains available in the
+  Calendar layout. Calendar displays project deadlines, stores entries per workspace, and links to
+  meetings, projects, and clients. Meetings links back to Calendar, Projects,
+  Clients, and Files and loads Zoom's embedded Meeting SDK only when a user
+  joins. Configure `ZOOM_MEETING_SDK_KEY` and `ZOOM_MEETING_SDK_SECRET` on the
+  server; see [`docs/DAIRY.md`](docs/DAIRY.md).
 - **Automations & Workflows** — plain-language routines, schedules, connected
   tools, confirmed deletion, and ready-to-use workflow recipes in one place.
 - **Connected Apps** — the full live OpenConnector provider catalog, categorized
@@ -698,6 +705,15 @@ configured fallback, and provider health is available at `/api/agent/status`
 and within `/api/ai/status`. Configure
 `AGENT_FALLBACK_PROVIDER` and `AGENT_FALLBACK_ENABLED` as needed. See
 [`docs/HERMES.md`](docs/HERMES.md).
+When Hermes is selected, it remains the conversational chatmaster: Lancee
+supplies authenticated workspace tools and business records without replacing
+Hermes’ native personality, reasoning, skills, browser/screenshots, terminal,
+files, memory, media tools, or subagent orchestration. Native Hermes
+`MEDIA:` screenshots are imported from the profile’s cache into Lancee Files
+and rendered through an authenticated document URL. Set `HERMES_MEDIA_ROOTS`
+to comma-separated shared-volume roots when Hermes and Lancee do not see the
+same profile cache; `HERMES_MEDIA_MAX_BYTES` defaults to 10 MB. Public web URLs
+are preserved as URLs and are never mistaken for local filesystem paths.
 
 Bounded summaries, classifications, builders, and other completion-only flows
 continue to use `completeChat()`. To use Hermes for those completions, set
@@ -707,7 +723,7 @@ continue to use `completeChat()`. To use Hermes for those completions, set
 
 The Hermes runtime implementation and verification records are in
 [`docs/HERMES.md`](docs/HERMES.md) and
-[`changelog_20260820_000803.md`](changelog_20260820_000803.md).
+[`changelog_20260821_233151.md`](changelog_20260821_233151.md).
 
 ## Memory, Signal Engine, and Decision Dynamics
 
