@@ -725,6 +725,7 @@ export function createLanceeMcpRuntime({
   sharpImpl,
   integrationGateway,
   semanticDecisionAssessor,
+  connectedIntelligence,
   authorize,
   audit,
 }) {
@@ -736,6 +737,7 @@ export function createLanceeMcpRuntime({
   let schedulerTimer = null
   let schedulerBusy = false
   let lastDecisionIntelligenceRun = 0
+  let lastMeetingCompletionRun = 0
 
   const requireOwner = (context) => {
     if (context.membership?.role !== 'owner') {
@@ -985,6 +987,13 @@ export function createLanceeMcpRuntime({
         }
       }
       await decisionDynamics.dispatchDueObservationReviews({ limit: 50 })
+      if (
+        connectedIntelligence?.completeDueMeetings &&
+        Date.now() - lastMeetingCompletionRun >= 60_000
+      ) {
+        lastMeetingCompletionRun = Date.now()
+        await connectedIntelligence.completeDueMeetings()
+      }
       if (Date.now() - lastDecisionIntelligenceRun >= 5 * 60 * 1_000) {
         lastDecisionIntelligenceRun = Date.now()
         await decisionDynamics.runAutonomousDecisionIntelligence({ limit: 20 })

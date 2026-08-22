@@ -1882,6 +1882,48 @@ export async function openDatabase({
     )`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS client_id TEXT REFERENCES clients(id) ON DELETE SET NULL`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS board_id TEXT`,
+    `CREATE TABLE IF NOT EXISTS calendar_events (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      client_id TEXT REFERENCES clients(id) ON DELETE SET NULL,
+      title TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('meeting', 'deadline')),
+      start_at TEXT NOT NULL,
+      end_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'scheduled'
+        CHECK (status IN ('scheduled', 'completed', 'cancelled')),
+      participants_json TEXT NOT NULL DEFAULT '[]',
+      source TEXT NOT NULL DEFAULT 'lancee',
+      source_identifier TEXT NOT NULL,
+      creation_event_id TEXT UNIQUE REFERENCES workspace_events(id) ON DELETE SET NULL,
+      completion_event_id TEXT UNIQUE REFERENCES workspace_events(id) ON DELETE SET NULL,
+      completed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS connected_opportunities (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      detector_key TEXT NOT NULL,
+      subject_type TEXT NOT NULL,
+      subject_id TEXT NOT NULL,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      client_id TEXT REFERENCES clients(id) ON DELETE SET NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+      status TEXT NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'dismissed', 'resolved', 'expired')),
+      evidence_json TEXT NOT NULL DEFAULT '[]',
+      metrics_json TEXT NOT NULL DEFAULT '{}',
+      first_detected_at TEXT NOT NULL,
+      last_detected_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, detector_key, subject_type, subject_id)
+    )`,
     `CREATE TABLE IF NOT EXISTS project_tasks (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -2207,6 +2249,16 @@ export async function openDatabase({
       ON workspace_notifications (workspace_id, read_at, created_at)`,
     `CREATE INDEX IF NOT EXISTS idx_projects_workspace_status
       ON projects (workspace_id, status)`,
+    `CREATE INDEX IF NOT EXISTS idx_calendar_events_workspace_start
+      ON calendar_events (workspace_id, start_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_calendar_events_due
+      ON calendar_events (status, end_at, workspace_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_calendar_events_project
+      ON calendar_events (workspace_id, project_id, start_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_calendar_events_client
+      ON calendar_events (workspace_id, client_id, start_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_connected_opportunities_workspace_status
+      ON connected_opportunities (workspace_id, status, last_detected_at)`,
     `CREATE INDEX IF NOT EXISTS idx_project_tasks_workspace_project_bucket
       ON project_tasks (workspace_id, project_id, bucket_id, updated_at)`,
     `CREATE INDEX IF NOT EXISTS idx_clients_workspace_name

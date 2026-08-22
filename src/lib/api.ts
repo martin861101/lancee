@@ -760,6 +760,91 @@ export type Project = {
   updatedAt?: string
 }
 
+export type CalendarEvent = {
+  id: string
+  workspaceId: string
+  createdBy: string | null
+  projectId: string | null
+  projectName: string | null
+  clientId: string | null
+  clientName: string | null
+  title: string
+  kind: 'meeting' | 'deadline'
+  startAt: string
+  endAt: string
+  durationMinutes: number
+  status: 'scheduled' | 'completed' | 'cancelled'
+  participants: string[]
+  source: string
+  sourceIdentifier: string
+  creationEventId: string | null
+  completionEventId: string | null
+  completedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type CalendarEventInput = {
+  title: string
+  kind: CalendarEvent['kind']
+  startAt: string
+  endAt: string
+  projectId?: string | null
+  clientId?: string | null
+  participants?: string[]
+}
+
+export type MeetingFeatures = {
+  meetings: Array<{
+    meetingId: string
+    projectId: string | null
+    clientId: string | null
+    meetingDurationMinutes: number
+    evidenceEventId: string
+    startAt: string
+    endAt: string
+  }>
+  projects: Array<{
+    projectId: string
+    meetingCount: number
+    meetingMinutesTotal: number
+    meetingMinutesAverage: number
+    evidenceEventIds: string[]
+  }>
+  clients: Array<{
+    clientId: string
+    meetingCount: number
+    meetingMinutesTotal: number
+    meetingMinutesAverage: number
+    evidenceEventIds: string[]
+  }>
+  meetingMinutesPerProject: Record<string, number>
+  meetingMinutesPerClient: Record<string, number>
+}
+
+export type ProjectMeetingLoadResult = {
+  detector: 'project_meeting_load'
+  detectorVersion: string
+  subjectType: 'project'
+  subjectId: string
+  status: 'opportunity' | 'normal' | 'insufficient_evidence'
+  observed: { meetingCount: number; meetingMinutes: number }
+  baseline: {
+    sampleSize: number
+    medianMeetingMinutes: number
+    percentile75MeetingMinutes: number
+    projectIds: string[]
+  }
+  comparison: { differenceMinutes: number; differencePercent: number | null }
+  confidence: number
+  evidence: Array<{
+    type: 'workspace_event'
+    id: string
+    meetingId: string
+    projectId: string
+  }>
+}
+
 export type ProjectTask = {
   id: string
   workspaceId: string
@@ -1562,6 +1647,52 @@ export const api = {
       }
       if (!response.ok || typeof payload.content !== 'string') {
         throw new Error(payload.error || 'Unable to reach the workspace assistant.')
+      }
+      return payload
+    },
+  },
+  calendar: {
+    async list(): Promise<CalendarEvent[]> {
+      const response = await fetch('/api/calendar/events', { credentials: 'same-origin' })
+      const payload = (await response.json()) as { events?: CalendarEvent[]; error?: string }
+      if (!response.ok || !payload.events) {
+        throw new Error(payload.error || 'Unable to load calendar events.')
+      }
+      return payload.events
+    },
+    async create(input: CalendarEventInput): Promise<CalendarEvent> {
+      const response = await fetch('/api/calendar/events', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify(input),
+      })
+      const payload = (await response.json()) as CalendarEvent & { error?: string }
+      if (!response.ok || !payload.id) {
+        throw new Error(payload.error || 'Unable to create the calendar event.')
+      }
+      return payload
+    },
+  },
+  connectedIntelligence: {
+    async meetingFeatures(): Promise<MeetingFeatures> {
+      const response = await fetch('/api/connected-intelligence/meeting-features', {
+        credentials: 'same-origin',
+      })
+      const payload = (await response.json()) as MeetingFeatures & { error?: string }
+      if (!response.ok || !payload.meetings) {
+        throw new Error(payload.error || 'Unable to load meeting features.')
+      }
+      return payload
+    },
+    async projectMeetingLoad(projectId: string): Promise<ProjectMeetingLoadResult> {
+      const response = await fetch(
+        `/api/connected-intelligence/projects/${encodeURIComponent(projectId)}/meeting-load`,
+        { credentials: 'same-origin' },
+      )
+      const payload = (await response.json()) as ProjectMeetingLoadResult & { error?: string }
+      if (!response.ok || payload.detector !== 'project_meeting_load') {
+        throw new Error(payload.error || 'Unable to evaluate project meeting load.')
       }
       return payload
     },

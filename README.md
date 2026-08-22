@@ -111,11 +111,14 @@ The repository audit quarantine is documented in [`junk/README.md`](junk/README.
   recipient, subject, or body keyword; these rules never use n8n.
 - **Dairy** — a lazy-loaded Calendar and Meetings workspace. Tapping any date
   opens a focused entry form while the persistent form remains available in the
-  Calendar layout. Calendar displays project deadlines, stores entries per workspace, and links to
-  meetings, projects, and clients. Meetings links back to Calendar, Projects,
-  Clients, and Files and loads Zoom's embedded Meeting SDK only when a user
-  joins. Configure `ZOOM_MEETING_SDK_KEY` and `ZOOM_MEETING_SDK_SECRET` on the
-  server; see [`docs/DAIRY.md`](docs/DAIRY.md).
+  Calendar layout. Calendar displays project deadlines, persists entries on the
+  server, validates project/client links inside the authenticated workspace, and
+  derives meeting duration from start/end timestamps. Meetings link back to
+  Calendar, Projects, Clients, and Files and load Zoom's embedded Meeting SDK
+  only when a user joins. Configure `ZOOM_MEETING_SDK_KEY` and
+  `ZOOM_MEETING_SDK_SECRET` on the server; see
+  [`docs/DAIRY.md`](docs/DAIRY.md) and
+  [`docs/CONNECTED_INTELLIGENCE.md`](docs/CONNECTED_INTELLIGENCE.md).
 - **Automations & Workflows** — plain-language routines, schedules, connected
   tools, confirmed deletion, and ready-to-use workflow recipes in one place.
 - **Connected Apps** — the full live OpenConnector provider catalog, categorized
@@ -155,6 +158,23 @@ The repository audit quarantine is documented in [`junk/README.md`](junk/README.
 
 See [`docs/PRODUCT_VISION.md`](docs/PRODUCT_VISION.md) for the target user, product
 principles, information architecture, role of AI, and delivery roadmap.
+
+## Connected Intelligence
+
+The first Connected Intelligence production slice treats Calendar as an
+authoritative workspace source. Persisted meetings emit sanitized
+`meeting.created` and idempotent `meeting.completed` records through the
+existing workspace-event ledger. Deterministic features provide per-meeting,
+per-project, and per-client duration aggregates.
+
+The `project_meeting_load` detector compares an active project's coordination
+minutes with the median and 75th percentile of completed projects in the same
+workspace. It returns `insufficient_evidence` below three historical projects
+and stores one evidence-backed, idempotent opportunity only when the
+workspace-specific baseline is exceeded. No LLM performs arithmetic or creates
+evidence. Architecture, schema, APIs, detector policy, and the Phase 2 mail map
+are documented in
+[`docs/CONNECTED_INTELLIGENCE.md`](docs/CONNECTED_INTELLIGENCE.md).
 
 ## Visual system
 
@@ -938,6 +958,7 @@ pnpm verify:documents
 pnpm verify:runtime-persistence
 pnpm verify:agent-runtime
 pnpm verify:agent
+pnpm verify:connected-intelligence
 pnpm verify:workers-artifacts
 pnpm verify:codex-connector
 pnpm verify:google-drive

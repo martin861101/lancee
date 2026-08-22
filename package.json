@@ -38,6 +38,7 @@
     "verify:project-reviews": "node scripts/verify-project-review-packages.mjs",
     "verify:agent": "node scripts/verify-agent.mjs",
     "verify:signals": "node scripts/verify-signal-engine.mjs",
+    "verify:connected-intelligence": "node scripts/verify-connected-intelligence.mjs",
     "verify:memory": "node scripts/verify-memory-router.mjs",
     "verify:dynamics": "node scripts/verify-decision-dynamics.mjs",
     "verify:decision-semantic": "node scripts/verify-decision-semantic-assessor.mjs",

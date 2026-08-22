@@ -58,6 +58,10 @@ import {
   AiError,
 } from './ai.mjs'
 import { createWorkspacePulseService } from './workspace-pulse.mjs'
+import {
+  ConnectedIntelligenceError,
+  createConnectedIntelligenceService,
+} from './connected-intelligence.mjs'
 import { createHermesDecisionAssessor } from './decision-semantic-assessor.mjs'
 import {
   automationById,
@@ -289,6 +293,7 @@ const workspacePulse = createWorkspacePulseService({
   database,
   complete: completeChat,
 })
+const connectedIntelligence = createConnectedIntelligenceService({ database })
 const openConnectorAdapter = createOpenConnectorAdapter()
 const integrationGateway = createIntegrationGateway({
   database,
@@ -5743,6 +5748,57 @@ app.get('/api/clients', requireAuth, async (request, response) => {
   })
 })
 
+app.get('/api/calendar/events', requireAuth, async (request, response) => {
+  response.json({
+    events: await connectedIntelligence.listCalendarEvents(request.auth.context, {
+      from: request.query.from || null,
+      to: request.query.to || null,
+    }),
+  })
+})
+
+app.post('/api/calendar/events', secureMutations, requireAuth, async (request, response) => {
+  const result = await executeIdempotentMutation({
+    request,
+    route: 'POST /api/calendar/events',
+    input: request.body || {},
+    operation: async () => ({
+      status: 201,
+      response: await connectedIntelligence.createCalendarEvent(
+        request.auth.context,
+        request.body,
+        { transactional: false },
+      ),
+    }),
+  })
+  sendMutationResponse(response, result)
+})
+
+app.get('/api/connected-intelligence/meeting-features', requireAuth, async (request, response) => {
+  response.json(await connectedIntelligence.getMeetingFeatures(request.auth.context))
+})
+
+app.get(
+  '/api/connected-intelligence/projects/:id/meeting-load',
+  requireAuth,
+  async (request, response) => {
+    response.json(await connectedIntelligence.detectProjectMeetingLoad(
+      request.auth.context,
+      String(request.params.id || ''),
+    ))
+  },
+)
+
+app.get('/api/connected-intelligence/opportunities', requireAuth, async (request, response) => {
+  const status = request.query.status === 'all' ? null : String(request.query.status || 'active')
+  response.json({
+    opportunities: await connectedIntelligence.listOpportunities(request.auth.context, {
+      status,
+      limit: Number(request.query.limit || 50),
+    }),
+  })
+})
+
 function emailDomain(value) {
   const match = String(value || '').trim().toLowerCase().match(/^[^@\s]+@([^@\s]+)$/)
   return match ? match[1] : ''
@@ -8333,6 +8389,7 @@ const browserWorker = createBrowserWorker()
 const executionWorker = createExecutionWorker({ database })
 const lanceeMcp = createLanceeMcpRuntime({
   database,
+  connectedIntelligence,
   semanticDecisionAssessor: createHermesDecisionAssessor(),
   browserWorker,
   executionWorker,
@@ -9105,6 +9162,13 @@ app.use((error, _request, response, _next) => {
   }
   if (error instanceof IntegrationGatewayError) {
     response.status(error.status || 502).json({
+      error: error.message,
+      code: error.code,
+    })
+    return
+  }
+  if (error instanceof ConnectedIntelligenceError) {
+    response.status(error.status || 400).json({
       error: error.message,
       code: error.code,
     })

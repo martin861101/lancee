@@ -1,18 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { api, type Client, type Project } from '../../lib/api'
+import { api, type CalendarEvent, type Client, type Project } from '../../lib/api'
 import './dairy-page.css'
 
 type DairySection = 'calendar' | 'meetings'
 type LinkedPage = 'work' | 'clients' | 'files'
 
-type CalendarEvent = {
+type CalendarDisplayEvent = {
   id: string
   title: string
   date: string
   time: string
   kind: 'meeting' | 'deadline'
-  projectId: string
-  clientId: string
+  projectId: string | null
+  clientId: string | null
+  projectName: string | null
+  clientName: string | null
 }
 
 type DairyPageProps = {
@@ -31,6 +33,10 @@ function dateKey(date: Date) {
   return `${year}-${month}-${day}`
 }
 
+function timeKey(date: Date) {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
 function monthDays(month: Date) {
   const first = new Date(month.getFullYear(), month.getMonth(), 1)
   const startOffset = (first.getDay() + 6) % 7
@@ -41,15 +47,6 @@ function monthDays(month: Date) {
     day.setDate(start.getDate() + index)
     return day
   })
-}
-
-function storedCalendarEvents(workspaceId: string) {
-  try {
-    const stored = window.localStorage.getItem(`lancee:dairy:${workspaceId}`)
-    return stored ? JSON.parse(stored) as CalendarEvent[] : []
-  } catch {
-    return []
-  }
 }
 
 function CalendarGlyph() {
@@ -74,31 +71,33 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1))
   const [projects, setProjects] = useState<Project[]>([])
   const [clients, setClients] = useState<Client[]>([])
-  const [events, setEvents] = useState<CalendarEvent[]>(() => storedCalendarEvents(workspaceId))
+  const [events, setEvents] = useState<CalendarEvent[]>([])
   const [entryDialogOpen, setEntryDialogOpen] = useState(false)
   const [eventTitle, setEventTitle] = useState('')
   const [eventDate, setEventDate] = useState(() => dateKey(new Date()))
   const [eventTime, setEventTime] = useState('09:00')
+  const [eventEndTime, setEventEndTime] = useState('10:00')
   const [eventKind, setEventKind] = useState<CalendarEvent['kind']>('meeting')
   const [eventProject, setEventProject] = useState('')
   const [eventClient, setEventClient] = useState('')
+  const [savingEvent, setSavingEvent] = useState(false)
   const [meetingNumber, setMeetingNumber] = useState('')
   const [meetingPassword, setMeetingPassword] = useState('')
   const [joining, setJoining] = useState(false)
   const [joinError, setJoinError] = useState('')
   const meetingRoot = useRef<HTMLDivElement>(null)
-  const storageKey = `lancee:dairy:${workspaceId}`
 
   useEffect(() => {
     let cancelled = false
-    void Promise.all([api.projects.list(), api.clients.list()]).then(([nextProjects, nextClients]) => {
+    void Promise.all([api.projects.list(), api.clients.list(), api.calendar.list()]).then(([nextProjects, nextClients, nextEvents]) => {
       if (!cancelled) {
         setProjects(nextProjects)
         setClients(nextClients)
+        setEvents(nextEvents)
       }
-    }).catch(() => undefined)
+    }).catch(() => onToast('Unable to load the calendar.'))
     return () => { cancelled = true }
-  }, [])
+  }, [workspaceId, onToast])
 
   useEffect(() => {
     if (!entryDialogOpen) return
@@ -109,7 +108,22 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [entryDialogOpen])
 
-  const projectDeadlines = useMemo<CalendarEvent[]>(() => projects
+  const calendarEvents = useMemo<CalendarDisplayEvent[]>(() => events.map((event) => {
+    const startAt = new Date(event.startAt)
+    return {
+      id: event.id,
+      title: event.title,
+      date: dateKey(startAt),
+      time: timeKey(startAt),
+      kind: event.kind,
+      projectId: event.projectId,
+      clientId: event.clientId,
+      projectName: event.projectName,
+      clientName: event.clientName,
+    }
+  }), [events])
+
+  const projectDeadlines = useMemo<CalendarDisplayEvent[]>(() => projects
     .filter((project) => /^\d{4}-\d{2}-\d{2}/.test(project.due || ''))
     .map((project) => ({
       id: `project-${project.id}`,
@@ -118,36 +132,45 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
       time: '',
       kind: 'deadline',
       projectId: project.id,
-      clientId: project.clientId || '',
+      clientId: project.clientId || null,
+      projectName: project.name,
+      clientName: project.client,
     })), [projects])
 
-  const allEvents = useMemo(() => [...events, ...projectDeadlines], [events, projectDeadlines])
+  const allEvents = useMemo(() => [...calendarEvents, ...projectDeadlines], [calendarEvents, projectDeadlines])
   const days = useMemo(() => monthDays(month), [month])
   const upcomingMeetings = useMemo(() => events
-    .filter((event) => event.kind === 'meeting' && event.date >= dateKey(new Date()))
-    .sort((a, b) => `${a.date}T${a.time}`.localeCompare(`${b.date}T${b.time}`)), [events])
+    .filter((event) => event.kind === 'meeting' && event.status === 'scheduled' && new Date(event.endAt) >= new Date())
+    .sort((a, b) => a.startAt.localeCompare(b.startAt)), [events])
 
-  const saveEvent = (event: FormEvent, closeDialog = false) => {
+  const selectProject = (projectId: string) => {
+    setEventProject(projectId)
+    if (projectId) {
+      setEventClient(projects.find((project) => project.id === projectId)?.clientId || '')
+    }
+  }
+
+  const saveEvent = async (event: FormEvent, closeDialog = false) => {
     event.preventDefault()
-    const nextEvent: CalendarEvent = {
-      id: crypto.randomUUID(),
-      title: eventTitle.trim(),
-      date: eventDate,
-      time: eventTime,
-      kind: eventKind,
-      projectId: eventProject,
-      clientId: eventClient,
-    }
-    const nextEvents = [...events, nextEvent]
-    setEvents(nextEvents)
+    setSavingEvent(true)
     try {
-      window.localStorage.setItem(storageKey, JSON.stringify(nextEvents))
-    } catch {
-      // Keep the event in React state if browser storage is unavailable.
+      const nextEvent = await api.calendar.create({
+        title: eventTitle.trim(),
+        kind: eventKind,
+        startAt: new Date(`${eventDate}T${eventTime}:00`).toISOString(),
+        endAt: new Date(`${eventDate}T${eventEndTime}:00`).toISOString(),
+        projectId: eventProject || null,
+        clientId: eventClient || null,
+      })
+      setEvents((current) => [...current, nextEvent])
+      setEventTitle('')
+      if (closeDialog) setEntryDialogOpen(false)
+      onToast('Entry added to Dairy calendar')
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : 'Unable to add the calendar entry.')
+    } finally {
+      setSavingEvent(false)
     }
-    setEventTitle('')
-    if (closeDialog) setEntryDialogOpen(false)
-    onToast('Entry added to Dairy calendar')
   }
 
   const joinZoomMeeting = async (event: FormEvent) => {
@@ -251,7 +274,13 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
                   >
                     <span>{day.getDate()}</span>
                     {dayEvents.slice(0, 2).map((item) => (
-                      <small className={item.kind === 'deadline' ? 'is-deadline' : ''} key={item.id}>{item.time} {item.title}</small>
+                      <small
+                        className={item.kind === 'deadline' ? 'is-deadline' : ''}
+                        data-project-id={item.projectId || undefined}
+                        data-client-id={item.clientId || undefined}
+                        title={[item.projectName, item.clientName].filter(Boolean).join(' · ')}
+                        key={item.id}
+                      >{item.time} {item.title}</small>
                     ))}
                     {dayEvents.length > 2 && <em>+{dayEvents.length - 2} more</em>}
                   </button>
@@ -268,11 +297,13 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
               <label>Entry type<select value={eventKind} onChange={(event) => setEventKind(event.target.value as CalendarEvent['kind'])}><option value="meeting">Meeting</option><option value="deadline">Deadline</option></select></label>
               <div className="dairy-form-row">
                 <label>Date<input required type="date" value={eventDate} onChange={(event) => setEventDate(event.target.value)} /></label>
-                <label>Time<input required type="time" value={eventTime} onChange={(event) => setEventTime(event.target.value)} /></label>
+                <label>Starts<input required type="time" value={eventTime} onChange={(event) => setEventTime(event.target.value)} /></label>
               </div>
-              <label>Project<select value={eventProject} onChange={(event) => setEventProject(event.target.value)}><option value="">No project</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
-              <label>Client<select value={eventClient} onChange={(event) => setEventClient(event.target.value)}><option value="">No client</option>{clients.map((client) => <option value={client.id} key={client.id}>{client.name}</option>)}</select></label>
-              <button className="dairy-primary" type="submit">Add entry</button>
+              <label>Ends<input required type="time" value={eventEndTime} min={eventTime} onChange={(event) => setEventEndTime(event.target.value)} /></label>
+              <label>Project<select value={eventProject} onChange={(event) => selectProject(event.target.value)}><option value="">No project</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
+              <label>Client<select value={eventClient} disabled={Boolean(eventProject)} onChange={(event) => setEventClient(event.target.value)}><option value="">No client</option>{clients.map((client) => <option value={client.id} key={client.id}>{client.name}</option>)}</select></label>
+              {eventProject && <small>Client is derived from the selected project and persisted with both relationship IDs.</small>}
+              <button className="dairy-primary" type="submit" disabled={savingEvent}>{savingEvent ? 'Adding…' : 'Add entry'}</button>
             </form>
             <div className="dairy-connector-note">
               <strong>Calendar connectors</strong>
@@ -301,11 +332,13 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
                   <label>Entry type<select value={eventKind} onChange={(event) => setEventKind(event.target.value as CalendarEvent['kind'])}><option value="meeting">Meeting</option><option value="deadline">Deadline</option></select></label>
                   <div className="dairy-form-row">
                     <label>Date<input required type="date" value={eventDate} onChange={(event) => setEventDate(event.target.value)} /></label>
-                    <label>Time<input required type="time" value={eventTime} onChange={(event) => setEventTime(event.target.value)} /></label>
+                    <label>Starts<input required type="time" value={eventTime} onChange={(event) => setEventTime(event.target.value)} /></label>
                   </div>
-                  <label>Project<select value={eventProject} onChange={(event) => setEventProject(event.target.value)}><option value="">No project</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
-                  <label>Client<select value={eventClient} onChange={(event) => setEventClient(event.target.value)}><option value="">No client</option>{clients.map((client) => <option value={client.id} key={client.id}>{client.name}</option>)}</select></label>
-                  <button className="dairy-primary" type="submit">Add entry</button>
+                  <label>Ends<input required type="time" value={eventEndTime} min={eventTime} onChange={(event) => setEventEndTime(event.target.value)} /></label>
+                  <label>Project<select value={eventProject} onChange={(event) => selectProject(event.target.value)}><option value="">No project</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
+                  <label>Client<select value={eventClient} disabled={Boolean(eventProject)} onChange={(event) => setEventClient(event.target.value)}><option value="">No client</option>{clients.map((client) => <option value={client.id} key={client.id}>{client.name}</option>)}</select></label>
+                  {eventProject && <small>Client is derived from the selected project and persisted with both relationship IDs.</small>}
+                  <button className="dairy-primary" type="submit" disabled={savingEvent}>{savingEvent ? 'Adding…' : 'Add entry'}</button>
                 </form>
               </article>
             </div>
@@ -339,8 +372,11 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
             <header><div><span className="dairy-card-label">Calendar</span><h2>Upcoming meetings</h2></div><button type="button" onClick={() => setSection('calendar')}>Open calendar</button></header>
             {upcomingMeetings.length ? upcomingMeetings.slice(0, 5).map((meeting) => (
               <article key={meeting.id}>
-                <time dateTime={`${meeting.date}T${meeting.time}`}><strong>{new Date(`${meeting.date}T00:00:00`).toLocaleDateString(undefined, { day: '2-digit' })}</strong><span>{new Date(`${meeting.date}T00:00:00`).toLocaleDateString(undefined, { month: 'short' })}</span></time>
-                <div><strong>{meeting.title}</strong><span>{meeting.time || 'Time not set'}</span></div>
+                <time dateTime={meeting.startAt}><strong>{new Date(meeting.startAt).toLocaleDateString(undefined, { day: '2-digit' })}</strong><span>{new Date(meeting.startAt).toLocaleDateString(undefined, { month: 'short' })}</span></time>
+                <div data-project-id={meeting.projectId || undefined} data-client-id={meeting.clientId || undefined}>
+                  <strong>{meeting.title}</strong>
+                  <span>{timeKey(new Date(meeting.startAt))} · {meeting.durationMinutes} min{meeting.projectName ? ` · ${meeting.projectName}` : ''}{meeting.clientName ? ` · ${meeting.clientName}` : ''}</span>
+                </div>
               </article>
             )) : <div className="dairy-upcoming__empty">No upcoming meetings yet. Add one from Calendar.</div>}
           </section>
