@@ -203,6 +203,18 @@ secondary history capability. Hermes receives read-only Connected Intelligence
 tools for questions about unusual projects, client attention, and missed
 relationships.
 
+Connected Intelligence now persists one `connected_inspections` record per
+real logical Mail, Calendar, project, or cross-source intelligence operation.
+The summary distinguishes `attention_needed`, `all_clear`, and
+`insufficient_activity`; recent semantic activity is available through the
+workspace-scoped `/api/connected-intelligence/activity` API without exposing
+message bodies or raw provider payloads. Hermes uses this inspection/finding
+contract for normal intelligence questions. Historical structured-decision
+storage and tools remain available only as an explicitly requested legacy
+history capability. See
+[`docs/CONNECTED_INTELLIGENCE.md`](docs/CONNECTED_INTELLIGENCE.md) and run
+`npm run verify:connected-inspections` for the focused backend contract check.
+
 ```bash
 npm run seed:ci -- --dry-run
 npm run seed:ci

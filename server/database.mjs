@@ -2002,6 +2002,25 @@ export async function openDatabase({
       updated_at TEXT NOT NULL,
       UNIQUE (workspace_id, detector_key, subject_type, subject_id)
     )`,
+    `CREATE TABLE IF NOT EXISTS connected_inspections (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      inspection_type TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      client_id TEXT REFERENCES clients(id) ON DELETE SET NULL,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      status TEXT NOT NULL DEFAULT 'inspecting'
+        CHECK (status IN ('inspecting', 'all_clear', 'signal_found', 'opportunity_created', 'failed')),
+      records_inspected INTEGER NOT NULL DEFAULT 0 CHECK (records_inspected >= 0),
+      signals_found INTEGER NOT NULL DEFAULT 0 CHECK (signals_found >= 0),
+      summary TEXT,
+      related_opportunity_id TEXT REFERENCES connected_opportunities(id) ON DELETE SET NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS project_tasks (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -2407,6 +2426,12 @@ export async function openDatabase({
       ON communication_messages (workspace_id, source_account_id, external_thread_id)`,
     `CREATE INDEX IF NOT EXISTS idx_connected_opportunities_workspace_status
       ON connected_opportunities (workspace_id, status, last_detected_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_connected_inspections_workspace_started
+      ON connected_inspections (workspace_id, started_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_connected_inspections_workspace_status
+      ON connected_inspections (workspace_id, status, completed_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_connected_inspections_opportunity
+      ON connected_inspections (workspace_id, related_opportunity_id)`,
     `CREATE INDEX IF NOT EXISTS idx_project_tasks_workspace_project_bucket
       ON project_tasks (workspace_id, project_id, bucket_id, updated_at)`,
     `CREATE INDEX IF NOT EXISTS idx_clients_workspace_name

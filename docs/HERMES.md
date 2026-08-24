@@ -243,6 +243,24 @@ limited to stable response, communication, approval, and working preferences,
 namespaced to the authenticated workspace and user; ordinary turns and file
 references are never written there.
 
+## Connected Intelligence contract
+
+Connected Intelligence is the current intelligence product exposed to Hermes.
+The authenticated Lancee MCP profile provides summary, persisted findings,
+factual inspection activity, and evidence resolution. Hermes instructions
+encode the deterministic distinction between `attention_needed`, `all_clear`,
+and `insufficient_activity` and prohibit invented inspections, source counts,
+findings, causes, or comparisons. Normal replies do not expose MCP names,
+detector/table identifiers, thresholds, workspace-event IDs, or internal queue
+terms unless the user explicitly requests technical detail.
+
+The older structured Decision Intelligence capability is retained for
+historical compatibility. It is no longer included in the default Workspace AI
+snapshot or described as the current intelligence product, and its MCP tools
+are advertised as legacy decision-history capabilities for explicit requests.
+An empty legacy decision/review result never establishes the Connected
+Intelligence state.
+
 ## Decision Intelligence readiness
 
 The current foundation keeps the persistent business identity at the workspace

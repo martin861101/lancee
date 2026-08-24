@@ -588,28 +588,66 @@ export const lanceeMcpToolDefinitions = [
   },
   {
     name: 'get_decision_intelligence_overview',
-    title: 'Get Decision Intelligence overview',
-    description: 'Read exact workspace-scoped Decision Intelligence counts, learning thresholds, category relationships, and recent persisted intelligence events without recomputing intelligence.',
+    title: 'Get legacy decision-history overview',
+    description: 'Compatibility tool for explicitly requested historical structured-decision records. This is not the current Connected Intelligence status or activity source.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
   {
     name: 'get_connected_intelligence_summary',
     title: 'Get Connected Intelligence summary',
-    description: 'Read exact workspace-scoped record counts and authoritative Client to Project relationships across meetings, communications, time, invoices, and payments.',
+    description: 'Read the current workspace-scoped Connected Intelligence state, including findings, factual inspection counts, and the distinction between attention needed, all clear, and insufficient activity.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
   {
     name: 'list_connected_opportunities',
-    title: 'List Connected Intelligence opportunities',
-    description: 'Read persisted workspace-scoped Connected Intelligence findings with detector metrics, baselines, confidence, and exact evidence references.',
+    title: 'List Connected Intelligence findings',
+    description: 'Read persisted workspace-scoped Connected Intelligence findings with factual metrics, confidence, and exact evidence references.',
     inputSchema: {
       type: 'object',
       properties: {
         status: { type: 'string', enum: ['active', 'dismissed', 'resolved', 'expired', 'all'] },
         limit: { type: 'integer', minimum: 1, maximum: 100 },
       },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'list_connected_intelligence_activity',
+    title: 'List Connected Intelligence activity',
+    description: 'List recent factual workspace-scoped inspections describing what Lancee actually checked. This never synthesizes activity.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+        offset: { type: 'integer', minimum: 0, maximum: 10000 },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'get_connected_intelligence_activity',
+    title: 'Get Connected Intelligence activity',
+    description: 'Read one factual workspace-scoped Connected Intelligence inspection by its activity id.',
+    inputSchema: {
+      type: 'object',
+      properties: { inspection_id: { type: 'string', pattern: '^cinsp_[a-f0-9]{32}$' } },
+      required: ['inspection_id'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'get_connected_opportunity_evidence',
+    title: 'Get Connected Intelligence finding evidence',
+    description: 'Resolve one workspace-scoped Connected Intelligence finding to its authoritative, non-body workspace event evidence.',
+    inputSchema: {
+      type: 'object',
+      properties: { opportunity_id: { type: 'string', pattern: '^opp_[a-f0-9]{24}$' } },
+      required: ['opportunity_id'],
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
@@ -666,6 +704,11 @@ const platformCapabilityMetadata = Object.freeze({
   get_decision_causal_assessment: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'causal', 'evidence'] },
   get_decision_learning_model: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'learning', 'model'] },
   get_decision_intelligence_overview: { permissions: ['decisions:read'], risk: 'read', approval: false, tags: ['decision', 'learning', 'overview', 'timeline'] },
+  get_connected_intelligence_summary: { permissions: ['workspace:read'], risk: 'read', approval: false, tags: ['intelligence', 'connected', 'summary'] },
+  list_connected_opportunities: { permissions: ['workspace:read'], risk: 'read', approval: false, tags: ['intelligence', 'connected', 'finding'] },
+  list_connected_intelligence_activity: { permissions: ['workspace:read'], risk: 'read', approval: false, tags: ['intelligence', 'connected', 'activity'] },
+  get_connected_intelligence_activity: { permissions: ['workspace:read'], risk: 'read', approval: false, tags: ['intelligence', 'connected', 'activity'] },
+  get_connected_opportunity_evidence: { permissions: ['workspace:read'], risk: 'read', approval: false, tags: ['intelligence', 'connected', 'evidence'] },
 })
 
 function createPlatformCapabilityDefinitions(executePlatform) {
@@ -1319,7 +1362,7 @@ export function createLanceeMcpRuntime({
       return { overview: await decisionDynamics.getDecisionIntelligenceOverview(context) }
     }
     if (name === 'get_connected_intelligence_summary') {
-      return { summary: await connectedIntelligence.getWorkspaceSummary(context) }
+      return { summary: await connectedIntelligence.getIntelligenceSummary(context) }
     }
     if (name === 'list_connected_opportunities') {
       const opportunities = await connectedIntelligence.listOpportunities(context, {
@@ -1327,6 +1370,23 @@ export function createLanceeMcpRuntime({
         limit: args.limit,
       })
       return { opportunities, total: opportunities.length }
+    }
+    if (name === 'list_connected_intelligence_activity') {
+      const result = await connectedIntelligence.listActivity(context, {
+        limit: args.limit,
+        offset: args.offset,
+      })
+      return { ...result, total: result.pagination.total }
+    }
+    if (name === 'get_connected_intelligence_activity') {
+      const activity = await connectedIntelligence.getActivity(context, args.inspection_id)
+      if (!activity) throw new LanceeMcpError('MCP_RESOURCE_NOT_FOUND', 'Connected Intelligence activity not found.', 404)
+      return { activity }
+    }
+    if (name === 'get_connected_opportunity_evidence') {
+      const result = await connectedIntelligence.getOpportunityEvidence(context, args.opportunity_id)
+      if (!result) throw new LanceeMcpError('MCP_RESOURCE_NOT_FOUND', 'Connected Intelligence finding not found.', 404)
+      return { finding: result.opportunity, evidence: result.evidence, total: result.evidence.length }
     }
     throw new LanceeMcpError('MCP_TOOL_NOT_FOUND', `Unknown Lancee MCP tool: ${name}.`, 404)
   }
@@ -1404,10 +1464,15 @@ export function createLanceeMcpRuntime({
       if (!capability) return []
       const existing = lanceeMcpToolDefinitions.find((tool) => tool.name === name)
       const openWorld = ['web', 'browser', 'integration'].includes(capability.namespace)
+      const legacyDecision = capability.namespace === 'decision'
       return [{
         name,
-        title: existing?.title || name.split('_').map((word) => word[0].toUpperCase() + word.slice(1)).join(' '),
-        description: capability.description,
+        title: legacyDecision
+          ? `Legacy decision history: ${existing?.title || name}`
+          : existing?.title || name.split('_').map((word) => word[0].toUpperCase() + word.slice(1)).join(' '),
+        description: legacyDecision
+          ? `Compatibility capability for an explicit historical structured-decision request; it does not describe current Connected Intelligence. ${capability.description}`
+          : capability.description,
         inputSchema: capability.inputSchema,
         outputSchema: mcpOutputSchema(),
         annotations: existing?.annotations || {

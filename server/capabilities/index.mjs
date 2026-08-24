@@ -61,6 +61,11 @@ export const lanceeMcpCapabilityBindings = Object.freeze({
   get_decision_causal_assessment: 'decision.get-causal-assessment',
   get_decision_learning_model: 'decision.get-learning-model',
   get_decision_intelligence_overview: 'decision.get-intelligence-overview',
+  get_connected_intelligence_summary: 'intelligence.summary',
+  list_connected_opportunities: 'intelligence.list-findings',
+  list_connected_intelligence_activity: 'intelligence.list-activity',
+  get_connected_intelligence_activity: 'intelligence.get-activity',
+  get_connected_opportunity_evidence: 'intelligence.get-evidence',
   call_external_api: 'integration.http.request',
 })
 

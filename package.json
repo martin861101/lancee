@@ -44,6 +44,7 @@
     "verify:hermes": "node scripts/verify-hermes-integration.mjs",
     "verify:signals": "node scripts/verify-signal-engine.mjs",
     "verify:connected-intelligence": "node scripts/verify-connected-intelligence.mjs",
+    "verify:connected-inspections": "node scripts/verify-connected-inspections.mjs",
     "verify:memory": "node scripts/verify-memory-router.mjs",
     "verify:dynamics": "node scripts/verify-decision-dynamics.mjs",
     "verify:decision-semantic": "node scripts/verify-decision-semantic-assessor.mjs",

@@ -94,6 +94,11 @@ const resultContracts = Object.freeze({
   'decision.get-causal-assessment': { mode: 'single', resourceKey: 'assessment', resourceType: 'decision-causal-assessment' },
   'decision.get-learning-model': { mode: 'single', resourceKey: 'model', resourceType: 'decision-learning-model' },
   'decision.get-intelligence-overview': { mode: 'terminal' },
+  'intelligence.summary': { mode: 'single', resourceKey: 'summary', resourceType: 'intelligence-summary', allowMissingId: true },
+  'intelligence.list-findings': { mode: 'list', collection: 'opportunities', resourceType: 'intelligence-finding' },
+  'intelligence.list-activity': { mode: 'list', collection: 'activity', resourceType: 'intelligence-activity' },
+  'intelligence.get-activity': { mode: 'single', resourceKey: 'activity', resourceType: 'intelligence-activity' },
+  'intelligence.get-evidence': { mode: 'terminal' },
   'workspace.query': { mode: 'dashboard' },
 })
 

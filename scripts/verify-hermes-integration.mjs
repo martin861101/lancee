@@ -200,6 +200,10 @@ try {
   const provider = createHermesAgentProvider(providerOptions)
 
   const memoryRun = await provider.runAgent({ context, message: 'Remember the code word is pineapple.' })
+  assert.match(runRequests[0].body.instructions, /Connected Intelligence is Lancee’s current intelligence product/)
+  assert.match(runRequests[0].body.instructions, /insufficient_activity means there is not enough inspected activity/)
+  assert.match(runRequests[0].body.instructions, /Keep MCP names, detector identifiers, database tables, thresholds, event ids, and internal queue terms out of ordinary replies/)
+  assert.doesNotMatch(runRequests[0].body.instructions, /For Decision Intelligence, use Lancee decision tools/)
   const memoryAnswer = await provider.runAgent({
     context,
     threadId: memoryRun.threadId,

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { createConnectedInspectionService } from './connected-inspections.mjs'
 import { recordWorkspaceEvent } from './workspace-events.mjs'
 
 export const PROJECT_MEETING_LOAD_POLICY = Object.freeze({
@@ -184,6 +185,7 @@ export function createConnectedIntelligenceService({
   now = () => new Date(),
   policy = PROJECT_MEETING_LOAD_POLICY,
   attentionPolicy = CLIENT_ATTENTION_LOAD_POLICY,
+  logger = console,
 } = {}) {
   if (!database?.query || !database?.transaction) {
     throw new TypeError('Connected Intelligence requires the Lancee database adapter.')
@@ -195,6 +197,7 @@ export function createConnectedIntelligenceService({
     if (!Number.isFinite(date.getTime())) throw new TypeError('Connected Intelligence now() returned an invalid date.')
     return date.toISOString()
   }
+  const inspections = createConnectedInspectionService({ database, now, logger })
 
   async function calendarEventById(workspaceId, eventId) {
     const rows = await database.query(
@@ -692,27 +695,88 @@ export function createConnectedIntelligenceService({
       })
       if (result) completed.push(result)
     }
-    const projects = new Map()
+    const completedByWorkspace = new Map()
     for (const event of completed) {
-      if (event.projectId) projects.set(`${event.workspaceId}:${event.projectId}`, event)
+      const current = completedByWorkspace.get(event.workspaceId) || []
+      current.push(event)
+      completedByWorkspace.set(event.workspaceId, current)
     }
-    for (const event of projects.values()) {
-      await detectProjectMeetingLoad(
-        { workspace: { id: event.workspaceId }, user: event.createdBy ? { id: event.createdBy } : null },
-        event.projectId,
-        { persist: true, completeDue: false },
-      )
+    const calendarInspections = new Map()
+    for (const [completedWorkspaceId, events] of completedByWorkspace) {
+      const context = {
+        workspace: { id: completedWorkspaceId },
+        user: events[0]?.createdBy ? { id: events[0].createdBy } : null,
+      }
+      const inspection = await inspections.startInspection(context, {
+        inspectionType: 'calendar',
+        sourceType: 'calendar',
+        summary: 'Reviewed completed meeting activity.',
+      })
+      calendarInspections.set(completedWorkspaceId, {
+        context,
+        events,
+        inspection,
+        opportunities: new Map(),
+        sufficientEvidence: false,
+      })
     }
-    const clients = new Map()
-    for (const event of completed) {
-      if (event.clientId) clients.set(`${event.workspaceId}:${event.clientId}`, event)
+    try {
+      const projects = new Map()
+      for (const event of completed) {
+        if (event.projectId) projects.set(`${event.workspaceId}:${event.projectId}`, event)
+      }
+      for (const event of projects.values()) {
+        const detection = await detectProjectMeetingLoad(
+          { workspace: { id: event.workspaceId }, user: event.createdBy ? { id: event.createdBy } : null },
+          event.projectId,
+          { persist: true, completeDue: false },
+        )
+        const calendarInspection = calendarInspections.get(event.workspaceId)
+        if (detection.status !== 'insufficient_evidence') calendarInspection.sufficientEvidence = true
+        if (detection.opportunity) calendarInspection.opportunities.set(detection.opportunity.id, detection.opportunity)
+      }
+      const clients = new Map()
+      for (const event of completed) {
+        if (event.clientId) clients.set(`${event.workspaceId}:${event.clientId}`, event)
+      }
+      for (const event of clients.values()) {
+        const detection = await detectClientAttentionLoad(
+          { workspace: { id: event.workspaceId }, user: event.createdBy ? { id: event.createdBy } : null },
+          event.clientId,
+          { persist: true, completeDue: false },
+        )
+        const calendarInspection = calendarInspections.get(event.workspaceId)
+        if (detection.status !== 'insufficient_evidence') calendarInspection.sufficientEvidence = true
+        if (detection.opportunity) calendarInspection.opportunities.set(detection.opportunity.id, detection.opportunity)
+      }
+    } catch (error) {
+      for (const value of calendarInspections.values()) {
+        if (value.inspection) {
+          await inspections.failInspection(value.context, value.inspection.id, error, {
+            recordsInspected: value.events.length,
+            metadata: { meetings: value.events.length },
+          })
+        }
+      }
+      throw error
     }
-    for (const event of clients.values()) {
-      await detectClientAttentionLoad(
-        { workspace: { id: event.workspaceId }, user: event.createdBy ? { id: event.createdBy } : null },
-        event.clientId,
-        { persist: true, completeDue: false },
-      )
+    for (const value of calendarInspections.values()) {
+      if (!value.inspection) continue
+      await inspections.completeInspection(value.context, value.inspection.id, {
+        status: value.opportunities.size > 0 ? 'opportunity_created' : 'all_clear',
+        recordsInspected: value.events.length,
+        signalsFound: value.opportunities.size,
+        relatedOpportunityId: value.opportunities.values().next().value?.id || null,
+        summary: value.opportunities.size > 0
+          ? 'Reviewed completed meeting activity and found connected activity worth attention.'
+          : value.sufficientEvidence
+            ? 'Reviewed completed meeting activity; nothing unusual currently needs attention.'
+            : 'Reviewed completed meeting activity, but there was not enough comparison history.',
+        metadata: {
+          meetings: value.events.length,
+          sufficientEvidence: value.sufficientEvidence,
+        },
+      })
     }
     return completed
   }
@@ -862,6 +926,7 @@ export function createConnectedIntelligenceService({
   async function detectProjectMeetingLoad(context, projectId, {
     persist = false,
     completeDue = true,
+    instrument = true,
   } = {}) {
     const { workspaceId } = trustedScope(context)
     const projects = await database.query(
@@ -872,6 +937,14 @@ export function createConnectedIntelligenceService({
     if (!project) {
       throw new ConnectedIntelligenceError('PROJECT_NOT_FOUND', 'Project not found.', 404)
     }
+    const inspection = instrument ? await inspections.startInspection(context, {
+      inspectionType: 'project',
+      sourceType: 'calendar',
+      projectId: project.id,
+      clientId: project.client_id,
+      summary: 'Compared project meeting activity with completed workspace projects.',
+    }) : null
+    try {
     const features = await getMeetingFeatures(context, { completeDue })
     const projectFeatures = new Map(features.projects.map((item) => [item.projectId, item]))
     const observedFeature = projectFeatures.get(project.id)
@@ -936,7 +1009,29 @@ export function createConnectedIntelligenceService({
     } else if (persist && status === 'normal') {
       await resolveActiveOpportunity(workspaceId, project.id)
     }
+    if (inspection) {
+      await inspections.completeInspection(context, inspection.id, {
+        status: opportunity ? 'opportunity_created' : status === 'opportunity' ? 'signal_found' : 'all_clear',
+        recordsInspected: features.meetings.length,
+        signalsFound: status === 'opportunity' ? 1 : 0,
+        relatedOpportunityId: opportunity?.id || null,
+        summary: status === 'opportunity'
+          ? 'Found project meeting activity worth attention.'
+          : status === 'normal'
+            ? 'Project meeting activity did not require attention.'
+            : 'Reviewed project meeting activity, but there was not enough comparison history.',
+        metadata: {
+          meetings: features.meetings.length,
+          projectsCompared: historicalProjects.length,
+          sufficientEvidence: status !== 'insufficient_evidence',
+        },
+      })
+    }
     return { ...result, opportunity }
+    } catch (error) {
+      if (inspection) await inspections.failInspection(context, inspection.id, error)
+      throw error
+    }
   }
 
   async function getCommunicationFeatures(context) {
@@ -1072,6 +1167,7 @@ export function createConnectedIntelligenceService({
   async function detectClientAttentionLoad(context, clientId, {
     persist = false,
     completeDue = true,
+    instrument = true,
   } = {}) {
     const { workspaceId } = trustedScope(context)
     const clientRows = await database.query(
@@ -1080,6 +1176,13 @@ export function createConnectedIntelligenceService({
     )
     const client = clientRows.find((item) => item.id === clientId)
     if (!client) throw new ConnectedIntelligenceError('CLIENT_NOT_FOUND', 'Client not found.', 404)
+    const inspection = instrument ? await inspections.startInspection(context, {
+      inspectionType: 'cross_source',
+      sourceType: 'connected',
+      clientId: client.id,
+      summary: 'Compared client communication and meeting activity.',
+    }) : null
+    try {
     const [communication, meetings] = await Promise.all([
       getCommunicationFeatures(context),
       getMeetingFeatures(context, { completeDue }),
@@ -1162,7 +1265,38 @@ export function createConnectedIntelligenceService({
     } else if (persist && status === 'normal') {
       await resolveClientAttentionOpportunity(workspaceId, client.id)
     }
+    if (inspection) {
+      await inspections.completeInspection(context, inspection.id, {
+        status: opportunity ? 'opportunity_created' : status === 'opportunity' ? 'signal_found' : 'all_clear',
+        recordsInspected: communication.messages.length + meetings.meetings.length,
+        signalsFound: status === 'opportunity' ? 1 : 0,
+        relatedOpportunityId: opportunity?.id || null,
+        summary: status === 'opportunity'
+          ? 'Found connected client activity worth attention.'
+          : status === 'normal'
+            ? 'Connected client activity did not require attention.'
+            : 'Reviewed connected client activity, but there was not enough comparison history.',
+        metadata: {
+          communicationRecords: communication.messages.length,
+          meetingRecords: meetings.meetings.length,
+          clients: comparisonClients.length + 1,
+          sufficientEvidence: status !== 'insufficient_evidence',
+        },
+      })
+    }
     return { ...result, opportunity }
+    } catch (error) {
+      if (inspection) await inspections.failInspection(context, inspection.id, error)
+      throw error
+    }
+  }
+
+  async function getSummary(context) {
+    const [workspace, intelligence] = await Promise.all([
+      getWorkspaceSummary(context),
+      inspections.getSummary(context),
+    ])
+    return { ...workspace, ...intelligence }
   }
 
   async function getWorkspaceSummary(context) {
@@ -1294,6 +1428,47 @@ export function createConnectedIntelligenceService({
     return rows.map(mapOpportunity)
   }
 
+  async function getOpportunityEvidence(context, opportunityId) {
+    const { workspaceId } = trustedScope(context)
+    const rows = await database.query(
+      'SELECT * FROM connected_opportunities WHERE workspace_id = $1 AND id = $2',
+      [workspaceId, String(opportunityId || '')],
+    )
+    const opportunity = mapOpportunity(rows[0])
+    if (!opportunity) return null
+    const eventIds = [...new Set(opportunity.evidence
+      .filter((item) => item?.type === 'workspace_event' && item.id)
+      .map((item) => String(item.id)))]
+      .slice(0, 100)
+    if (eventIds.length === 0) return { opportunity, evidence: [] }
+    const placeholders = eventIds.map((_, index) => `$${index + 2}`).join(', ')
+    const evidenceRows = await database.query(
+      `SELECT id, event_type, entity_type, entity_id, client_id, project_id,
+         source_channel, importance, occurred_at
+       FROM workspace_events
+       WHERE workspace_id = $1 AND id IN (${placeholders})`,
+      [workspaceId, ...eventIds],
+    )
+    const evidenceById = new Map(evidenceRows.map((item) => [item.id, item]))
+    return {
+      opportunity,
+      evidence: eventIds.flatMap((id) => {
+        const event = evidenceById.get(id)
+        return event ? [{
+          id: event.id,
+          eventType: event.event_type,
+          entityType: event.entity_type,
+          entityId: event.entity_id,
+          clientId: event.client_id,
+          projectId: event.project_id,
+          source: event.source_channel,
+          importance: Number(event.importance),
+          occurredAt: event.occurred_at,
+        }] : []
+      }),
+    }
+  }
+
   return {
     createCalendarEvent,
     listCalendarEvents,
@@ -1307,6 +1482,14 @@ export function createConnectedIntelligenceService({
     detectProjectMeetingLoad,
     detectClientAttentionLoad,
     getWorkspaceSummary,
+    getIntelligenceSummary: inspections.getSummary,
+    getSummary,
+    startInspection: inspections.startInspection,
+    completeInspection: inspections.completeInspection,
+    failInspection: inspections.failInspection,
+    listActivity: inspections.listActivity,
+    getActivity: inspections.getActivity,
     listOpportunities,
+    getOpportunityEvidence,
   }
 }

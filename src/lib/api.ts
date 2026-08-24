@@ -895,6 +895,12 @@ export type ConnectedOpportunity = {
 }
 
 export type ConnectedIntelligenceSummary = {
+  findings: number
+  clientsInspected: number
+  messagesInspected: number
+  meetingsInspected: number
+  recentInspections: number
+  status: 'attention_needed' | 'all_clear' | 'insufficient_activity'
   counts: {
     clients: number
     projects: number
@@ -932,6 +938,22 @@ export type ConnectedIntelligenceSummary = {
       payments: number
     }
   }>
+}
+
+export type ConnectedIntelligenceActivity = {
+  id: string
+  type: string
+  source: string
+  status: 'inspecting' | 'all_clear' | 'signal_found' | 'opportunity_created' | 'failed'
+  title: string
+  summary: string | null
+  counts: Record<string, number>
+  clientId: string | null
+  projectId: string | null
+  opportunityId: string | null
+  character: 'mail' | 'calendar' | 'investigate' | 'insight' | 'connected' | 'all-clear'
+  startedAt: string
+  completedAt: string | null
 }
 
 export type ProjectTask = {
@@ -1824,6 +1846,34 @@ export const api = {
         throw new Error(payload.error || 'Unable to load Connected Intelligence findings.')
       }
       return payload.opportunities
+    },
+    async activity({ limit = 50, offset = 0 } = {}): Promise<{
+      activity: ConnectedIntelligenceActivity[]
+      pagination: { limit: number; offset: number; total: number }
+    }> {
+      const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+      const response = await fetch(`/api/connected-intelligence/activity?${params}`, {
+        credentials: 'same-origin',
+      })
+      const payload = (await response.json()) as {
+        activity?: ConnectedIntelligenceActivity[]
+        pagination?: { limit: number; offset: number; total: number }
+        error?: string
+      }
+      if (!response.ok || !payload.activity || !payload.pagination) {
+        throw new Error(payload.error || 'Unable to load Connected Intelligence activity.')
+      }
+      return { activity: payload.activity, pagination: payload.pagination }
+    },
+    async activityById(id: string): Promise<ConnectedIntelligenceActivity> {
+      const response = await fetch(`/api/connected-intelligence/activity/${encodeURIComponent(id)}`, {
+        credentials: 'same-origin',
+      })
+      const payload = (await response.json()) as { activity?: ConnectedIntelligenceActivity; error?: string }
+      if (!response.ok || !payload.activity) {
+        throw new Error(payload.error || 'Unable to load Connected Intelligence activity.')
+      }
+      return payload.activity
     },
     async meetingFeatures(): Promise<MeetingFeatures> {
       const response = await fetch('/api/connected-intelligence/meeting-features', {

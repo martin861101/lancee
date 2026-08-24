@@ -40,6 +40,65 @@ event bus, activity ledger, Signal Engine, graph store, or AI ingestion path.
 Existing `decision_*` tables and services remain internal Decision Dynamics
 components and were not renamed.
 
+## Inspection and activity foundation
+
+Phase 1A adds observability around the existing engine without changing either
+detector or its thresholds:
+
+```text
+workspace signals
+      ↓
+connected_inspections (what Lancee checked)
+      ↓
+feature calculation
+      ↓
+detector
+      ↓
+      ├── no finding → all_clear
+      │
+      └── finding → connected_opportunities
+                       ↓
+                    workspace-event evidence
+```
+
+`workspace_events` remains the authoritative observed event/evidence layer
+where the current Calendar and Mail paths apply. `connected_inspections` records
+one logical, auditable intelligence operation with source/type, optional
+client/project, counts, status, a bounded summary, safe count metadata, timing,
+and an optional opportunity link. `connected_opportunities` remains the
+deduplicated store for what Lancee found worth surfacing. An inspection never
+creates an opportunity merely to produce activity.
+
+The real instrumentation points are:
+
+- one Mail inspection for a non-empty Inbox sync batch, with observed message,
+  thread, matched-client, and compared-project counts;
+- one Calendar inspection per workspace batch of meetings actually completed;
+- one project inspection around each existing project meeting-load detector
+  run;
+- one cross-source client inspection around each existing client attention
+  detector run.
+
+Detector inspections link to the existing upserted opportunity when one is
+created or reused. Repeated detection therefore creates an audit record of the
+new inspection but not a duplicate finding. Inspection writes are best-effort:
+a persistence failure is logged and cannot roll back or corrupt the underlying
+workspace observation, feature calculation, or opportunity write.
+
+The current summary states are deterministic:
+
+- `attention_needed`: at least one active connected opportunity exists;
+- `all_clear`: no active finding exists and a successful inspection processed
+  real records with sufficient evidence;
+- `insufficient_activity`: there is no active finding and no qualifying
+  inspection history, including the empty-workspace case.
+
+`findings` counts active opportunities. `clientsInspected` counts distinct
+non-failed inspection targets. `messagesInspected` and `meetingsInspected` sum
+records from successful logical Mail and Calendar inspections respectively;
+they are not counts of raw body copies. `recentInspections` is the number of
+inspection operations started in the last seven days.
+
 ## Calendar records
 
 `calendar_events` stores:
@@ -139,7 +198,9 @@ All routes require the authenticated workspace session.
 | `GET` | `/api/connected-intelligence/meeting-features` | Read deterministic meeting features and evidence |
 | `GET` | `/api/connected-intelligence/projects/:id/meeting-load` | Evaluate one project without fabricating evidence |
 | `GET` | `/api/connected-intelligence/opportunities` | List persisted opportunities; defaults to active |
-| `GET` | `/api/connected-intelligence/summary` | Read workspace record counts and authoritative Client → Project record relationships |
+| `GET` | `/api/connected-intelligence/summary` | Read the inspection/finding state plus the existing relationship/count payload |
+| `GET` | `/api/connected-intelligence/activity` | List semantic inspection activity with bounded limit/offset pagination |
+| `GET` | `/api/connected-intelligence/activity/:id` | Read one workspace-scoped semantic inspection |
 
 Calendar creation requires the existing `Idempotency-Key` mutation header.
 
@@ -321,6 +382,7 @@ Opening an IMAP message also returns its optional resolved relationship.
 
 ```bash
 npm run verify:connected-intelligence
+npm run verify:connected-inspections
 npm run verify:signals
 npm run verify:dynamics
 ```
@@ -331,6 +393,28 @@ Calendar/Mail identity reuse, confirmed thread/project inheritance,
 communication and meeting aggregates, insufficient/normal/abnormal client
 attention, cross-source evidence, opportunity deduplication/resolution, Phase 1
 meeting load, and Signal Engine compatibility.
+
+`verify:connected-inspections` additionally covers all-clear processing without
+a fake opportunity, finding linkage and deduplication, insufficient activity,
+failed inspection lifecycle, workspace isolation, safe semantic activity,
+evidence resolution, MCP exposure, and the Hermes/Workspace AI contract.
+
+## Hermes and legacy decision history
+
+Connected Intelligence is the current normal Workspace AI intelligence
+contract. Hermes receives workspace-scoped summary, finding, inspection
+activity, and finding-evidence capabilities. Ordinary answers must use the
+three summary states above, mention only observed sources/counts, keep evidence
+separate from possible explanations, and omit internal tool, detector, table,
+threshold, event-id, and queue terminology unless technical detail is requested.
+
+The existing structured Decision Dynamics tables, migrations, APIs, and tools
+are intentionally retained for historical data and compatibility. MCP now
+labels that capability namespace as legacy decision history, the normal
+Workspace AI snapshot no longer injects decision-review collections, and
+legacy tools are selected only for explicit historical structured-decision
+requests. An empty legacy decision or review collection never represents the
+state of Connected Intelligence.
 
 ## Synthetic historical benchmark
 
