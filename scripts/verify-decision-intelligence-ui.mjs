@@ -170,7 +170,7 @@ try {
   assert.equal((await dynamics.getDecisionIntelligenceOverview(contextA)).metrics.decisionsObserved, 8)
   assert.equal((await dynamics.getDecision(contextB, workspaceBDecision.id)).id, workspaceBDecision.id)
 
-  const pageSource = readFileSync(new URL('../src/components/dashboard/IntelligencePage.tsx', import.meta.url), 'utf8')
+  const pageSource = readFileSync(new URL('../src/components/intelligence/ConnectedIntelligencePage.tsx', import.meta.url), 'utf8')
   const chatSource = readFileSync(new URL('../src/components/dashboard/WorkspaceChat.tsx', import.meta.url), 'utf8')
   for (const requiredState of [
     'Your work knows more than you think.',

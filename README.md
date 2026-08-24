@@ -975,6 +975,21 @@ durable single-process development fallback through `DATABASE_PATH`.
 
 ## Development and verification
 
+### Frontend page boundaries
+
+`src/App.tsx` owns the authenticated application shell, workspace/session
+orchestration, navigation, top-level layout, and global modal state. Large
+dashboard pages are loaded lazily from `src/components/`. Home is implemented
+in `src/components/OverviewPage.tsx`, while the current Connected Intelligence
+experience and its feature-owned stylesheet live in
+`src/components/intelligence/ConnectedIntelligencePage.tsx` and
+`src/components/intelligence/connected-intelligence.css`.
+
+Shared shell visuals used by both the shell and extracted pages live in
+`src/components/AppIcon.tsx` and `src/components/BrandMark.tsx`. Keep new
+Connected Intelligence UX work inside the intelligence feature boundary and
+leave authentication, workspace switching, and global overlays in the shell.
+
 ```bash
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm dev

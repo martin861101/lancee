@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { api, type ConnectedIntelligenceSummary, type ConnectedOpportunity } from '../../lib/api'
-import { DASHBOARD_ASSISTANT_QUERY_EVENT } from './WorkspaceChat'
-import AnalyticsPage from './AnalyticsPage'
-import './dashboard-page.css'
-import './intelligence-page.css'
+import AnalyticsPage from '../dashboard/AnalyticsPage'
+import { DASHBOARD_ASSISTANT_QUERY_EVENT } from '../dashboard/WorkspaceChat'
+import '../dashboard/dashboard-page.css'
+import './connected-intelligence.css'
 
 type CountMap = Record<string, number>
 
@@ -526,7 +526,7 @@ function ConnectionProject({ project }: { project: ConnectedProject }) {
   return <div className="connected-map__project"><strong>{project.name}</strong><div>{labels.filter(([key]) => project.connections[key] > 0).map(([key, name]) => <span key={key}>{project.connections[key]} {name}</span>)}</div></div>
 }
 
-export default function IntelligencePage({ canManage = true }: { canManage?: boolean }) {
+export default function ConnectedIntelligencePage({ canManage = true }: { canManage?: boolean }) {
   const [summary, setSummary] = useState<ConnectedIntelligenceSummary | null>(null)
   const [opportunities, setOpportunities] = useState<ConnectedOpportunity[]>([])
   const [selectedOpportunity, setSelectedOpportunity] = useState<ConnectedOpportunity | null>(null)

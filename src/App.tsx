@@ -43,9 +43,6 @@ import {
   type WorkspaceBuilderState,
   type WorkspaceContext,
   type WorkspaceNotification,
-  type WorkspacePulse,
-  type WorkspacePulseItem,
-  type WorkspacePulseMood,
   type WhatsAppStatus,
 } from './lib/api'
 import { syncIdeaMutations } from './lib/ideasRepository'
@@ -53,12 +50,15 @@ import { IDEA_SYNC_REQUEST_EVENT } from './pwa'
 import { applyTheme, getStoredTheme, toggleTheme, type Theme } from './lib/theme'
 import type { WorkflowTemplate } from './components/WorkflowsPage'
 import { BUSINESS_IDENTITY } from './lib/business'
+import Icon, { type IconName } from './components/AppIcon'
+import BrandMark from './components/BrandMark'
 
 const IdeasCanvasPage = lazy(() => import('./components/IdeasCanvasPage'))
+const OverviewPage = lazy(() => import('./components/OverviewPage'))
 const MoneyPage = lazy(() => import('./components/MoneyPage'))
 const WorkPage = lazy(() => import('./components/WorkPage'))
 const ClientsPage = lazy(() => import('./components/dashboard/ClientsPage'))
-const IntelligencePage = lazy(() => import('./components/dashboard/IntelligencePage'))
+const ConnectedIntelligencePage = lazy(() => import('./components/intelligence/ConnectedIntelligencePage'))
 const TeamPage = lazy(() => import('./components/dashboard/TeamPage'))
 const FilesPage = lazy(() => import('./components/dashboard/FilesPage'))
 const MessagesPage = lazy(() => import('./components/dashboard/MessagesPage'))
@@ -152,53 +152,6 @@ type ModalName =
   | 'whatsapp'
   | 'integration-request'
   | null
-type IconName =
-  | 'activity'
-  | 'alert'
-  | 'arrow-right'
-  | 'arrow-up-right'
-  | 'bell'
-  | 'bot'
-  | 'briefcase'
-  | 'calendar'
-  | 'check'
-  | 'check-circle'
-  | 'chevron-down'
-  | 'close'
-  | 'cloud'
-  | 'cloud-rain'
-  | 'cloud-sun'
-  | 'code'
-  | 'command'
-  | 'copy'
-  | 'credit-card'
-  | 'file'
-  | 'filter'
-  | 'grid'
-  | 'help'
-  | 'key'
-  | 'layers'
-  | 'lightbulb'
-  | 'logout'
-  | 'map-pin'
-  | 'menu'
-  | 'messages'
-  | 'moon'
-  | 'more'
-  | 'pause'
-  | 'play'
-  | 'plug'
-  | 'plus'
-  | 'search'
-  | 'settings'
-  | 'shield'
-  | 'sparkles'
-  | 'snowflake'
-  | 'sun'
-  | 'target'
-  | 'trash'
-  | 'user'
-  | 'wallet'
 
 const navItems: { id: Page; label: string; icon: IconName; section: string; modules?: string[]; adminOnly?: boolean }[] = [
   { id: 'overview', label: 'Home', icon: 'grid', section: 'Your work' },
@@ -219,266 +172,7 @@ const navItems: { id: Page; label: string; icon: IconName; section: string; modu
   { id: 'admin', label: 'Admin', icon: 'shield', section: 'Platform', adminOnly: true },
 ]
 
-function Icon({
-  name,
-  size = 18,
-  strokeWidth = 1.8,
-  className,
-}: {
-  name: IconName
-  size?: number
-  strokeWidth?: number
-  className?: string
-}) {
-  const paths: Record<IconName, ReactNode> = {
-    activity: (
-      <>
-        <path d="M3 12h4l2.2-7 4.3 14 2.2-7H21" />
-      </>
-    ),
-    alert: (
-      <>
-        <path d="M10.3 3.5 2.6 17a2 2 0 0 0 1.8 3h15.2a2 2 0 0 0 1.8-3L13.7 3.5a2 2 0 0 0-3.4 0Z" />
-        <path d="M12 9v4M12 17h.01" />
-      </>
-    ),
-    'arrow-right': <path d="M5 12h14m-5-5 5 5-5 5" />,
-    'arrow-up-right': <path d="M7 17 17 7M8 7h9v9" />,
-    bell: (
-      <>
-        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
-        <path d="M10 21h4" />
-      </>
-    ),
-    bot: (
-      <>
-        <rect x="4" y="7" width="16" height="13" rx="3" />
-        <path d="M12 3v4M8 12h.01M16 12h.01M9 16h6" />
-      </>
-    ),
-    briefcase: (
-      <>
-        <rect x="3" y="7" width="18" height="13" rx="2" />
-        <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18M10 12v2h4v-2" />
-      </>
-    ),
-    calendar: (
-      <>
-        <rect x="3" y="5" width="18" height="16" rx="2" />
-        <path d="M16 3v4M8 3v4M3 10h18" />
-      </>
-    ),
-    check: <path d="m5 12 4 4L19 6" />,
-    'check-circle': (
-      <>
-        <circle cx="12" cy="12" r="9" />
-        <path d="m8 12 2.5 2.5L16.5 9" />
-      </>
-    ),
-    'chevron-down': <path d="m7 10 5 5 5-5" />,
-    close: <path d="m6 6 12 12M18 6 6 18" />,
-    cloud: (
-      <path d="M7.5 18.5h9a4.5 4.5 0 0 0 .5-8.97A5.5 5.5 0 0 0 6.32 11 3.75 3.75 0 0 0 7.5 18.5Z" />
-    ),
-    'cloud-rain': (
-      <>
-        <path d="M7.5 16.5h9a4.5 4.5 0 0 0 .5-8.97A5.5 5.5 0 0 0 6.32 9 3.75 3.75 0 0 0 7.5 16.5Z" />
-        <path d="m8 19-1 2M13 19l-1 2M18 19l-1 2" />
-      </>
-    ),
-    'cloud-sun': (
-      <>
-        <circle cx="16.5" cy="7.5" r="3" />
-        <path d="M16.5 2.5v1M16.5 11.5v1M11.5 7.5h1M20.5 7.5h1M13 4l.7.7M19.3 10.3l.7.7M13.7 16.5h6a4 4 0 0 0 .45-7.98A5 5 0 0 0 4.3 10.2a3.5 3.5 0 0 0 1.2 6.3h3.2" />
-      </>
-    ),
-    code: <path d="m8 9-4 3 4 3M16 9l4 3-4 3M14 5l-4 14" />,
-    command: (
-      <>
-        <path d="M9 6V5a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v14a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3Z" />
-      </>
-    ),
-    copy: (
-      <>
-        <rect x="8" y="8" width="12" height="12" rx="2" />
-        <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
-      </>
-    ),
-    'credit-card': (
-      <>
-        <rect x="2" y="5" width="20" height="14" rx="2" />
-        <path d="M2 10h20M6 15h4" />
-      </>
-    ),
-    file: (
-      <>
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
-        <path d="M14 2v6h6M8 13h8M8 17h6" />
-      </>
-    ),
-    filter: <path d="M4 6h16M7 12h10M10 18h4" />,
-    grid: (
-      <>
-        <rect x="3" y="3" width="7" height="7" rx="2" />
-        <rect x="14" y="3" width="7" height="7" rx="2" />
-        <rect x="3" y="14" width="7" height="7" rx="2" />
-        <rect x="14" y="14" width="7" height="7" rx="2" />
-      </>
-    ),
-    help: (
-      <>
-        <circle cx="12" cy="12" r="9" />
-        <path d="M9.5 9a2.7 2.7 0 1 1 3.6 2.5c-.8.3-1.1.8-1.1 1.5v.5M12 17h.01" />
-      </>
-    ),
-    key: (
-      <>
-        <circle cx="8" cy="15" r="4" />
-        <path d="m11 12 9-9M15 8l3 3M17 6l2 2" />
-      </>
-    ),
-    layers: (
-      <>
-        <path d="m12 2 9 5-9 5-9-5 9-5Z" />
-        <path d="m3 12 9 5 9-5M3 17l9 5 9-5" />
-      </>
-    ),
-    lightbulb: (
-      <>
-        <path d="M9 18h6M10 22h4M8.7 15.3A7 7 0 1 1 15.3 15.3C14.5 16 14 17 14 18h-4c0-1-.5-2-1.3-2.7Z" />
-      </>
-    ),
-    logout: (
-      <>
-        <path d="M10 17l5-5-5-5M15 12H3M15 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" />
-      </>
-    ),
-    'map-pin': (
-      <>
-        <path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" />
-        <circle cx="12" cy="10" r="2.5" />
-      </>
-    ),
-    menu: <path d="M4 7h16M4 12h16M4 17h16" />,
-    messages: (
-      <>
-        <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" />
-        <path d="M8 9h8M8 13h5" />
-      </>
-    ),
-    moon: (
-      <>
-        <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z" />
-      </>
-    ),
-    more: (
-      <>
-        <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
-        <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
-        <circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" />
-      </>
-    ),
-    pause: (
-      <>
-        <rect x="6" y="4" width="4" height="16" rx="1" />
-        <rect x="14" y="4" width="4" height="16" rx="1" />
-      </>
-    ),
-    play: <path d="m8 5 11 7-11 7Z" />,
-    plug: (
-      <>
-        <path d="m12 22 1-5-5-1 8-8 4 4-8 8" />
-        <path d="m15 5 4 4M17 3l4 4M8 16l-5 5" />
-      </>
-    ),
-    plus: <path d="M12 5v14M5 12h14" />,
-    search: (
-      <>
-        <circle cx="11" cy="11" r="7" />
-        <path d="m20 20-4-4" />
-      </>
-    ),
-    settings: (
-      <>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6V3h4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" />
-      </>
-    ),
-    shield: (
-      <>
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
-        <path d="m9 12 2 2 4-4" />
-      </>
-    ),
-    sparkles: (
-      <>
-        <path d="m12 3-1.2 3.3L7.5 7.5l3.3 1.2L12 12l1.2-3.3 3.3-1.2-3.3-1.2L12 3Z" />
-        <path d="m5 13-.8 2.2L2 16l2.2.8L5 19l.8-2.2L8 16l-2.2-.8L5 13ZM19 13l-.6 1.4L17 15l1.4.6L19 17l.6-1.4L21 15l-1.4-.6L19 13Z" />
-      </>
-    ),
-    snowflake: (
-      <>
-        <path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9" />
-        <path d="m9 5 3 2 3-2M9 19l3-2 3 2M5 11l3 1-1 3M19 11l-3 1 1 3" />
-      </>
-    ),
-    sun: (
-      <>
-        <circle cx="12" cy="12" r="4" />
-        <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-      </>
-    ),
-    target: (
-      <>
-        <circle cx="12" cy="12" r="9" />
-        <circle cx="12" cy="12" r="5" />
-        <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
-      </>
-    ),
-    trash: (
-      <>
-        <path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6" />
-      </>
-    ),
-    user: (
-      <>
-        <circle cx="12" cy="8" r="4" />
-        <path d="M4 21a8 8 0 0 1 16 0" />
-      </>
-    ),
-    wallet: (
-      <>
-        <path d="M4 6h14a2 2 0 0 1 2 2v11H4a2 2 0 0 1-2-2V6a3 3 0 0 1 3-3h12" />
-        <path d="M16 11h6v5h-6a2.5 2.5 0 0 1 0-5Z" />
-      </>
-    ),
-  }
 
-  return (
-    <svg
-      className={className}
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {paths[name]}
-    </svg>
-  )
-}
-
-function BrandMark({ compact = false }: { compact?: boolean }) {
-  return (
-    <div className={`brand-mark${compact ? ' brand-mark--compact' : ''}`} aria-hidden="true">
-      <img src="/img/icon.png" alt="" />
-    </div>
-  )
-}
 
 function UserAvatar({ user, className = '' }: { user: User; className?: string }) {
   const classes = `user-avatar ${className}`.trim()
@@ -734,365 +428,6 @@ function PageHeader({
   )
 }
 
-function formatOverviewDate(
-  value: Date,
-  options: Intl.DateTimeFormatOptions,
-  timeZone?: string | null,
-) {
-  try {
-    return new Intl.DateTimeFormat('en-US', {
-      ...options,
-      ...(timeZone ? { timeZone } : {}),
-    }).format(value)
-  } catch {
-    return new Intl.DateTimeFormat('en-US', options).format(value)
-  }
-}
-
-function overviewLocalHour(value: Date, timeZone?: string | null) {
-  try {
-    const hour = new Intl.DateTimeFormat('en-US', {
-      hour: '2-digit',
-      hourCycle: 'h23',
-      ...(timeZone ? { timeZone } : {}),
-    })
-      .formatToParts(value)
-      .find((part) => part.type === 'hour')?.value
-    const parsedHour = Number(hour)
-    return Number.isFinite(parsedHour) ? parsedHour : value.getHours()
-  } catch {
-    return value.getHours()
-  }
-}
-
-function weatherPresentation(weather: WorkspaceContext['weather']): {
-  label: string
-  icon: IconName
-} {
-  if (!weather) return { label: 'Weather unavailable', icon: 'cloud' }
-
-  const { weatherCode: code, isDay } = weather
-  if (code === 0) return { label: isDay ? 'Clear sky' : 'Clear night', icon: isDay ? 'sun' : 'moon' }
-  if (code === 1) return { label: 'Mainly clear', icon: 'cloud-sun' }
-  if (code === 2) return { label: 'Partly cloudy', icon: 'cloud-sun' }
-  if (code === 3) return { label: 'Overcast', icon: 'cloud' }
-  if (code === 45 || code === 48) return { label: 'Foggy', icon: 'cloud' }
-  if (code >= 51 && code <= 57) return { label: 'Drizzle', icon: 'cloud-rain' }
-  if (code >= 61 && code <= 67) return { label: 'Rain', icon: 'cloud-rain' }
-  if (code >= 71 && code <= 77) return { label: 'Snow', icon: 'snowflake' }
-  if (code >= 80 && code <= 82) return { label: 'Rain showers', icon: 'cloud-rain' }
-  if (code >= 85 && code <= 86) return { label: 'Snow showers', icon: 'snowflake' }
-  if (code >= 95) return { label: 'Thunderstorms', icon: 'cloud-rain' }
-  return { label: 'Current conditions', icon: 'cloud' }
-}
-
-function overviewLocationLabel(location: WorkspaceContext['location']) {
-  if (!location) return 'Location unavailable'
-  return [location.city, location.country].filter(Boolean).join(', ') || 'Local conditions'
-}
-
-function workspacePulseMood(weather: WorkspaceContext['weather']): WorkspacePulseMood {
-  if (!weather) return 'steady'
-  const code = weather.weatherCode
-  if (!weather.isDay) return code <= 1 ? 'clear-night' : 'cloudy-night'
-  if (code <= 1) return 'sunny'
-  if (code === 2 || code === 3 || code === 45 || code === 48) return 'cloudy'
-  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return 'rainy'
-  if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) return 'snowy'
-  if (code >= 95) return 'stormy'
-  return 'cloudy'
-}
-
-function localWorkspacePulse({
-  user,
-  workspaceContext,
-  analytics,
-  runs,
-  notifications,
-  generatedAt,
-}: {
-  user: User
-  workspaceContext: WorkspaceContext | null
-  analytics: {
-    openProjects: number; dueSoonProjects: number; totalClients: number
-    outstandingAmount: number; pendingInvoices: number; dueThisWeek: number
-  } | null
-  runs: Run[]
-  notifications: WorkspaceNotification[]
-  generatedAt: string
-}): WorkspacePulse {
-  const firstName = user.name.split(' ')[0] || 'there'
-  const mood = workspacePulseMood(workspaceContext?.weather || null)
-  const failedRun = runs.find((run) => run.status === 'failed')
-  const alert = notifications.find((notification) =>
-    !notification.readAt && /warning|alert|decision|failed|overdue/i.test(`${notification.kind} ${notification.title}`),
-  )
-  const needsAttention = (analytics?.pendingInvoices || 0) + (failedRun ? 1 : 0) + (alert ? 1 : 0)
-  const headline = needsAttention > 0
-    ? `A few things need your eye, ${firstName}.`
-    : mood === 'rainy' || mood === 'stormy'
-      ? `A good day for focused progress, ${firstName}.`
-      : mood === 'clear-night' || mood === 'cloudy-night'
-        ? `A calm evening to close the loop, ${firstName}.`
-        : mood === 'sunny'
-          ? `A clear day to move work forward, ${firstName}.`
-          : `Your workspace is ready, ${firstName}.`
-  const facts: string[] = []
-  if ((analytics?.openProjects || 0) > 0) facts.push(`${analytics!.openProjects} active project${analytics!.openProjects === 1 ? '' : 's'}`)
-  if ((analytics?.dueThisWeek || 0) > 0) facts.push(`${analytics!.dueThisWeek} due this week`)
-  if ((analytics?.pendingInvoices || 0) > 0) facts.push(`${analytics!.pendingInvoices} invoice${analytics!.pendingInvoices === 1 ? '' : 's'} awaiting payment`)
-  const items: WorkspacePulseItem[] = []
-  if ((analytics?.dueThisWeek || 0) > 0) {
-    items.push({
-      id: 'local-due-this-week',
-      title: `${analytics!.dueThisWeek} project${analytics!.dueThisWeek === 1 ? '' : 's'} due this week`,
-      detail: 'Review milestones and client handoffs',
-      kind: 'deadline',
-      target: 'work',
-    })
-  }
-  if ((analytics?.pendingInvoices || 0) > 0) {
-    items.push({
-      id: 'local-pending-invoices',
-      title: `${analytics!.pendingInvoices} invoice${analytics!.pendingInvoices === 1 ? '' : 's'} awaiting payment`,
-      detail: 'Open invoicing to review follow-ups',
-      kind: 'money',
-      target: 'money',
-    })
-  }
-  if (alert) {
-    items.push({
-      id: `local-alert-${alert.id}`,
-      title: alert.title,
-      detail: alert.body || 'Needs your attention',
-      kind: 'attention',
-      target: alert.entityType === 'project' ? 'work' : alert.entityType === 'invoice' ? 'money' : 'intelligence',
-    })
-  } else if (failedRun) {
-    items.push({
-      id: `local-run-${failedRun.id}`,
-      title: failedRun.automationName || 'Automation needs attention',
-      detail: 'The latest run did not complete',
-      kind: 'attention',
-      target: 'automations',
-    })
-  }
-  if (items.length === 0) {
-    items.push({
-      id: 'local-clear',
-      title: 'Nothing urgent is waiting',
-      detail: 'Your workspace is clear for focused work',
-      kind: 'clear',
-      target: 'work',
-    })
-  }
-  return {
-    headline,
-    message: facts.length > 0
-      ? `Today’s view: ${facts.slice(0, 3).join(', ')}. Start with the item that creates the most breathing room.`
-      : 'Nothing urgent is crowding the day. Choose one meaningful next step and give it your full attention.',
-    mood,
-    generatedAt,
-    source: 'fallback',
-    items: items.slice(0, 4),
-    refreshPending: false,
-  }
-}
-
-function workspacePulseItemIcon(kind: WorkspacePulseItem['kind']): IconName {
-  if (kind === 'deadline') return 'calendar'
-  if (kind === 'money') return 'wallet'
-  if (kind === 'attention') return 'alert'
-  if (kind === 'activity') return 'activity'
-  if (kind === 'task') return 'briefcase'
-  return 'check-circle'
-}
-
-function OverviewPage(props: {
-  user: User
-  automations: Automation[]
-  runs: Run[]
-  notifications: WorkspaceNotification[]
-  workspaceContext: WorkspaceContext | null
-  prompt: string
-  selectedAutomation: string
-  busy: boolean
-  analytics: {
-    openProjects: number; dueSoonProjects: number; totalClients: number
-    outstandingAmount: number; pendingInvoices: number; dueThisWeek: number
-  } | null
-  onPromptChange: (value: string) => void
-  onAutomationChange: (value: string) => void
-  onDispatch: (event: FormEvent<HTMLFormElement>) => void
-  onNavigate: (page: Page) => void
-  onCreateProject: () => void
-}) {
-  const {
-    user,
-    runs,
-    notifications,
-    workspaceContext,
-    analytics,
-    onNavigate,
-    onCreateProject,
-  } = props
-  const [now, setNow] = useState(() => new Date())
-  const [remotePulse, setRemotePulse] = useState<WorkspacePulse | null>(null)
-  const [fallbackGeneratedAt] = useState(() => new Date().toISOString())
-  const timeZone = workspaceContext?.location?.timezone
-  const today = formatOverviewDate(now, {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  }, timeZone)
-  const localTime = formatOverviewDate(now, {
-    hour: 'numeric',
-    minute: '2-digit',
-  }, timeZone)
-  const hour = overviewLocalHour(now, timeZone)
-  const greeting = hour < 5 ? 'Good evening' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
-  const weather = workspaceContext?.weather
-  const weatherInfo = weatherPresentation(weather ?? null)
-  const locationLabel = overviewLocationLabel(workspaceContext?.location || null)
-  const temperatureLabel = weather ? `${Math.round(weather.temperatureC)}°C` : '—'
-  const firstName = user.name.split(' ')[0] || 'there'
-  const runningAutomations = runs.filter((run) => run.status === 'running').length
-  const fallbackPulse = useMemo(() => localWorkspacePulse({
-    user,
-    workspaceContext,
-    analytics,
-    runs,
-    notifications,
-    generatedAt: fallbackGeneratedAt,
-  }), [user, workspaceContext, analytics, runs, notifications, fallbackGeneratedAt])
-  const pulse = remotePulse || fallbackPulse
-
-  useEffect(() => {
-    const clock = window.setInterval(() => setNow(new Date()), 1_000)
-    return () => window.clearInterval(clock)
-  }, [])
-
-  useEffect(() => {
-    let active = true
-    let retry: number | undefined
-    let attempts = 0
-    setRemotePulse(null)
-    const load = () => {
-      attempts += 1
-      void api.workspace.getPulse().then((nextPulse) => {
-        if (!active) return
-        setRemotePulse(nextPulse)
-        if (nextPulse.source === 'fallback' && nextPulse.refreshPending && attempts < 3) {
-          retry = window.setTimeout(load, 1_800)
-        }
-      }).catch(() => undefined)
-    }
-    load()
-    return () => {
-      active = false
-      if (retry) window.clearTimeout(retry)
-    }
-  }, [user.workspaceId])
-
-  return (
-    <div className="page page--overview">
-      <div className="overview-scene" data-mood={pulse.mood}>
-        <section className="overview-welcome" aria-labelledby="workspace-pulse-title">
-          <span className="overview-welcome__eyebrow">Welcome back</span>
-          <h1 id="workspace-pulse-title">{firstName} <span aria-hidden="true">👋</span></h1>
-          <div className="overview-welcome__weather-line">
-            {weather ? `${weatherInfo.label} today.` : `${greeting}, your workspace is ready.`}
-            <span className="overview-welcome__sun" aria-hidden="true"><Icon name={weatherInfo.icon} size={30} /></span>
-          </div>
-          <p className="overview-welcome__note" aria-live="polite" key={`${pulse.source}-${pulse.generatedAt}`}>
-            {pulse.message}
-          </p>
-        </section>
-
-        <aside className="overview-weather" aria-label={`Weather in ${locationLabel}`}>
-          <div className="overview-weather__summary">
-            <span className="overview-weather__icon" aria-hidden="true"><Icon name={weatherInfo.icon} size={50} /></span>
-            <span>
-              <strong>{temperatureLabel}</strong>
-              <small><Icon name="map-pin" size={12} /> {locationLabel}</small>
-              <em>{weatherInfo.label}</em>
-            </span>
-          </div>
-          <div className="overview-weather__details">
-            <span><small>Now</small><Icon name={weatherInfo.icon} size={23} /><strong>{temperatureLabel}</strong></span>
-            <span><small>Today</small><Icon name="calendar" size={22} /><strong>{today.split(',')[0]}</strong></span>
-            <span><small>Local</small><Icon name={hour >= 18 || hour < 6 ? 'moon' : 'sun'} size={22} /><strong>{localTime}</strong></span>
-          </div>
-        </aside>
-
-        <nav className="overview-quick-actions" aria-label="Quick actions">
-          <button className="is-primary" onClick={onCreateProject}><Icon name="plus" size={19} /> Create Project</button>
-          <button onClick={() => onNavigate('work')}><Icon name="check-circle" size={18} /> Add Task</button>
-          <button onClick={() => onNavigate('clients')}><Icon name="user" size={18} /> New Client</button>
-          <button onClick={() => onNavigate('intelligence')}><Icon name="sparkles" size={18} /> Ask AI</button>
-        </nav>
-      </div>
-
-      <section className="overview-dock" aria-label="Workspace at a glance">
-        <article className="overview-glass-card overview-focus-card">
-          <header>
-            <span className="overview-card-icon overview-card-icon--gold"><Icon name="target" size={22} /></span>
-            <span><strong>Today’s Focus</strong><small>{pulse.items.length} items</small></span>
-          </header>
-          <div className="overview-card-list">
-            {pulse.items.slice(0, 3).map((item, index) => (
-              <button key={item.id} onClick={() => onNavigate(item.target)}>
-                <span className={index === 0 ? 'is-complete' : ''}><Icon name={index === 0 ? 'check' : workspacePulseItemIcon(item.kind)} size={12} /></span>
-                <strong>{item.title}</strong>
-              </button>
-            ))}
-          </div>
-          <button className="overview-card-link" onClick={() => onNavigate('work')}>View all tasks <Icon name="arrow-right" size={13} /></button>
-        </article>
-
-        <article className="overview-glass-card">
-          <header>
-            <span className="overview-card-icon"><Icon name="calendar" size={21} /></span>
-            <span><strong>Upcoming</strong><small>{analytics?.dueThisWeek || 0} due this week</small></span>
-          </header>
-          <div className="overview-signal-list">
-            <button onClick={() => onNavigate('work')}><span>Projects</span><strong>{analytics?.dueSoonProjects || 0} due soon</strong></button>
-            <button onClick={() => onNavigate('money')}><span>Invoices</span><strong>{analytics?.pendingInvoices || 0} pending</strong></button>
-            <button onClick={() => onNavigate('automations')}><span>Automations</span><strong>{runningAutomations} running</strong></button>
-          </div>
-          <button className="overview-card-link" onClick={() => onNavigate('work')}>Open calendar <Icon name="arrow-right" size={13} /></button>
-        </article>
-
-        <article className="overview-glass-card">
-          <header>
-            <span className="overview-card-icon overview-card-icon--amber"><Icon name="layers" size={21} /></span>
-            <span><strong>Active Projects</strong><small>{analytics?.openProjects || 0} ongoing</small></span>
-          </header>
-          <div className="overview-project-list">
-            <button onClick={() => onNavigate('work')}><i className="is-blue" /><span>Open projects</span><strong>{analytics?.openProjects || 0}</strong></button>
-            <button onClick={() => onNavigate('work')}><i className="is-pink" /><span>Due this week</span><strong>{analytics?.dueThisWeek || 0}</strong></button>
-            <button onClick={() => onNavigate('clients')}><i className="is-amber" /><span>Active clients</span><strong>{analytics?.totalClients || 0}</strong></button>
-          </div>
-          <button className="overview-card-link" onClick={() => onNavigate('work')}>View all projects <Icon name="arrow-right" size={13} /></button>
-        </article>
-
-        <article className="overview-glass-card overview-ai-card">
-          <header>
-            <span className="overview-card-icon overview-card-icon--violet"><Icon name="sparkles" size={22} /></span>
-            <span><strong>AI Assistant</strong><small className="is-online">● Online</small></span>
-          </header>
-          <p>Need help with something? I can research, create documents, analyse data and more.</p>
-          <button className="overview-ai-card__button" onClick={() => onNavigate('intelligence')}><BrandMark compact /> Chat with AI</button>
-        </article>
-      </section>
-
-      <footer className="overview-footer">
-        <span className="overview-footer__brand"><BrandMark compact /><strong>lancee</strong><small>Work smarter, not harder.</small></span>
-        <span>Perfect day for progress <Icon name={weatherInfo.icon} size={17} /></span>
-      </footer>
-    </div>
-  )
-}
 
 function RunsTable({ runs, onSelect }: { runs: Run[]; onSelect?: (run: Run) => void }) {
   return (
@@ -6259,9 +5594,6 @@ function WorkspaceApp() {
   const [builderPayload, setBuilderPayload] = useState<WorkspaceBuilderPayload | null>(null)
   const [builderLoading, setBuilderLoading] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [prompt, setPrompt] = useState('')
-  const [selectedAutomation, setSelectedAutomation] = useState('')
-  const [dispatching, setDispatching] = useState(false)
   const [modal, setModal] = useState<ModalName>(null)
   const [createdSecret, setCreatedSecret] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -6430,7 +5762,6 @@ function WorkspaceApp() {
     setKeys([])
     setAnalytics(null)
     setWorkspaceNotifications([])
-    setSelectedAutomation('')
     void Promise.allSettled([
       api.automations.list(),
       api.runs.list(),
@@ -6513,8 +5844,6 @@ function WorkspaceApp() {
               dueThisWeek: analyticsData.value.metrics.dueThisWeek,
             })
           }
-          setSelectedAutomation((current) => current || loadedAutomations[0]?.id || '')
-
           const failures = [
             automationData,
             runData,
@@ -6654,7 +5983,6 @@ function WorkspaceApp() {
         .then(([automationData, runData]) => {
           setAutomations(automationData)
           setRuns(runData)
-          setSelectedAutomation((current) => current || automationData[0]?.id || '')
         })
         .catch(() => setToast('The action completed, but automation state could not be refreshed.'))
     }
@@ -6822,57 +6150,6 @@ function WorkspaceApp() {
     }
   }
 
-  const dispatch = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!prompt.trim() || !selectedAutomation) return
-    setDispatching(true)
-    try {
-      const run = await api.runs.dispatch(selectedAutomation, prompt.trim())
-      setRuns((current) => [run, ...current])
-      setAutomations((current) =>
-        current.map((automation) =>
-          automation.id === run.automationId
-            ? {
-                ...automation,
-                runs: automation.runs + 1,
-                lastRun: 'Just now',
-                status: 'active',
-              }
-            : automation,
-        ),
-      )
-      setPrompt('')
-      setToast(`${run.automationName} started`)
-      const pollRun = (attempt: number) => {
-        if (attempt >= 8) return
-        window.setTimeout(() => {
-          void api.runs
-            .get(run.id)
-            .then((updated) => {
-              setRuns((current) =>
-                current.map((item) => (item.id === updated.id ? updated : item)),
-              )
-              if (updated.status === 'running') {
-                pollRun(attempt + 1)
-              } else {
-                setToast(
-                  `${updated.automationName} ${updated.status}${
-                    updated.errorCode ? ` · ${updated.errorCode}` : ''
-                  }`,
-                )
-              }
-            })
-            .catch(() => undefined)
-        }, 750)
-      }
-      pollRun(0)
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : 'Unable to start automation.')
-    } finally {
-      setDispatching(false)
-    }
-  }
-
   const createAutomation = async (
     input: Pick<Automation, 'name' | 'description' | 'model'> & {
       instructionTemplate?: string
@@ -6913,7 +6190,6 @@ function WorkspaceApp() {
       })
       const workflow = await api.automations.setStatus(draft.id, 'active')
       setAutomations((current) => [workflow, ...current])
-      setSelectedAutomation(workflow.id)
       navigatePage('automations')
       setToast(`${workflow.name} is active and ready to run`)
     } catch (error) {
@@ -6938,9 +6214,6 @@ function WorkspaceApp() {
       setRuns((current) =>
         current.filter((run) => run.automationId !== automation.id),
       )
-      setSelectedAutomation((current) =>
-        current === automation.id ? (remaining[0]?.id || '') : current,
-      )
       setToast(`${automation.name} was deleted`)
     } catch (error) {
       setToast(
@@ -6951,9 +6224,7 @@ function WorkspaceApp() {
     }
   }
 
-  const runAutomation = (automation: Automation) => {
-    setSelectedAutomation(automation.id)
-    setPrompt(`Run ${automation.name} with its default workflow`)
+  const runAutomation = () => {
     navigatePage('overview')
     setToast('Task prepared — review it, then start')
   }
@@ -7281,22 +6552,17 @@ function WorkspaceApp() {
     switch (activePage) {
       case 'overview':
         page = (
-          <OverviewPage
-            user={user}
-            automations={automations}
-            runs={runs}
-            notifications={workspaceNotifications}
-            workspaceContext={workspaceContext}
-            prompt={prompt}
-            selectedAutomation={selectedAutomation}
-            busy={dispatching}
-            analytics={analytics}
-            onPromptChange={setPrompt}
-            onAutomationChange={setSelectedAutomation}
-            onDispatch={dispatch}
-            onNavigate={navigatePage}
-            onCreateProject={() => navigatePage('work')}
-          />
+          <Suspense fallback={<EmptySkeleton />}>
+            <OverviewPage
+              user={user}
+              runs={runs}
+              notifications={workspaceNotifications}
+              workspaceContext={workspaceContext}
+              analytics={analytics}
+              onNavigate={navigatePage}
+              onCreateProject={() => navigatePage('work')}
+            />
+          </Suspense>
         )
         break
       case 'work':
@@ -7407,7 +6673,7 @@ function WorkspaceApp() {
       case 'intelligence':
         page = (
           <Suspense fallback={<EmptySkeleton />}>
-            <IntelligencePage />
+            <ConnectedIntelligencePage />
           </Suspense>
         )
         break

@@ -6,7 +6,7 @@ import { openDatabase } from '../server/database.mjs'
 
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
 const analyticsSource = readFileSync(new URL('../src/components/dashboard/AnalyticsPage.tsx', import.meta.url), 'utf8')
-const intelligenceSource = readFileSync(new URL('../src/components/dashboard/IntelligencePage.tsx', import.meta.url), 'utf8')
+const intelligenceSource = readFileSync(new URL('../src/components/intelligence/ConnectedIntelligencePage.tsx', import.meta.url), 'utf8')
 const serverSource = readFileSync(new URL('../server/index.mjs', import.meta.url), 'utf8')
 
 for (const expected of [
