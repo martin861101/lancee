@@ -67,6 +67,10 @@ The repository audit quarantine is documented in [`junk/README.md`](junk/README.
 - **Public landing page** — freelancer-focused product narrative, workflow
   explanation, connection highlights, security posture, and sign-in calls to
   action.
+- **Workspace switching** — select the workspace name at the top of the sidebar
+  to open the account's workspace list, switch the active session, or create a
+  new owner workspace. Workspace-scoped dashboard data reloads after every
+  switch.
 - **Home** — a scenic, weather-responsive workspace built around the local
   time, city, current conditions, and a short contextual summary. It includes
   glass weather and quick-action controls plus a compact dock for Today,
@@ -182,6 +186,29 @@ the same evidence-backed opportunity store. Architecture, schema, APIs,
 detector policies, privacy limits, and deferred semantic extension points are
 documented in
 [`docs/CONNECTED_INTELLIGENCE.md`](docs/CONNECTED_INTELLIGENCE.md).
+
+The reusable historical benchmark keeps its source workbook and generated
+machine fixture in
+[`test-data/connected-intelligence`](test-data/connected-intelligence/README.md).
+It creates its own marker-protected synthetic workspace, uses canonical
+Calendar/Mail events without external transport, and compares real detector
+output with separate positive and negative ground truth.
+
+The authenticated **Intelligence** destination now leads with Connected
+Intelligence. It shows exact workspace counts, persisted opportunities, detector
+baselines and confidence, exact evidence-event references, and an authoritative
+Client → Project connection map across meetings, messages, time, invoices, and
+payments. Decision Intelligence remains available from the same page as a
+secondary history capability. Hermes receives read-only Connected Intelligence
+tools for questions about unusual projects, client attention, and missed
+relationships.
+
+```bash
+npm run seed:ci -- --dry-run
+npm run seed:ci
+npm run benchmark:ci
+npm run seed:ci -- --reset
+```
 
 ## Visual system
 
@@ -822,15 +849,13 @@ expected reactions. Outcome reviews are treated only as a review queue: an
 empty queue never implies that decisions, evidence, or business inputs are
 absent.
 
-The authenticated workspace now exposes this system as a first-class
-**Intelligence** destination at `/dashboard/intelligence`. The page presents an
-exact overview of the decision ledger, measured outcomes, reliable patterns,
-active predictions, warnings, evidence records, real category relationships,
-and persisted intelligence events. Patterns, predictions, warnings, and ledger
-records retain their named confidence dimensions and open into a shared
-evidence drawer. Warning acknowledgement and dismissal use the existing
-Decision Intelligence lifecycle, while contextual **Ask Lancee** prompts reuse
-the persisted workspace assistant and its current decision capabilities.
+The authenticated workspace preserves this system under the secondary
+**Decision Intelligence history** capability at `/dashboard/intelligence`.
+It presents the decision ledger, measured outcomes, patterns, predictions,
+warnings, and evidence records without displacing the primary Connected
+Intelligence experience. Patterns, predictions, warnings, and ledger records
+retain their named confidence dimensions and open into the existing evidence
+drawer.
 
 The UI reads bounded list/detail tools and one read-only
 `get_decision_intelligence_overview` capability. That overview aggregates the
@@ -976,6 +1001,7 @@ pnpm verify:runtime-persistence
 pnpm verify:agent-runtime
 pnpm verify:agent
 pnpm verify:connected-intelligence
+pnpm verify:ci-fixture
 pnpm verify:workers-artifacts
 pnpm verify:codex-connector
 pnpm verify:google-drive

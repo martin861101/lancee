@@ -415,6 +415,44 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;')
 }
 
+async function insertOwnedWorkspace({ userId, workspaceId, workspaceName, timestamp }) {
+  await database.query(
+    `INSERT INTO workspaces (id, name, created_at, updated_at) VALUES ($1, $2, $3, $4)`,
+    [workspaceId, workspaceName, timestamp, timestamp],
+  )
+  await database.query(
+    `INSERT INTO workspace_members (workspace_id, user_id, role, created_at) VALUES ($1, $2, 'owner', $3)`,
+    [workspaceId, userId, timestamp],
+  )
+  await database.query(
+    `INSERT INTO workspace_settings (workspace_id, name, updated_at) VALUES ($1, $2, $3)`,
+    [workspaceId, workspaceName, timestamp],
+  )
+  await database.query(
+    `INSERT INTO workspace_builder_configs (
+         workspace_id, required_setup, status, step, created_at, updated_at
+       ) VALUES ($1, 1, 'not_started', 0, $2, $2)`,
+    [workspaceId, timestamp],
+  )
+  const defaultIntegrations = [
+    { id: 'drive', connected: 0 },
+    { id: 'dropbox', connected: 0 },
+    { id: 'onedrive', connected: 0 },
+    { id: 'paystack', connected: 0 },
+    { id: 'n8n', connected: 0 },
+    { id: 'lancee-mcp', connected: 1 },
+    { id: 'codex-ai', connected: 0 },
+    { id: 'codex-runtime', connected: 0 },
+    { id: 'mail', connected: 0 },
+  ]
+  for (const integration of defaultIntegrations) {
+    await database.query(
+      `INSERT INTO workspace_integrations (workspace_id, integration_id, connected, updated_at) VALUES ($1, $2, $3, $4)`,
+      [workspaceId, integration.id, integration.connected, timestamp],
+    )
+  }
+}
+
 async function createWorkspaceAccount({ email, password, name, workspaceName }) {
   const now = nowIso()
   const passwordSalt = randomBytes(16).toString('hex')
@@ -424,44 +462,15 @@ async function createWorkspaceAccount({ email, password, name, workspaceName }) 
 
   await database.transaction(async () => {
     await database.query(
-      `INSERT INTO workspaces (id, name, created_at, updated_at) VALUES ($1, $2, $3, $4)`,
-      [workspaceIdForAccount, workspaceName, now, now],
-    )
-    await database.query(
       `INSERT INTO users (id, email, name, password_salt, password_hash, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [userId, email, name, passwordSalt, passwordHash, now, now],
     )
-    await database.query(
-      `INSERT INTO workspace_members (workspace_id, user_id, role, created_at) VALUES ($1, $2, 'owner', $3)`,
-      [workspaceIdForAccount, userId, now],
-    )
-    await database.query(
-      `INSERT INTO workspace_settings (workspace_id, name, updated_at) VALUES ($1, $2, $3)`,
-      [workspaceIdForAccount, workspaceName, now],
-    )
-    await database.query(
-      `INSERT INTO workspace_builder_configs (
-         workspace_id, required_setup, status, step, created_at, updated_at
-       ) VALUES ($1, 1, 'not_started', 0, $2, $2)`,
-      [workspaceIdForAccount, now],
-    )
-    const defaultIntegrations = [
-      { id: 'drive', connected: 0 },
-      { id: 'dropbox', connected: 0 },
-      { id: 'onedrive', connected: 0 },
-      { id: 'paystack', connected: 0 },
-      { id: 'n8n', connected: 0 },
-      { id: 'lancee-mcp', connected: 1 },
-      { id: 'codex-ai', connected: 0 },
-      { id: 'codex-runtime', connected: 0 },
-      { id: 'mail', connected: 0 },
-    ]
-    for (const integration of defaultIntegrations) {
-      await database.query(
-        `INSERT INTO workspace_integrations (workspace_id, integration_id, connected, updated_at) VALUES ($1, $2, $3, $4)`,
-        [workspaceIdForAccount, integration.id, integration.connected, now],
-      )
-    }
+    await insertOwnedWorkspace({
+      userId,
+      workspaceId: workspaceIdForAccount,
+      workspaceName,
+      timestamp: now,
+    })
   })
 
   return await database.getContextByIds(userId, workspaceIdForAccount)
@@ -2389,6 +2398,71 @@ app.get('/api/auth/session', async (request, response) => {
   }
   response.json({ user: userResponse(session.context) })
 })
+
+app.get('/api/auth/workspaces', requireAuth, async (request, response) => {
+  response.json({
+    workspaces: await database.listUserWorkspaces(request.auth.context.user.id),
+  })
+})
+
+app.post(
+  '/api/auth/workspaces/switch',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const workspaceIdToSelect = String(request.body?.workspaceId || '').trim()
+    if (!workspaceIdToSelect || workspaceIdToSelect.length > 160) {
+      throw new HttpError(400, 'A valid workspace is required.')
+    }
+    const context = await database.getContextByIds(
+      request.auth.context.user.id,
+      workspaceIdToSelect,
+    )
+    if (!context) {
+      throw new HttpError(404, 'Workspace not found for this account.')
+    }
+    response.set('Set-Cookie', createSessionCookie(context))
+    response.json({ user: userResponse(context) })
+  },
+)
+
+app.post(
+  '/api/auth/workspaces',
+  secureMutations,
+  requireAuth,
+  async (request, response) => {
+    const workspaceName = String(request.body?.name || '').trim()
+    if (!workspaceName || workspaceName.length > 160) {
+      throw new HttpError(400, 'Workspace name must be between 1 and 160 characters.')
+    }
+    const userId = request.auth.context.user.id
+    const memberships = await database.listUserWorkspaces(userId)
+    if (
+      memberships.some(
+        (workspace) => workspace.name.toLowerCase() === workspaceName.toLowerCase(),
+      )
+    ) {
+      throw new HttpError(409, 'You already belong to a workspace with this name.')
+    }
+
+    const timestamp = nowIso()
+    const workspaceIdToCreate = `wsp_${createHash('sha256')
+      .update(`${userId}:${timestamp}:${randomUUID()}`)
+      .digest('hex')
+      .slice(0, 20)}`
+    await database.transaction(async () => {
+      await insertOwnedWorkspace({
+        userId,
+        workspaceId: workspaceIdToCreate,
+        workspaceName,
+        timestamp,
+      })
+    })
+    const context = await database.getContextByIds(userId, workspaceIdToCreate)
+    response.set('Set-Cookie', createSessionCookie(context))
+    response.status(201).json({ user: userResponse(context) })
+  },
+)
 
 app.get(
   '/api/admin/dashboard',
@@ -5843,6 +5917,10 @@ app.get('/api/connected-intelligence/opportunities', requireAuth, async (request
       limit: Number(request.query.limit || 50),
     }),
   })
+})
+
+app.get('/api/connected-intelligence/summary', requireAuth, async (request, response) => {
+  response.json(await connectedIntelligence.getWorkspaceSummary(request.auth.context))
 })
 
 function emailDomain(value) {

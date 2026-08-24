@@ -1221,6 +1221,27 @@ export async function openDatabase({
       created_at TEXT NOT NULL,
       PRIMARY KEY (workspace_id, user_id)
     )`,
+    `CREATE TABLE IF NOT EXISTS workspace_fixture_markers (
+      workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+      purpose TEXT NOT NULL,
+      dataset TEXT NOT NULL,
+      dataset_version INTEGER NOT NULL CHECK (dataset_version > 0),
+      source_sha256 TEXT NOT NULL,
+      owner_user_id TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (purpose, dataset, dataset_version, owner_user_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS workspace_fixture_refs (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      dataset TEXT NOT NULL,
+      record_type TEXT NOT NULL,
+      fixture_ref TEXT NOT NULL,
+      record_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, dataset, record_type, fixture_ref),
+      UNIQUE (workspace_id, dataset, record_type, record_id)
+    )`,
     `CREATE TABLE IF NOT EXISTS team_invitations (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1327,6 +1348,8 @@ export async function openDatabase({
       UNIQUE (workspace_id, invoice_number)
     )`,
     `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payment_url TEXT`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS issued_at TEXT`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS provenance_json TEXT NOT NULL DEFAULT '{}'`,
     `CREATE TABLE IF NOT EXISTS payment_links (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1893,6 +1916,13 @@ export async function openDatabase({
     )`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS client_id TEXT REFERENCES clients(id) ON DELETE SET NULL`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS board_id TEXT`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS started_at TEXT`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS ended_at TEXT`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS quoted_amount_minor INTEGER`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS quoted_currency TEXT`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS provenance_json TEXT NOT NULL DEFAULT '{}'`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS client_id TEXT REFERENCES clients(id) ON DELETE SET NULL`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`,
     `CREATE TABLE IF NOT EXISTS calendar_events (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1984,6 +2014,68 @@ export async function openDatabase({
       updated_at TEXT NOT NULL
     )`,
     `ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS completed_at TEXT`,
+    `ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS due_at TEXT`,
+    `ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS provenance_json TEXT NOT NULL DEFAULT '{}'`,
+    `CREATE TABLE IF NOT EXISTS quotes (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      quote_number TEXT NOT NULL,
+      amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+      currency TEXT,
+      scope TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL CHECK (status IN ('accepted', 'rejected')),
+      issued_at TEXT NOT NULL,
+      provenance_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS time_entries (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      entry_date TEXT NOT NULL,
+      duration_minutes INTEGER NOT NULL CHECK (duration_minutes > 0),
+      activity TEXT NOT NULL,
+      provenance_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS workspace_payments (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      invoice_id TEXT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+      amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+      currency TEXT,
+      paid_at TEXT NOT NULL,
+      provenance_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS project_approval_records (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      approved_at TEXT NOT NULL,
+      provenance_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, project_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS project_change_records (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      occurred_at TEXT NOT NULL,
+      change_count INTEGER NOT NULL CHECK (change_count > 0),
+      provenance_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, project_id, occurred_at)
+    )`,
     `CREATE TABLE IF NOT EXISTS job_cards (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -3191,6 +3283,24 @@ export async function openDatabase({
         [userId, selectedWorkspaceId],
       )
       return mapContext(rows[0])
+    },
+
+    async listUserWorkspaces(userId) {
+      const rows = await query(
+        `SELECT workspaces.id, workspaces.name, workspace_members.role,
+                workspace_members.created_at
+         FROM workspace_members
+         JOIN workspaces ON workspaces.id = workspace_members.workspace_id
+         WHERE workspace_members.user_id = $1
+         ORDER BY workspace_members.created_at ASC, workspaces.name ASC`,
+        [userId],
+      )
+      return rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        role: row.role,
+        createdAt: row.created_at,
+      }))
     },
 
     async listMcpInvocations(selectedWorkspaceId) {

@@ -139,6 +139,7 @@ All routes require the authenticated workspace session.
 | `GET` | `/api/connected-intelligence/meeting-features` | Read deterministic meeting features and evidence |
 | `GET` | `/api/connected-intelligence/projects/:id/meeting-load` | Evaluate one project without fabricating evidence |
 | `GET` | `/api/connected-intelligence/opportunities` | List persisted opportunities; defaults to active |
+| `GET` | `/api/connected-intelligence/summary` | Read workspace record counts and authoritative Client → Project record relationships |
 
 Calendar creation requires the existing `Idempotency-Key` mutation header.
 
@@ -257,11 +258,13 @@ evidence references `meeting.completed`. Evidence reads and detector routes use
 the authenticated workspace context. Stable source identifiers are hashed and
 cannot select data outside that context.
 
-The existing connected-communication authorization check still requires the
-workspace's active Mail account. Event payloads contain only thread identity,
-direction, and subject and pass through the existing sensitive-key sanitizer.
-IMAP/SMTP secrets never enter Person, communication, event, feature, evidence,
-or opportunity records.
+Normal connected-communication authorization still requires the workspace's
+active Mail account. The synthetic benchmark has one narrow exception: a
+`connection_id = fixture` event is accepted only for a workspace carrying the
+exact Connected Intelligence fixture marker. Event payloads contain only thread
+identity, direction, and subject and pass through the existing sensitive-key
+sanitizer. IMAP/SMTP secrets never enter Person, communication, event, feature,
+evidence, or opportunity records.
 
 Signal Engine compatibility is preserved: `communication.*` remains an
 intelligence-relevant prefix. Ordinary metadata-only events are activity. The
@@ -309,6 +312,7 @@ All routes require the authenticated workspace session.
 | --- | --- | --- |
 | `GET` | `/api/connected-intelligence/communication-features` | Read communication aggregates and evidence |
 | `GET` | `/api/connected-intelligence/clients/:id/attention-load` | Evaluate client coordination attention |
+| `GET` | `/api/connected-intelligence/summary` | Read workspace record counts and authoritative relationship map data |
 | `POST` | `/api/mail/messages/project-link` | Confirm an observed thread/project relationship |
 
 Opening an IMAP message also returns its optional resolved relationship.
@@ -327,3 +331,35 @@ Calendar/Mail identity reuse, confirmed thread/project inheritance,
 communication and meeting aggregates, insufficient/normal/abnormal client
 attention, cross-source evidence, opportunity deduplication/resolution, Phase 1
 meeting load, and Signal Engine compatibility.
+
+## Synthetic historical benchmark
+
+The versioned benchmark described in
+[`test-data/connected-intelligence/README.md`](../test-data/connected-intelligence/README.md)
+imports `business-records.xlsx` into a dedicated `Connected Intelligence Test`
+workspace. `business-records.v1.json` retains stable fixture references and
+separate expected positive/negative results. The comparator never exposes those
+expectations to either detector and never inserts expected opportunities.
+
+Fixture reset is authorized by `workspace_fixture_markers`, not the workspace
+name. The exact purpose, dataset, version, source hash, owner, and owner
+membership must match before the importer deletes the resolved workspace ID.
+The importer uses marker-authorized `fixture/import` communication observations
+instead of creating a Mail account, keeping the IMAP/SMTP poller and all
+external providers outside the fixture path.
+
+Narrow authoritative tables retain source quote, time, payment, approval, and
+change records that existing Lancee models could not represent. Historical
+invoice/project/task columns preserve issue/start/end/due/value/provenance data.
+They are ordinary workspace-scoped records and cascade only with their fixture
+workspace. Future detectors may consume these records, but none are implemented
+or changed by the fixture work.
+
+```bash
+npm run fixture:ci
+npm run seed:ci -- --dry-run
+npm run seed:ci
+npm run benchmark:ci
+npm run seed:ci -- --reset
+npm run verify:ci-fixture
+```

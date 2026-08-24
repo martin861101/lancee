@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { api } from '../../lib/api'
+import { api, type ConnectedIntelligenceSummary, type ConnectedOpportunity } from '../../lib/api'
 import { DASHBOARD_ASSISTANT_QUERY_EVENT } from './WorkspaceChat'
 import AnalyticsPage from './AnalyticsPage'
 import './dashboard-page.css'
@@ -340,7 +340,264 @@ function EmptyIntelligence({ title, children }: { title: string; children: React
   )
 }
 
+type ConnectedProject = ConnectedIntelligenceSummary['clients'][number]['projects'][number]
+
+function connectedNumber(value: unknown) {
+  return Number.isFinite(Number(value)) ? Number(value) : null
+}
+
+function connectedMetric(value: unknown, suffix = '') {
+  const number = connectedNumber(value)
+  return number === null ? 'Not recorded' : `${number.toLocaleString('en-ZA', { maximumFractionDigits: 1 })}${suffix}`
+}
+
+function findConnectedProject(summary: ConnectedIntelligenceSummary, projectId: string | null) {
+  if (!projectId) return null
+  return [...summary.clients.flatMap((client) => client.projects), ...summary.unlinkedProjects]
+    .find((project) => project.id === projectId) || null
+}
+
+function findConnectedClient(summary: ConnectedIntelligenceSummary, clientId: string | null) {
+  return clientId ? summary.clients.find((client) => client.id === clientId) || null : null
+}
+
+function OpportunityCard({
+  opportunity,
+  summary,
+  onOpen,
+}: {
+  opportunity: ConnectedOpportunity
+  summary: ConnectedIntelligenceSummary
+  onOpen: () => void
+}) {
+  const metrics = opportunity.metrics
+  const observed = metrics.observed || {}
+  const baseline = metrics.baseline || {}
+  const comparison = metrics.comparison || {}
+  const project = findConnectedProject(summary, opportunity.projectId)
+  const client = findConnectedClient(summary, opportunity.clientId || project?.clientId || null)
+  const isMeetingLoad = opportunity.detectorKey === 'project_meeting_load'
+  const isAttentionLoad = opportunity.detectorKey === 'client_attention_load'
+  const actual = isMeetingLoad
+    ? connectedMetric(observed.meetingMinutes, ' min')
+    : connectedMetric(comparison.attentionIndex !== undefined ? Number(comparison.attentionIndex) * 100 : null, 'th percentile')
+  const comparisonLabel = isMeetingLoad
+    ? `${connectedMetric(baseline.medianMeetingMinutes, ' min')} workspace median`
+    : '75th percentile opportunity threshold'
+  const supporting = isMeetingLoad
+    ? [
+        ['Meetings', observed.meetingCount],
+        ['Above median', comparison.differencePercent === null ? connectedMetric(comparison.differenceMinutes, ' min') : connectedMetric(comparison.differencePercent, '%')],
+        ['Comparison projects', baseline.sampleSize],
+      ]
+    : [
+        ['Messages', observed.messageCount],
+        ['Threads', observed.threadCount],
+        ['Meeting time', connectedMetric(observed.meetingMinutes, ' min')],
+        ['Comparison clients', baseline.sampleSize],
+      ]
+
+  return (
+    <article className="connected-opportunity" data-detector={opportunity.detectorKey}>
+      <header>
+        <span>{isMeetingLoad ? 'Project meeting load' : isAttentionLoad ? 'Client attention load' : label(opportunity.detectorKey)}</span>
+        <span className="connected-opportunity__confidence">{formatConfidence(opportunity.confidence)} confidence</span>
+      </header>
+      <h3>{opportunity.title}</h3>
+      <p>{opportunity.summary}</p>
+      <div className="connected-opportunity__comparison" aria-label="Actual compared with baseline">
+        <div><span>Actual</span><strong>{actual}</strong></div>
+        <i aria-hidden="true" />
+        <div><span>Comparison</span><strong>{comparisonLabel}</strong></div>
+      </div>
+      <dl className="connected-opportunity__metrics">
+        {supporting.map(([name, value]) => <div key={String(name)}><dt>{name}</dt><dd>{typeof value === 'number' ? connectedMetric(value) : value}</dd></div>)}
+      </dl>
+      <div className="connected-opportunity__links">
+        {client && <span><small>Client</small>{client.name}</span>}
+        {project && <span><small>Project</small>{project.name}</span>}
+      </div>
+      <footer>
+        <span>Detected {formatDate(opportunity.lastDetectedAt)}</span>
+        <button type="button" onClick={onOpen}>See why <IntelligenceIcon name="arrow" size={15} /></button>
+      </footer>
+    </article>
+  )
+}
+
+function EvidenceDrawer({
+  opportunity,
+  summary,
+  onClose,
+}: {
+  opportunity: ConnectedOpportunity
+  summary: ConnectedIntelligenceSummary
+  onClose: () => void
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const metrics = opportunity.metrics
+  const observed = metrics.observed || {}
+  const baseline = metrics.baseline || {}
+  const comparison = metrics.comparison || {}
+  const project = findConnectedProject(summary, opportunity.projectId)
+  const client = findConnectedClient(summary, opportunity.clientId || project?.clientId || null)
+  const isMeetingLoad = opportunity.detectorKey === 'project_meeting_load'
+  const baselineIds = (isMeetingLoad ? baseline.projectIds : baseline.clientIds) as string[] | undefined
+  const resolvedBaseline = (baselineIds || []).map((id) => ({
+    id,
+    name: isMeetingLoad
+      ? findConnectedProject(summary, id)?.name
+      : findConnectedClient(summary, id)?.name,
+  }))
+
+  useEffect(() => {
+    closeRef.current?.focus()
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const handleKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handleKey)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKey)
+    }
+  }, [onClose])
+
+  const thresholdStatement = isMeetingLoad
+    ? `${connectedMetric(observed.meetingMinutes, ' minutes')} observed exceeded the persisted 75th-percentile baseline of ${connectedMetric(baseline.percentile75MeetingMinutes, ' minutes')}.`
+    : `The combined attention index was ${connectedMetric(connectedNumber(comparison.attentionIndex) === null ? null : Number(comparison.attentionIndex) * 100, 'th percentile')}, above the detector's 75th-percentile threshold.`
+
+  return (
+    <div className="intelligence-drawer-backdrop" onMouseDown={onClose}>
+      <aside className="intelligence-drawer connected-evidence" role="dialog" aria-modal="true" aria-labelledby="connected-evidence-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header>
+          <div><span>Deterministic evidence chain</span><h2 id="connected-evidence-title">Why this finding fired</h2></div>
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close evidence detail"><IntelligenceIcon name="close" /></button>
+        </header>
+        <div className="intelligence-drawer__body">
+          <section><span>Persisted finding</span><h3>{opportunity.title}</h3><p>{opportunity.summary}</p></section>
+          <ol className="connected-evidence__chain">
+            <li><span>1</span><div><strong>Authoritative relationship</strong><p>{client ? `Client: ${client.name}` : 'No client relationship is recorded.'}{project ? ` → Project: ${project.name}` : ''}</p><code>{opportunity.subjectType}:{opportunity.subjectId}</code></div></li>
+            <li><span>2</span><div><strong>Observed workspace records</strong><p>{isMeetingLoad
+              ? `${connectedMetric(observed.meetingCount)} completed meetings contributed ${connectedMetric(observed.meetingMinutes, ' minutes')}.`
+              : `${connectedMetric(observed.messageCount)} messages across ${connectedMetric(observed.threadCount)} threads and ${connectedMetric(observed.meetingCount)} meetings contributed ${connectedMetric(observed.meetingMinutes, ' meeting minutes')}.`}</p></div></li>
+            <li><span>3</span><div><strong>Workspace comparison set</strong><p>{connectedMetric(baseline.sampleSize)} {isMeetingLoad ? 'completed projects' : 'other observed clients'} formed the persisted baseline.</p>{resolvedBaseline.length > 0 && <details><summary>Show comparison records</summary><ul>{resolvedBaseline.map((item) => <li key={item.id}>{item.name || item.id} <code>{item.id}</code></li>)}</ul></details>}</div></li>
+            <li><span>4</span><div><strong>Detector condition</strong><p>{thresholdStatement}</p><code>{metrics.detectorVersion}</code></div></li>
+          </ol>
+          <section className="connected-evidence__events">
+            <span>Exact supporting references</span>
+            <h3>{plural(opportunity.evidence.length, 'persisted workspace event')}</h3>
+            {opportunity.evidence.length > 0 ? <ul>{opportunity.evidence.map((evidence, index) => (
+              <li key={`${evidence.id}-${index}`}><div><strong>{evidence.eventType ? label(evidence.eventType) : label(evidence.type)}</strong>{evidence.meetingId && <small>Meeting {evidence.meetingId}</small>}</div><code>{evidence.id}</code></li>
+            ))}</ul> : <p>No supporting workspace-event references were persisted with this finding.</p>}
+          </section>
+          <div className="connected-evidence__footer"><span>Confidence</span><strong>{formatConfidence(opportunity.confidence)}</strong><small>Persisted by {metrics.detectorVersion}</small></div>
+        </div>
+      </aside>
+    </div>
+  )
+}
+
+function ConnectionMap({ summary, opportunities }: { summary: ConnectedIntelligenceSummary; opportunities: ConnectedOpportunity[] }) {
+  const relevantClientIds = new Set(opportunities.flatMap((opportunity) => {
+    const project = findConnectedProject(summary, opportunity.projectId)
+    return [opportunity.clientId || project?.clientId || '']
+  }).filter(Boolean))
+  const clients = [...summary.clients].sort((left, right) => Number(relevantClientIds.has(right.id)) - Number(relevantClientIds.has(left.id)))
+  return (
+    <div className="connected-map" aria-label="Authoritative client and project connection map">
+      {clients.map((client) => (
+        <article key={client.id} className={relevantClientIds.has(client.id) ? 'has-finding' : ''}>
+          <div className="connected-map__client"><span>Client</span><strong>{client.name}</strong><small>{plural(client.projects.length, 'linked project')}</small></div>
+          <div className="connected-map__projects">
+            {client.projects.map((project) => <ConnectionProject key={project.id} project={project} />)}
+            {client.projects.length === 0 && <span className="connected-map__empty">No authoritative project link</span>}
+          </div>
+        </article>
+      ))}
+      {summary.unlinkedProjects.length > 0 && <article><div className="connected-map__client"><span>Workspace</span><strong>Unlinked projects</strong><small>No client relationship recorded</small></div><div className="connected-map__projects">{summary.unlinkedProjects.map((project) => <ConnectionProject key={project.id} project={project} />)}</div></article>}
+    </div>
+  )
+}
+
+function ConnectionProject({ project }: { project: ConnectedProject }) {
+  const labels: Array<[keyof ConnectedProject['connections'], string]> = [
+    ['meetings', 'meetings'], ['communications', 'messages'], ['timeEntries', 'time'], ['invoices', 'invoices'], ['payments', 'payments'],
+  ]
+  return <div className="connected-map__project"><strong>{project.name}</strong><div>{labels.filter(([key]) => project.connections[key] > 0).map(([key, name]) => <span key={key}>{project.connections[key]} {name}</span>)}</div></div>
+}
+
 export default function IntelligencePage({ canManage = true }: { canManage?: boolean }) {
+  const [summary, setSummary] = useState<ConnectedIntelligenceSummary | null>(null)
+  const [opportunities, setOpportunities] = useState<ConnectedOpportunity[]>([])
+  const [selectedOpportunity, setSelectedOpportunity] = useState<ConnectedOpportunity | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [showHistory, setShowHistory] = useState(false)
+
+  const loadConnected = useCallback(async () => {
+    setError('')
+    setLoading(true)
+    try {
+      const [nextSummary, nextOpportunities] = await Promise.all([
+        api.connectedIntelligence.summary(),
+        api.connectedIntelligence.opportunities(),
+      ])
+      setSummary(nextSummary)
+      setOpportunities(nextOpportunities)
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Connected Intelligence is unavailable.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { void loadConnected() }, [loadConnected])
+
+  if (loading) return <div className="content-container dashboard-page intelligence-page" role="status" aria-label="Loading Connected Intelligence"><div className="intelligence-skeleton intelligence-skeleton--hero" /><div className="intelligence-skeleton-grid">{[1, 2, 3, 4, 5, 6].map((item) => <div className="intelligence-skeleton" key={item} />)}</div></div>
+
+  if (!summary) return <div className="content-container dashboard-page intelligence-page"><div className="dashboard-alert" role="alert">{error || 'Connected Intelligence is unavailable.'}</div><button type="button" className="button button--secondary" onClick={() => void loadConnected()}>Try again</button></div>
+
+  return (
+    <div className="content-container animate-fade-in dashboard-page intelligence-page connected-intelligence-page">
+      <header className="intelligence-page__header">
+        <div><span className="intelligence-eyebrow"><IntelligenceIcon name="map" size={15} /> Connected Intelligence</span><h1>Your work knows more than you think.</h1><p>Lancee connects the records already in your workspace, finds unusual relationships, and keeps every finding traceable to its source.</p></div>
+        <button type="button" className="button button--secondary" onClick={() => void loadConnected()}><IntelligenceIcon name="refresh" size={15} /> Refresh view</button>
+      </header>
+      {error && <div className="intelligence-notice is-error" role="alert">{error}</div>}
+
+      <section className="connected-summary" aria-labelledby="connected-summary-title">
+        <div><span>Workspace connections</span><h2 id="connected-summary-title">Your business records are connected.</h2><p>These counts come directly from the active workspace. No values are estimated.</p></div>
+        <dl>{Object.entries(summary.counts).map(([key, value]) => <div key={key}><dt>{label(key)}</dt><dd>{value.toLocaleString('en-ZA')}</dd></div>)}</dl>
+      </section>
+
+      <section className="intelligence-section connected-findings" aria-labelledby="connected-findings-title">
+        <SectionHeading eyebrow="What Lancee Found" title={plural(opportunities.length, 'active opportunity')} description="Deterministic detectors compared linked workspace records with this workspace's own baselines." />
+        {opportunities.length > 0 ? <div className="connected-opportunity-grid">{opportunities.map((opportunity) => <OpportunityCard key={opportunity.id} opportunity={opportunity} summary={summary} onOpen={() => setSelectedOpportunity(opportunity)} />)}</div> : <EmptyIntelligence title="No active Connected Intelligence findings">No persisted active opportunities are available in this workspace.</EmptyIntelligence>}
+      </section>
+
+      <section className="intelligence-section connected-map-section" aria-labelledby="connected-map-title">
+        <SectionHeading eyebrow="Connection Map" title="How work relates" description="Only authoritative Client → Project links and records carrying those project relationships appear here." />
+        <ConnectionMap summary={summary} opportunities={opportunities} />
+      </section>
+
+      <section className="intelligence-ask" aria-labelledby="ask-hermes-title">
+        <div className="intelligence-ask__mark"><IntelligenceIcon name="brain" size={24} /></div>
+        <div className="intelligence-ask__copy"><span>Ask Hermes</span><h2 id="ask-hermes-title">Explore the relationships behind your work.</h2><p>Hermes can explain persisted workspace records and findings, but it must not invent evidence or relationships.</p></div>
+        <div className="intelligence-ask__questions">{['Why is this client taking so much attention?', 'Which projects behave unusually?', 'What relationships have I missed?'].map((question) => <button type="button" key={question} onClick={() => askLancee(question)}>{question}<IntelligenceIcon name="arrow" size={14} /></button>)}</div>
+        <form onSubmit={(event) => { event.preventDefault(); const input = new FormData(event.currentTarget).get('question'); if (String(input || '').trim()) askLancee(String(input).trim()); event.currentTarget.reset() }}><label htmlFor="connected-question">Ask about connected workspace evidence</label><div><input id="connected-question" name="question" placeholder="Why did Lancee flag this relationship?" /><button type="submit" className="button button--primary">Ask Hermes</button></div></form>
+      </section>
+
+      <section className="connected-history">
+        <div><span>Secondary capability</span><h2>Decision Intelligence history</h2><p>Review recorded decisions, outcomes, learned patterns, and their evidence.</p></div>
+        <button type="button" className="button button--secondary" onClick={() => setShowHistory((current) => !current)}>{showHistory ? 'Hide decision history' : 'Open decision history'}</button>
+      </section>
+      {showHistory && <DecisionIntelligenceHistory canManage={canManage} />}
+      {selectedOpportunity && <EvidenceDrawer opportunity={selectedOpportunity} summary={summary} onClose={() => setSelectedOpportunity(null)} />}
+    </div>
+  )
+}
+
+function DecisionIntelligenceHistory({ canManage = true }: { canManage?: boolean }) {
   const [overview, setOverview] = useState<IntelligenceOverview | null>(null)
   const [decisions, setDecisions] = useState<Decision[]>([])
   const [patterns, setPatterns] = useState<DecisionPattern[]>([])

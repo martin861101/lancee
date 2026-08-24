@@ -173,6 +173,14 @@ try {
   const pageSource = readFileSync(new URL('../src/components/dashboard/IntelligencePage.tsx', import.meta.url), 'utf8')
   const chatSource = readFileSync(new URL('../src/components/dashboard/WorkspaceChat.tsx', import.meta.url), 'utf8')
   for (const requiredState of [
+    'Your work knows more than you think.',
+    'What Lancee Found',
+    'project_meeting_load',
+    'client_attention_load',
+    'Deterministic evidence chain',
+    'Connection Map',
+    'Why is this client taking so much attention?',
+    'Decision Intelligence history',
     'No structured decisions recorded',
     'No reliable pattern yet',
     'No active predictions',
@@ -184,7 +192,7 @@ try {
   ]) assert(pageSource.includes(requiredState), `Missing Decision Intelligence UI state: ${requiredState}`)
   assert(chatSource.includes("export const DASHBOARD_ASSISTANT_QUERY_EVENT"))
 
-  console.log('Decision Intelligence UI verified: new and early workspaces, measured-outcome thresholds, learned patterns, active/measured predictions, active/acknowledged/dismissed/resolved warnings, evidence provenance, real category and timeline relationships, Hermes-unavailable degradation, bounded refresh failure messaging, multiple-workspace isolation, and empty downstream collections with a populated decision ledger.')
+  console.log('Intelligence UI verified: Connected Intelligence headline, persisted detector cards, deterministic evidence chain, connection map, Hermes prompts, secondary Decision Intelligence history, measured-outcome thresholds, patterns, predictions, warnings, evidence provenance, workspace isolation, and bounded empty/error states.')
 } finally {
   await database?.close()
   rmSync(directory, { recursive: true, force: true })

@@ -136,7 +136,13 @@ async function requireAuthorizedCommunication(database, workspaceId, event) {
     )
   }
   let rows = []
-  if (event.connectionId === 'mail') {
+  if (event.connectionId === 'fixture') {
+    rows = await database.query(
+      `SELECT workspace_id AS id FROM workspace_fixture_markers
+       WHERE workspace_id = $1 AND purpose = 'connected_intelligence_test'`,
+      [workspaceId],
+    )
+  } else if (event.connectionId === 'mail') {
     rows = await database.query(
       `SELECT workspace_id AS id FROM mail_accounts WHERE workspace_id = $1 AND status = 'connected'`,
       [workspaceId],

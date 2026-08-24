@@ -328,8 +328,22 @@ export function createConnectedIntelligenceService({
     }
   }
 
-  async function insertCommunicationObservation(context, input) {
+  async function insertCommunicationObservation(context, input, { fixture = false } = {}) {
     const { workspaceId } = trustedScope(context)
+    if (fixture) {
+      const markers = await database.query(
+        `SELECT workspace_id FROM workspace_fixture_markers
+         WHERE workspace_id = $1 AND purpose = 'connected_intelligence_test'`,
+        [workspaceId],
+      )
+      if (!markers[0]) {
+        throw new ConnectedIntelligenceError(
+          'FIXTURE_WORKSPACE_REQUIRED',
+          'Fixture communication is restricted to a marked synthetic workspace.',
+          403,
+        )
+      }
+    }
     const sourceAccountId = canonicalEmail(input?.sourceAccountId)
     if (!sourceAccountId) {
       throw new ConnectedIntelligenceError('INVALID_COMMUNICATION', 'A canonical source account is required.')
@@ -347,7 +361,9 @@ export function createConnectedIntelligenceService({
     }
     const externalThreadId = String(input?.externalThreadId || externalMessageId).trim().slice(0, 998)
     const occurredAt = timestamp(input?.occurredAt, 'occurredAt')
-    const participantAddresses = [...from, ...to, ...cc]
+    const participantAddresses = fixture
+      ? [...from, ...to, ...cc].filter((address) => address.address !== sourceAccountId)
+      : [...from, ...to, ...cc]
     const people = await resolveParticipants(workspaceId, participantAddresses, `email:${direction}`)
     const externalEmails = direction === 'inbound'
       ? new Set(from.map((item) => item.address).filter((email) => email !== sourceAccountId))
@@ -377,14 +393,15 @@ export function createConnectedIntelligenceService({
          external_thread_id, direction, from_json, to_json, cc_json, subject,
          occurred_at, person_ids_json, client_id, project_id, relationship_source,
          folder, provider_uid, provenance_json, created_at, updated_at
-       ) VALUES ($1, $2, $3, 'email', $4, $5, $6, $7, $8, $9, $10, $11,
-         $12, $13, $14, $15, $16, $17, $18, $19, $19)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+         $13, $14, $15, $16, $17, $18, $19, $20, $20)
        ON CONFLICT (workspace_id, source_account_id, external_message_id) DO NOTHING
        RETURNING id`,
       [
         id,
         workspaceId,
         sourceAccountId,
+        fixture ? 'fixture' : 'email',
         externalMessageId,
         externalThreadId,
         direction,
@@ -399,7 +416,9 @@ export function createConnectedIntelligenceService({
         relationshipSource,
         String(input?.folder || '').trim().slice(0, 500) || null,
         String(input?.providerUid || '').trim().slice(0, 160) || null,
-        JSON.stringify({ provider: String(input?.provider || 'custom').slice(0, 80) }),
+        JSON.stringify(fixture
+          ? { provider: 'fixture', source: 'fixture/import', dataset: String(input?.dataset || '').slice(0, 160) }
+          : { provider: String(input?.provider || 'custom').slice(0, 80) }),
         createdAt,
       ],
     )
@@ -415,9 +434,9 @@ export function createConnectedIntelligenceService({
       entityId: id,
       clientId,
       projectId,
-      connectionId: 'mail',
+      connectionId: fixture ? 'fixture' : 'mail',
       participantRefs: people.map((person) => person.id),
-      sourceChannel: 'email',
+      sourceChannel: fixture ? 'fixture' : 'email',
       sourceIdentifier: stableConnectedId('mail', `${sourceAccountId}:${externalMessageId}`),
       payload: {
         threadId: externalThreadId,
@@ -442,6 +461,11 @@ export function createConnectedIntelligenceService({
   async function observeCommunication(context, input, { transactional = true } = {}) {
     if (!transactional) return insertCommunicationObservation(context, input)
     return database.transaction(() => insertCommunicationObservation(context, input))
+  }
+
+  async function observeFixtureCommunication(context, input, { transactional = true } = {}) {
+    if (!transactional) return insertCommunicationObservation(context, input, { fixture: true })
+    return database.transaction(() => insertCommunicationObservation(context, input, { fixture: true }))
   }
 
   async function confirmThreadProject(context, { externalMessageId, sourceAccountId, projectId }) {
@@ -1141,6 +1165,112 @@ export function createConnectedIntelligenceService({
     return { ...result, opportunity }
   }
 
+  async function getWorkspaceSummary(context) {
+    const { workspaceId } = trustedScope(context)
+    const [
+      clientCount,
+      projectCount,
+      communicationCount,
+      meetingCount,
+      invoiceCount,
+      timeEntryCount,
+      workspacePaymentCount,
+      providerPaymentCount,
+      clients,
+      projects,
+    ] = await Promise.all([
+      database.query('SELECT COUNT(*) AS count FROM clients WHERE workspace_id = $1', [workspaceId]),
+      database.query('SELECT COUNT(*) AS count FROM projects WHERE workspace_id = $1', [workspaceId]),
+      database.query('SELECT COUNT(*) AS count FROM communication_messages WHERE workspace_id = $1', [workspaceId]),
+      database.query("SELECT COUNT(*) AS count FROM calendar_events WHERE workspace_id = $1 AND kind = 'meeting'", [workspaceId]),
+      database.query('SELECT COUNT(*) AS count FROM invoices WHERE workspace_id = $1', [workspaceId]),
+      database.query('SELECT COUNT(*) AS count FROM time_entries WHERE workspace_id = $1', [workspaceId]),
+      database.query('SELECT COUNT(*) AS count FROM workspace_payments WHERE workspace_id = $1', [workspaceId]),
+      database.query(
+        `SELECT COUNT(*) AS count
+         FROM payment_links
+         WHERE workspace_id = $1 AND status = 'paid'
+           AND NOT EXISTS (
+             SELECT 1 FROM workspace_payments
+             WHERE workspace_payments.workspace_id = payment_links.workspace_id
+               AND workspace_payments.invoice_id = payment_links.invoice_id
+           )`,
+        [workspaceId],
+      ),
+      database.query(
+        `SELECT id, name
+         FROM clients
+         WHERE workspace_id = $1
+         ORDER BY name ASC`,
+        [workspaceId],
+      ),
+      database.query(
+        `SELECT projects.id, projects.name, projects.client_id,
+           (SELECT COUNT(*) FROM calendar_events
+            WHERE calendar_events.workspace_id = $1
+              AND calendar_events.project_id = projects.id
+              AND calendar_events.kind = 'meeting') AS meeting_count,
+           (SELECT COUNT(*) FROM communication_messages
+            WHERE communication_messages.workspace_id = $1
+              AND communication_messages.project_id = projects.id) AS communication_count,
+           (SELECT COUNT(*) FROM time_entries
+            WHERE time_entries.workspace_id = $1
+              AND time_entries.project_id = projects.id) AS time_entry_count,
+           (SELECT COUNT(*) FROM invoices
+            WHERE invoices.workspace_id = $1
+              AND invoices.project_id = projects.id) AS invoice_count,
+           (SELECT COUNT(*) FROM workspace_payments
+            JOIN invoices ON invoices.id = workspace_payments.invoice_id
+            WHERE workspace_payments.workspace_id = $1
+              AND invoices.project_id = projects.id) +
+           (SELECT COUNT(*) FROM payment_links
+            JOIN invoices ON invoices.id = payment_links.invoice_id
+            WHERE payment_links.workspace_id = $1
+              AND payment_links.status = 'paid'
+              AND invoices.project_id = projects.id
+              AND NOT EXISTS (
+                SELECT 1 FROM workspace_payments
+                WHERE workspace_payments.workspace_id = payment_links.workspace_id
+                  AND workspace_payments.invoice_id = payment_links.invoice_id
+              )) AS payment_count
+         FROM projects
+         WHERE projects.workspace_id = $1
+         ORDER BY projects.name ASC`,
+        [workspaceId],
+      ),
+    ])
+    const count = (rows) => Number(rows[0]?.count || 0)
+    const mappedProjects = projects.map((project) => ({
+      id: project.id,
+      name: project.name,
+      clientId: project.client_id,
+      connections: {
+        meetings: Number(project.meeting_count || 0),
+        communications: Number(project.communication_count || 0),
+        timeEntries: Number(project.time_entry_count || 0),
+        invoices: Number(project.invoice_count || 0),
+        payments: Number(project.payment_count || 0),
+      },
+    }))
+    return {
+      counts: {
+        clients: count(clientCount),
+        projects: count(projectCount),
+        communications: count(communicationCount),
+        meetings: count(meetingCount),
+        invoices: count(invoiceCount),
+        timeEntries: count(timeEntryCount),
+        payments: count(workspacePaymentCount) + count(providerPaymentCount),
+      },
+      clients: clients.map((client) => ({
+        id: client.id,
+        name: client.name,
+        projects: mappedProjects.filter((project) => project.clientId === client.id),
+      })),
+      unlinkedProjects: mappedProjects.filter((project) => !project.clientId),
+    }
+  }
+
   async function listOpportunities(context, { status = 'active', limit = 50 } = {}) {
     const { workspaceId } = trustedScope(context)
     if (status && !['active', 'dismissed', 'resolved', 'expired'].includes(status)) {
@@ -1170,11 +1300,13 @@ export function createConnectedIntelligenceService({
     completeDueMeetings,
     getMeetingFeatures,
     observeCommunication,
+    observeFixtureCommunication,
     getCommunicationRelationship,
     confirmThreadProject,
     getCommunicationFeatures,
     detectProjectMeetingLoad,
     detectClientAttentionLoad,
+    getWorkspaceSummary,
     listOpportunities,
   }
 }

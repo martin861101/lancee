@@ -19,6 +19,13 @@ export type User = {
   initials: string
 }
 
+export type WorkspaceMembership = {
+  id: string
+  name: string
+  role: 'owner' | 'collaborator' | 'viewer'
+  createdAt: string
+}
+
 export type AdminDashboard = {
   generatedAt: string
   summary: {
@@ -860,6 +867,73 @@ export type ProjectMeetingLoadResult = {
   }>
 }
 
+export type ConnectedOpportunity = {
+  id: string
+  workspaceId: string
+  detectorKey: 'project_meeting_load' | 'client_attention_load'
+  subjectType: 'project' | 'client'
+  subjectId: string
+  projectId: string | null
+  clientId: string | null
+  title: string
+  summary: string
+  confidence: number
+  status: 'active' | 'dismissed' | 'resolved' | 'expired'
+  evidence: Array<Record<string, string>>
+  metrics: {
+    detector: string
+    detectorVersion: string
+    observed: Record<string, number>
+    baseline: Record<string, number | string[]>
+    comparison: Record<string, number | null>
+    confidence: number
+  }
+  firstDetectedAt: string
+  lastDetectedAt: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type ConnectedIntelligenceSummary = {
+  counts: {
+    clients: number
+    projects: number
+    communications: number
+    meetings: number
+    invoices: number
+    timeEntries: number
+    payments: number
+  }
+  clients: Array<{
+    id: string
+    name: string
+    projects: Array<{
+      id: string
+      name: string
+      clientId: string | null
+      connections: {
+        meetings: number
+        communications: number
+        timeEntries: number
+        invoices: number
+        payments: number
+      }
+    }>
+  }>
+  unlinkedProjects: Array<{
+    id: string
+    name: string
+    clientId: null
+    connections: {
+      meetings: number
+      communications: number
+      timeEntries: number
+      invoices: number
+      payments: number
+    }
+  }>
+}
+
 export type ProjectTask = {
   id: string
   workspaceId: string
@@ -1228,6 +1302,47 @@ export const api = {
         payload = (await response.json()) as { user: User }
       } catch {
         return getCachedSession().catch(() => null)
+      }
+      void cacheSession(payload.user).catch(() => undefined)
+      return payload.user
+    },
+    async listWorkspaces() {
+      const response = await fetch('/api/auth/workspaces', {
+        credentials: 'same-origin',
+      })
+      const payload = (await response.json()) as {
+        workspaces?: WorkspaceMembership[]
+        error?: string
+      }
+      if (!response.ok || !payload.workspaces) {
+        throw new Error(payload.error || 'Unable to load your workspaces.')
+      }
+      return payload.workspaces
+    },
+    async switchWorkspace(workspaceId: string) {
+      const response = await fetch('/api/auth/workspaces/switch', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify({ workspaceId }),
+      })
+      const payload = (await response.json()) as { user?: User; error?: string }
+      if (!response.ok || !payload.user) {
+        throw new Error(payload.error || 'Unable to switch workspaces.')
+      }
+      void cacheSession(payload.user).catch(() => undefined)
+      return payload.user
+    },
+    async createWorkspace(name: string) {
+      const response = await fetch('/api/auth/workspaces', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify({ name }),
+      })
+      const payload = (await response.json()) as { user?: User; error?: string }
+      if (!response.ok || !payload.user) {
+        throw new Error(payload.error || 'Unable to create the workspace.')
       }
       void cacheSession(payload.user).catch(() => undefined)
       return payload.user
@@ -1690,6 +1805,26 @@ export const api = {
     },
   },
   connectedIntelligence: {
+    async summary(): Promise<ConnectedIntelligenceSummary> {
+      const response = await fetch('/api/connected-intelligence/summary', {
+        credentials: 'same-origin',
+      })
+      const payload = (await response.json()) as ConnectedIntelligenceSummary & { error?: string }
+      if (!response.ok || !payload.counts || !payload.clients) {
+        throw new Error(payload.error || 'Unable to load the Connected Intelligence summary.')
+      }
+      return payload
+    },
+    async opportunities(): Promise<ConnectedOpportunity[]> {
+      const response = await fetch('/api/connected-intelligence/opportunities?status=active&limit=100', {
+        credentials: 'same-origin',
+      })
+      const payload = (await response.json()) as { opportunities?: ConnectedOpportunity[]; error?: string }
+      if (!response.ok || !payload.opportunities) {
+        throw new Error(payload.error || 'Unable to load Connected Intelligence findings.')
+      }
+      return payload.opportunities
+    },
     async meetingFeatures(): Promise<MeetingFeatures> {
       const response = await fetch('/api/connected-intelligence/meeting-features', {
         credentials: 'same-origin',

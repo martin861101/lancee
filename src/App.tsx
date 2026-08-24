@@ -38,6 +38,7 @@ import {
   type Run,
   type RunEvent,
   type User,
+  type WorkspaceMembership,
   type WorkspaceBuilderPayload,
   type WorkspaceBuilderState,
   type WorkspaceContext,
@@ -5133,6 +5134,8 @@ function Sidebar({
   onNavigate,
   onClose,
   onSignOut,
+  onWorkspaceChanged,
+  onToast,
   pendingInvoiceCount,
   enabledModules,
 }: {
@@ -5143,15 +5146,112 @@ function Sidebar({
   onNavigate: (page: Page) => void
   onClose: () => void
   onSignOut: () => void
+  onWorkspaceChanged: (user: User) => void
+  onToast: (message: string) => void
   pendingInvoiceCount: number
   enabledModules: string[] | null
 }) {
+  const workspaceMenuRef = useRef<HTMLDivElement>(null)
+  const workspaceButtonRef = useRef<HTMLButtonElement>(null)
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false)
+  const [workspaces, setWorkspaces] = useState<WorkspaceMembership[]>([])
+  const [workspaceMenuLoading, setWorkspaceMenuLoading] = useState(false)
+  const [workspaceMenuError, setWorkspaceMenuError] = useState('')
+  const [switchingWorkspaceId, setSwitchingWorkspaceId] = useState('')
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false)
+  const [newWorkspaceName, setNewWorkspaceName] = useState('')
   const workspaceInitials = user.workspace
     .split(/\s+/)
     .map((part) => part[0])
     .join('')
     .slice(0, 2)
     .toUpperCase()
+
+  const openWorkspaceMenu = () => {
+    if (workspaceMenuOpen) {
+      setWorkspaceMenuOpen(false)
+      return
+    }
+    setWorkspaceMenuOpen(true)
+    setWorkspaceMenuError('')
+    setWorkspaceMenuLoading(true)
+    void api.auth
+      .listWorkspaces()
+      .then(setWorkspaces)
+      .catch((error) => {
+        setWorkspaceMenuError(
+          error instanceof Error ? error.message : 'Unable to load your workspaces.',
+        )
+      })
+      .finally(() => setWorkspaceMenuLoading(false))
+  }
+
+  useEffect(() => {
+    if (!workspaceMenuOpen) return
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!workspaceMenuRef.current?.contains(event.target as Node)) {
+        setWorkspaceMenuOpen(false)
+      }
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setWorkspaceMenuOpen(false)
+        workspaceButtonRef.current?.focus()
+      }
+    }
+    document.addEventListener('pointerdown', closeOnOutsidePress)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePress)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [workspaceMenuOpen])
+
+  const switchWorkspace = async (workspace: WorkspaceMembership) => {
+    if (workspace.id === user.workspaceId) {
+      setWorkspaceMenuOpen(false)
+      return
+    }
+    setSwitchingWorkspaceId(workspace.id)
+    setWorkspaceMenuError('')
+    try {
+      const nextUser = await api.auth.switchWorkspace(workspace.id)
+      onWorkspaceChanged(nextUser)
+      onToast(`Switched to ${nextUser.workspace}.`)
+      setWorkspaceMenuOpen(false)
+      onClose()
+    } catch (error) {
+      setWorkspaceMenuError(
+        error instanceof Error ? error.message : 'Unable to switch workspaces.',
+      )
+    } finally {
+      setSwitchingWorkspaceId('')
+    }
+  }
+
+  const createWorkspace = async (event: FormEvent) => {
+    event.preventDefault()
+    const name = newWorkspaceName.trim()
+    if (!name) return
+    setSwitchingWorkspaceId('new')
+    setWorkspaceMenuError('')
+    try {
+      const nextUser = await api.auth.createWorkspace(name)
+      onWorkspaceChanged(nextUser)
+      onToast(`${nextUser.workspace} created.`)
+      setNewWorkspaceName('')
+      setCreatingWorkspace(false)
+      setWorkspaceMenuOpen(false)
+      onClose()
+    } catch (error) {
+      setWorkspaceMenuError(
+        error instanceof Error ? error.message : 'Unable to create the workspace.',
+      )
+    } finally {
+      setSwitchingWorkspaceId('')
+    }
+  }
+
   return (
     <>
       {mobileOpen && (
@@ -5171,12 +5271,87 @@ function Sidebar({
           </button>
         </div>
 
-        <div className="workspace-switcher">
-          <span className="workspace-avatar">{workspaceInitials}</span>
-          <span>
-            <strong>{user.workspace}</strong>
-            <small>{user.role === 'owner' ? 'Workspace owner' : 'Collaborator'}</small>
-          </span>
+        <div className="workspace-switcher-shell" ref={workspaceMenuRef}>
+          <button
+            ref={workspaceButtonRef}
+            type="button"
+            className="workspace-switcher"
+            onClick={openWorkspaceMenu}
+            aria-haspopup="dialog"
+            aria-expanded={workspaceMenuOpen}
+          >
+            <span className="workspace-avatar">{workspaceInitials}</span>
+            <span>
+              <strong>{user.workspace}</strong>
+              <small>{user.role === 'owner' ? 'Workspace owner' : 'Collaborator'}</small>
+            </span>
+            <Icon
+              name="chevron-down"
+              size={15}
+              className={workspaceMenuOpen ? 'workspace-switcher__chevron is-open' : 'workspace-switcher__chevron'}
+            />
+          </button>
+
+          {workspaceMenuOpen && (
+            <section className="workspace-menu" role="dialog" aria-label="Switch workspace">
+              <span className="workspace-menu__label">Workspaces</span>
+              <div className="workspace-menu__list">
+                {workspaceMenuLoading ? (
+                  <span className="workspace-menu__status"><span className="spinner" /> Loading workspaces…</span>
+                ) : (
+                  workspaces.map((workspace) => (
+                    <button
+                      key={workspace.id}
+                      type="button"
+                      className="workspace-menu__workspace"
+                      onClick={() => void switchWorkspace(workspace)}
+                      disabled={Boolean(switchingWorkspaceId)}
+                      aria-current={workspace.id === user.workspaceId ? 'true' : undefined}
+                    >
+                      <span className="workspace-menu__check">
+                        {workspace.id === user.workspaceId && <Icon name="check" size={14} />}
+                      </span>
+                      <span>
+                        <strong>{workspace.name}</strong>
+                        <small>{workspace.role.charAt(0).toUpperCase() + workspace.role.slice(1)}</small>
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+              {workspaceMenuError && (
+                <p className="workspace-menu__error" role="alert">{workspaceMenuError}</p>
+              )}
+              <div className="workspace-menu__divider" />
+              {creatingWorkspace ? (
+                <form className="workspace-menu__create-form" onSubmit={(event) => void createWorkspace(event)}>
+                  <label htmlFor="new-workspace-name">Workspace name</label>
+                  <input
+                    id="new-workspace-name"
+                    value={newWorkspaceName}
+                    onChange={(event) => setNewWorkspaceName(event.target.value)}
+                    maxLength={160}
+                    autoFocus
+                  />
+                  <div>
+                    <button type="button" onClick={() => setCreatingWorkspace(false)}>Cancel</button>
+                    <button type="submit" disabled={!newWorkspaceName.trim() || switchingWorkspaceId === 'new'}>
+                      {switchingWorkspaceId === 'new' ? 'Creating…' : 'Create'}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  className="workspace-menu__create"
+                  onClick={() => setCreatingWorkspace(true)}
+                >
+                  <Icon name="plus" size={15} />
+                  Create workspace
+                </button>
+              )}
+            </section>
+          )}
         </div>
 
         <nav className="sidebar-nav" aria-label="Main navigation">
@@ -6117,6 +6292,14 @@ function WorkspaceApp() {
       window.history[method]({ page: nextPage }, '', nextPath)
     }
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleWorkspaceChanged = (nextUser: User) => {
+    setUser(nextUser)
+    setWorkProjectId('')
+    setMessageFocus(null)
+    setModal(null)
+    navigatePage('overview', true)
   }
 
   const visibleNotifications = workspaceNotifications
@@ -7345,6 +7528,8 @@ function WorkspaceApp() {
         }}
         onClose={() => setMobileOpen(false)}
         onSignOut={() => void signOut()}
+        onWorkspaceChanged={handleWorkspaceChanged}
+        onToast={setToast}
         pendingInvoiceCount={analytics?.pendingInvoices ?? 0}
         enabledModules={
           builderPayload?.state.status === 'completed'

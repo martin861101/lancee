@@ -111,7 +111,7 @@ async function sessionRequest(origin, cookie, path, options = {}) {
 let application
 try {
   application = await startApplication()
-  const cookie = await login(application.origin)
+  let cookie = await login(application.origin)
 
   const driveAuthorization = await sessionRequest(
     application.origin,
@@ -191,6 +191,75 @@ try {
   )
   assert.equal(session.status, 200)
   assert.equal((await session.json()).user.workspace, 'Updated Workspace')
+
+  const initialWorkspaceList = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/auth/workspaces',
+  )
+  assert.equal(initialWorkspaceList.status, 200)
+  const initialWorkspaces = (await initialWorkspaceList.json()).workspaces
+  assert.equal(initialWorkspaces.length, 1)
+  assert.equal(initialWorkspaces[0].name, 'Updated Workspace')
+  assert.equal(initialWorkspaces[0].role, 'owner')
+
+  const workspaceCreate = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/auth/workspaces',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Second Workspace' }),
+    },
+  )
+  assert.equal(workspaceCreate.status, 201)
+  const createdWorkspaceUser = (await workspaceCreate.json()).user
+  assert.equal(createdWorkspaceUser.workspace, 'Second Workspace')
+  assert.notEqual(createdWorkspaceUser.workspaceId, workspaceId)
+  cookie = workspaceCreate.headers.get('set-cookie').split(';', 1)[0]
+
+  const updatedWorkspaceList = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/auth/workspaces',
+  )
+  assert.equal(updatedWorkspaceList.status, 200)
+  assert.equal((await updatedWorkspaceList.json()).workspaces.length, 2)
+
+  const inaccessibleWorkspaceSwitch = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/auth/workspaces/switch',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceId: 'wsp_not_a_membership' }),
+    },
+  )
+  assert.equal(inaccessibleWorkspaceSwitch.status, 404)
+
+  const workspaceSwitch = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/auth/workspaces/switch',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceId }),
+    },
+  )
+  assert.equal(workspaceSwitch.status, 200)
+  assert.equal((await workspaceSwitch.json()).user.workspace, 'Updated Workspace')
+  cookie = workspaceSwitch.headers.get('set-cookie').split(';', 1)[0]
+
+  const switchedSession = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/auth/session',
+  )
+  assert.equal(switchedSession.status, 200)
+  assert.equal((await switchedSession.json()).user.workspaceId, workspaceId)
 
   const projectResponse = await sessionRequest(
     application.origin,
@@ -403,7 +472,7 @@ try {
   assert.equal(removeFile.status, 204)
 
   console.log(
-    'Workspace flows verified: safe Google OAuth callback/scope, same-origin mutations, canonical settings, project status moves, confirmed client/automation deletion, encrypted provider connection, and real project file upload/download.',
+    'Workspace flows verified: workspace list/create/switch sessions, safe Google OAuth callback/scope, same-origin mutations, canonical settings, project status moves, confirmed client/automation deletion, encrypted provider connection, and real project file upload/download.',
   )
 } finally {
   await stopApplication(application)

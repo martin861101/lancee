@@ -594,6 +594,27 @@ export const lanceeMcpToolDefinitions = [
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
   {
+    name: 'get_connected_intelligence_summary',
+    title: 'Get Connected Intelligence summary',
+    description: 'Read exact workspace-scoped record counts and authoritative Client to Project relationships across meetings, communications, time, invoices, and payments.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'list_connected_opportunities',
+    title: 'List Connected Intelligence opportunities',
+    description: 'Read persisted workspace-scoped Connected Intelligence findings with detector metrics, baselines, confidence, and exact evidence references.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['active', 'dismissed', 'resolved', 'expired', 'all'] },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
     name: 'call_external_api',
     title: 'Call external API',
     description: 'Call a public HTTP API with bounded time, body, and response size. Redirects, private hosts, cookies, and authorization headers are blocked.',
@@ -1296,6 +1317,16 @@ export function createLanceeMcpRuntime({
     }
     if (name === 'get_decision_intelligence_overview') {
       return { overview: await decisionDynamics.getDecisionIntelligenceOverview(context) }
+    }
+    if (name === 'get_connected_intelligence_summary') {
+      return { summary: await connectedIntelligence.getWorkspaceSummary(context) }
+    }
+    if (name === 'list_connected_opportunities') {
+      const opportunities = await connectedIntelligence.listOpportunities(context, {
+        status: args.status === 'all' ? null : args.status,
+        limit: args.limit,
+      })
+      return { opportunities, total: opportunities.length }
     }
     throw new LanceeMcpError('MCP_TOOL_NOT_FOUND', `Unknown Lancee MCP tool: ${name}.`, 404)
   }
