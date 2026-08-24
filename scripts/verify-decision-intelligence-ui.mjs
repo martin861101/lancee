@@ -171,28 +171,12 @@ try {
   assert.equal((await dynamics.getDecision(contextB, workspaceBDecision.id)).id, workspaceBDecision.id)
 
   const pageSource = readFileSync(new URL('../src/components/intelligence/ConnectedIntelligencePage.tsx', import.meta.url), 'utf8')
-  const chatSource = readFileSync(new URL('../src/components/dashboard/WorkspaceChat.tsx', import.meta.url), 'utf8')
-  for (const requiredState of [
-    'Your work knows more than you think.',
-    'What Lancee Found',
-    'project_meeting_load',
-    'client_attention_load',
-    'Deterministic evidence chain',
-    'Connection Map',
-    'Why is this client taking so much attention?',
-    'Decision Intelligence history',
-    'No structured decisions recorded',
-    'No reliable pattern yet',
-    'No active predictions',
-    "['active', 'acknowledged', 'dismissed', 'resolved', 'all']",
-    'causal claim: false',
-    'Refresh failed:',
-    'An empty warning collection does not mean the decision ledger is empty',
-    'DASHBOARD_ASSISTANT_QUERY_EVENT',
-  ]) assert(pageSource.includes(requiredState), `Missing Decision Intelligence UI state: ${requiredState}`)
-  assert(chatSource.includes("export const DASHBOARD_ASSISTANT_QUERY_EVENT"))
+  assert(pageSource.includes('Connected Intelligence'))
+  assert(pageSource.includes('<IntelligenceBriefing'))
+  assert(pageSource.includes('<LanceeActivity'))
+  assert.equal(pageSource.includes('Decision Intelligence history'), false)
 
-  console.log('Intelligence UI verified: Connected Intelligence headline, persisted detector cards, deterministic evidence chain, connection map, Hermes prompts, secondary Decision Intelligence history, measured-outcome thresholds, patterns, predictions, warnings, evidence provenance, workspace isolation, and bounded empty/error states.')
+  console.log('Decision Dynamics verified: legacy decision storage, learning thresholds, patterns, predictions, warning lifecycles, evidence provenance, and workspace isolation remain intact while the current Intelligence UI uses Connected Intelligence only.')
 } finally {
   await database?.close()
   rmSync(directory, { recursive: true, force: true })

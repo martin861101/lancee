@@ -6673,7 +6673,10 @@ function WorkspaceApp() {
       case 'intelligence':
         page = (
           <Suspense fallback={<EmptySkeleton />}>
-            <ConnectedIntelligencePage />
+            <ConnectedIntelligencePage
+              onOpenProject={openClientProject}
+              onOpenClients={() => navigatePage('clients')}
+            />
           </Suspense>
         )
         break

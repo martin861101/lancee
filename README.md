@@ -194,14 +194,17 @@ It creates its own marker-protected synthetic workspace, uses canonical
 Calendar/Mail events without external transport, and compares real detector
 output with separate positive and negative ground truth.
 
-The authenticated **Intelligence** destination now leads with Connected
-Intelligence. It shows exact workspace counts, persisted opportunities, detector
-baselines and confidence, exact evidence-event references, and an authoritative
-Client → Project connection map across meetings, messages, time, invoices, and
-payments. Decision Intelligence remains available from the same page as a
-secondary history capability. Hermes receives read-only Connected Intelligence
-tools for questions about unusual projects, client attention, and missed
-relationships.
+The authenticated **Intelligence** destination now presents Connected
+Intelligence as a human briefing. It distinguishes findings that need attention,
+an all-clear result, and insufficient activity; translates persisted detector
+results into careful client/project language; and shows real inspection history
+as **Lancee activity**. Technical users can expand each finding to inspect the
+unchanged detector condition, baseline, confidence, and exact evidence-event
+references. Legacy Decision Intelligence storage and APIs remain compatible but
+its history is no longer shown in the current Intelligence UI. Hermes continues
+to receive read-only Connected Intelligence tools for questions about unusual
+projects, client attention, and missed relationships. See
+[`docs/CONNECTED_INTELLIGENCE_UI.md`](docs/CONNECTED_INTELLIGENCE_UI.md).
 
 Connected Intelligence now persists one `connected_inspections` record per
 real logical Mail, Calendar, project, or cross-source intelligence operation.

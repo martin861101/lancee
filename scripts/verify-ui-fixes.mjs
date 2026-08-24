@@ -30,7 +30,8 @@ for (const absent of [
 ]) assert.equal(appSource.includes(absent), false, `${absent} must not be in workspace navigation`)
 
 assert.match(analyticsSource, /embedded = false/)
-assert.match(intelligenceSource, /<AnalyticsPage embedded \/>/)
+assert.match(intelligenceSource, /<IntelligenceBriefing summary=\{summary\} \/>/)
+assert.match(intelligenceSource, /<LanceeActivity/)
 assert.equal(analyticsSource.includes('Export JSON'), false)
 assert.equal(analyticsSource.includes('Cloud files'), false)
 assert.match(serverSource, /app\.delete\('\/api\/notifications'/)
@@ -60,4 +61,4 @@ try {
   rmSync(directory, { recursive: true, force: true })
 }
 
-console.log('UI fixes verified: consolidated navigation, Intelligence analytics, Connected Apps diagram, and workspace-scoped notification clearing.')
+console.log('UI fixes verified: consolidated navigation, Connected Intelligence briefing/activity, Connected Apps diagram, and workspace-scoped notification clearing.')
