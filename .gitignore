@@ -9,7 +9,8 @@ lerna-debug.log*
 
 # Junk
 junk
-
+agent
+AGENT_LANCEE.md
 node_modules
 dist
 dist-ssr
