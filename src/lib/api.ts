@@ -324,6 +324,18 @@ export type ProposedMcpAction = {
   continueAfterSuccess?: boolean
   agentRunId?: string
   approvalId?: string
+  preview?: WorkflowPreview
+}
+
+export type WorkflowPreview = {
+  workflowName: string
+  trigger: string
+  conditions: Array<{ field: string; operator: string; value: string }>
+  actions: string[]
+  confidencePolicy: { createAtOrAbove: number; reviewFrom: number; skipBelow: number }
+  assumptions: string[]
+  warnings: string[]
+  recordsMayCreate: string[]
 }
 
 export type AgentChatResponse = {

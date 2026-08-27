@@ -9056,6 +9056,20 @@ kbd {
   font-size: 10px;
 }
 
+.workspace-chat__workflow-preview {
+  display: grid;
+  gap: 3px;
+  padding: 7px;
+  border: 1px solid #35445c;
+  border-radius: 7px;
+  background: #121c2c;
+}
+
+.workspace-chat__workflow-preview strong {
+  color: #eaf0fb;
+  font-size: 11px;
+}
+
 .workspace-chat__action button {
   justify-self: start;
   padding: 6px 9px;

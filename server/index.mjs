@@ -81,6 +81,20 @@ import {
   mailRuleInstruction,
   mailRuleMatches,
 } from './mail-automation.mjs'
+import {
+  createProjectRequestExtractor,
+  createWorkflowRequestPlanner,
+  executeWorkflowDefinition,
+  previewWorkflow,
+  WORKFLOW_CAPABILITIES,
+  workflowCapabilityDefinitions,
+  workflowActivationCapability,
+  workflowDefinitionHash,
+  workflowPlannerCapability,
+} from './workflow-builder.mjs'
+
+const projectRequestExtractor = createProjectRequestExtractor({ complete: completeChat })
+const workflowRequestPlanner = createWorkflowRequestPlanner({ complete: completeChat })
 import { createRedisRuntime } from './redis.mjs'
 import {
   createLanceeMcpRuntime,
@@ -1691,7 +1705,34 @@ async function executeCoreAutomationRun(context, automation, run, startedAt) {
     run,
     database,
     log,
+    extractProjectRequest: projectRequestExtractor,
   })
+  const workflowResult = execution?.results
+  if (workflowResult?.decision === 'review_required') {
+    const extraction = workflowResult.extraction || {}
+    await database.appendAutomationRunEvent({
+      workspaceId: selectedWorkspaceId,
+      runId: run.id,
+      eventType: 'review.persisted',
+      level: 'warning',
+      message: 'A medium-confidence project request was saved for review.',
+      output: {
+        confidence: extraction.confidence,
+        projectName: extraction.projectName || '',
+        summary: extraction.summary || '',
+        task: extraction.task || null,
+        missingInformation: extraction.missingInformation || [],
+      },
+    })
+    await database.createWorkspaceNotification({
+      workspaceId: selectedWorkspaceId,
+      kind: 'workflow.review_required',
+      title: 'Workflow email needs review',
+      body: `“${String(extraction.projectName || 'Untitled request').slice(0, 160)}” was held for review (${Math.round(Number(extraction.confidence || 0) * 100)}% confidence).`,
+      entityType: 'automation_run',
+      entityId: run.id,
+    })
+  }
   return await database.completeAutomationRun({
     selectedWorkspaceId,
     id: run.id,
@@ -8547,6 +8588,14 @@ const lanceeMcp = createLanceeMcpRuntime({
     }
     n8nConnectionSecret(n8nConnection)
   },
+  additionalCapabilities: [
+    ...workflowCapabilityDefinitions({ database, extractProjectRequest: projectRequestExtractor }),
+    workflowPlannerCapability({
+      createProposal: workflowRequestPlanner,
+      getConnectionState: async (context) => ({ mailConnected: Boolean(await database.getMailAccount(context.workspace.id)) }),
+    }),
+    workflowActivationCapability({ database }),
+  ],
 })
 
 function agentPlannerCapabilities(objective) {
@@ -8600,7 +8649,33 @@ function parsedAgentPlan(content) {
   }
 }
 
-async function planAgentRun({ objective, budget }) {
+async function planAgentRun({ objective, budget, context, threadId, runId }) {
+  const priorRuns = await database.listAgentRuns(context.workspace.id, {
+    userId: context.user.id,
+    threadId,
+    limit: 20,
+  })
+  const priorClarification = priorRuns.find((run) => run.id !== runId && run.status === 'completed' && String(run.finalOutput || '').includes('"needs_clarification"'))
+  const continuationEmail = String(objective).match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]
+  const planningObjective = priorClarification && continuationEmail
+    ? `${priorClarification.objective} ${continuationEmail}`
+    : objective
+  const mailAccount = await database.getMailAccount(context.workspace.id)
+  const workflowProposal = await workflowRequestPlanner(planningObjective, {
+    capabilities: WORKFLOW_CAPABILITIES,
+    connectionState: { mailConnected: Boolean(mailAccount) },
+  })
+  if (workflowProposal) {
+    if (workflowProposal.status !== 'ready') return { steps: [{ toolId: 'workflow.propose', arguments: { objective: planningObjective } }], finalOutput: JSON.stringify(workflowProposal), usage: { tokens: 0, cost: 0 } }
+    const definitionHash = workflowDefinitionHash(workflowProposal.workflow)
+    return {
+      steps: [
+        { toolId: 'workflow.propose', arguments: { objective: planningObjective } },
+        { toolId: 'workflow.activate-proposal', arguments: { definition: workflowProposal.workflow, definition_hash: definitionHash } },
+      ],
+      finalOutput: JSON.stringify({ ...workflowProposal, preview: previewWorkflow(workflowProposal.workflow) }), usage: { tokens: 0, cost: 0 },
+    }
+  }
   if (connectedIntelligenceRequest(objective)) {
     const opportunityId = String(objective).match(/\bopp_[a-f0-9]{24}\b/i)?.[0]?.toLowerCase()
     const checksActivity = /\b(check(?:ed|ing)?|activity|inspect(?:ed|ion|ions)?)\b/i.test(objective)
@@ -8705,12 +8780,20 @@ async function agentRunResponse(context, run) {
       const capability = step ? lanceeMcp.capabilities.get(step.toolId) : null
       if (approval && step && capability) {
         const highRisk = ['external-action', 'destructive', 'administrative'].includes(capability.riskLevel)
+        const workflowPreview = capability.id === 'workflow.activate-proposal'
+          ? previewWorkflow(step.arguments.definition, {
+            warnings: (await database.getMailAccount(context.workspace.id))
+              ? []
+              : ['No connected mailbox was found. Connect a mailbox before this workflow can receive email.'],
+          })
+          : null
         proposedAction = {
           serviceId: 'lancee-agent',
           toolId: capability.id,
           arguments: step.arguments,
-          title: capability.id.split(/[.-]/).map((word) => word[0].toUpperCase() + word.slice(1)).join(' '),
-          description: capability.description,
+          title: workflowPreview ? `Activate ${workflowPreview.workflowName}` : capability.id.split(/[.-]/).map((word) => word[0].toUpperCase() + word.slice(1)).join(' '),
+          description: workflowPreview ? workflowPreview.summary : capability.description,
+          preview: workflowPreview,
           risk: highRisk ? 'high' : capability.riskLevel === 'read' ? 'low' : 'medium',
           readOnly: capability.riskLevel === 'read',
           agentRunId: run.id,
@@ -9178,6 +9261,23 @@ app.delete(
     response.status(204).end()
   },
 )
+
+app.post('/api/workflows/dry-run', secureMutations, requireAuth, async (request, response) => {
+  const definition = request.body?.definition
+  const email = request.body?.email
+  if (!definition || !email || typeof email !== 'object') {
+    throw new HttpError(400, 'A workflow definition and bounded sample email are required.')
+  }
+  const result = await executeWorkflowDefinition({
+    database,
+    context: request.auth.context,
+    definition,
+    event: email,
+    extractProjectRequest: projectRequestExtractor,
+    dryRun: true,
+  })
+  response.json(result)
+})
 
 app.get('/api/automations/runs', requireAuth, async (request, response) => {
   response.json({

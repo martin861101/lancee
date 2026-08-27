@@ -480,6 +480,16 @@ export async function sendMailMessage(settings, password, input) {
 }
 
 export async function fetchNewMailMessages(settings, password, lastSeenUid, limit = 50) {
+  if (process.env.NODE_ENV === 'test' && process.env.MAIL_TEST_MESSAGES_JSON) {
+    let fixtures
+    try { fixtures = JSON.parse(process.env.MAIL_TEST_MESSAGES_JSON) } catch { throw new MailConnectorError('MAIL_TEST_FIXTURE_INVALID', 'The test mail fixture is invalid.', 500) }
+    if (!Array.isArray(fixtures)) throw new MailConnectorError('MAIL_TEST_FIXTURE_INVALID', 'The test mail fixture must be an array.', 500)
+    const maximumUid = fixtures.reduce((maximum, message) => Math.max(maximum, Number(message?.uid || 0)), Number(lastSeenUid || 0))
+    return {
+      messages: fixtures.filter((message) => Number(message?.uid || 0) > Number(lastSeenUid || 0)).slice(-Math.min(100, Math.max(1, Number(limit) || 50))),
+      maximumUid,
+    }
+  }
   return await withImap(settings, password, async (client) => {
     const lock = await client.getMailboxLock('INBOX', { readOnly: true })
     try {

@@ -4,7 +4,7 @@ import {
   normalizeCapabilityResult,
 } from './result-contract.mjs'
 
-const capabilityIdPattern = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/
+const capabilityIdPattern = /^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$/
 const riskLevels = new Set(['read', 'internal-write', 'external-action', 'destructive', 'administrative'])
 
 /**
@@ -175,6 +175,9 @@ function inputHash(input) {
 function normalizedError(error) {
   if (error instanceof LanceeCapabilityError) {
     return { code: error.code, message: error.message, retryable: Boolean(error.retryable) }
+  }
+  if (/^(?:WORKFLOW|EXTRACTION)_[A-Z0-9_]+$/.test(String(error?.code || ''))) {
+    return { code: error.code, message: String(error.message || 'The workflow capability failed.').slice(0, 500), retryable: false }
   }
   return { code: 'PROVIDER_ERROR', message: 'The capability provider failed.', retryable: false }
 }

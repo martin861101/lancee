@@ -100,6 +100,7 @@ const resultContracts = Object.freeze({
   'intelligence.get-activity': { mode: 'single', resourceKey: 'activity', resourceType: 'intelligence-activity' },
   'intelligence.get-evidence': { mode: 'terminal' },
   'workspace.query': { mode: 'dashboard' },
+  'workflow.propose': { mode: 'workflow-proposal' },
 })
 
 export const lanceeMcpResultContracts = resultContracts
@@ -310,6 +311,21 @@ function normalizeVisual(value) {
   }
 }
 
+function normalizeWorkflowProposal(value) {
+  const data = baseObject(value)
+  for (let index = 0; index < (value?.workflow?.steps || []).length; index += 1) {
+    const source = value.workflow.steps[index]
+    const target = data.workflow?.steps?.[index]
+    if (source?.tool === 'ai.extract_project_request' && source.input?.body === '{{event.body}}' && target?.input) {
+      target.input.body = '{{event.body}}'
+    }
+  }
+  return {
+    data,
+    diagnostics: { resourceType: null, resultCount: 0, canonicalIdPresent: true },
+  }
+}
+
 function normalizeData(capabilityId, value) {
   const contract = resultContracts[capabilityId]
   if (!contract) {
@@ -324,6 +340,7 @@ function normalizeData(capabilityId, value) {
   if (contract.mode === 'deleted') return normalizeDeleted(value)
   if (contract.mode === 'page-extract') return normalizePageExtract(value)
   if (contract.mode === 'visual') return normalizeVisual(value)
+  if (contract.mode === 'workflow-proposal') return normalizeWorkflowProposal(value)
   if (contract.mode === 'terminal') {
     return {
       data: baseObject(value),

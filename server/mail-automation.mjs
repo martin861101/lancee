@@ -1,4 +1,4 @@
-const MAIL_TEMPLATE_PATTERN = /\{\{(sender|senderEmail|senderName|recipient|recipientEmail|subject|body|messageId|ruleId)\}\}/g
+const MAIL_TEMPLATE_PATTERN = /\{\{(sender|senderEmail|senderName|recipient|recipientEmail|subject|body|messageId|ruleId|event\.(?:subject|body|messageId|sender\.email|sender\.name))\}\}/g
 
 function normalizedAddress(value) {
   return String(value || '').trim().toLowerCase()
@@ -52,7 +52,25 @@ function expandTemplates(value, values) {
   return value
 }
 
+function workflowConditionMatches(condition, message) {
+  const field = condition?.field
+  const expected = normalizedAddress(condition?.value)
+  if (!expected) return false
+  const sender = addressesFromMessage(message, 'from')
+  const recipients = [...addressesFromMessage(message, 'to'), ...addressesFromMessage(message, 'cc')]
+  const value = field === 'sender.email' ? sender
+    : field === 'recipient.email' ? recipients
+      : [field === 'subject' ? String(message?.subject || '').toLowerCase() : String(message?.text || '').toLowerCase()]
+  return condition.operator === 'equals'
+    ? value.some((entry) => entry === expected)
+    : value.some((entry) => entry.includes(expected))
+}
+
 export function mailRuleMatches(rule, message) {
+  if (Array.isArray(rule?.conditions) && rule.conditions.length) {
+    const matches = rule.conditions.map((condition) => workflowConditionMatches(condition, message))
+    return rule.matchMode === 'any' ? matches.some(Boolean) : matches.every(Boolean)
+  }
   const senders = addressesFromMessage(message, 'from')
   const recipients = [
     ...addressesFromMessage(message, 'to'),
@@ -79,6 +97,11 @@ export function mailRuleMatches(rule, message) {
 export function mailRuleInstruction(rule, message) {
   const source = String(rule?.instruction || '').trim()
   const values = templateValues(rule, message)
+  values['event.subject'] = values.subject
+  values['event.body'] = values.body
+  values['event.messageId'] = values.messageId
+  values['event.sender.email'] = values.senderEmail
+  values['event.sender.name'] = values.senderName
 
   if (source.startsWith('{')) {
     let parsed
@@ -87,7 +110,16 @@ export function mailRuleInstruction(rule, message) {
     } catch {
       return source.slice(0, 5_000)
     }
-    if (Array.isArray(parsed?.steps)) {
+    if (parsed?.workflow || Array.isArray(parsed?.steps)) {
+      if (parsed.workflow) {
+        parsed.event = {
+          messageId: values.messageId,
+          subject: values.subject,
+          body: values.body,
+          sender: { name: values.senderName, email: values.senderEmail },
+          recipients: values.recipient.split(', ').filter(Boolean),
+        }
+      }
       const expanded = JSON.stringify(expandTemplates(parsed, values))
       if (expanded.length > 5_000) {
         throw new Error('The matched email is too large for this automation instruction.')

@@ -219,6 +219,8 @@ function mapAutomation(row) {
     successRate: row.success_rate,
     lastRun: row.last_run_at || 'Not run yet',
     tools: parsePermissions(row.tools_json),
+    workflowDefinition: row.workflow_definition_json ? JSON.parse(row.workflow_definition_json) : null,
+    definitionHash: row.definition_hash || null,
   }
 }
 
@@ -265,6 +267,7 @@ function mapMailAutomationRule(row) {
     subject: row.subject || '',
     keywords: parsePermissions(row.keywords_json),
     matchMode: row.match_mode,
+    conditions: row.conditions_json ? parsePermissions(row.conditions_json) : [],
     instruction: row.instruction,
     enabled: Boolean(row.enabled),
     createdAt: row.created_at,
@@ -1789,6 +1792,8 @@ export async function openDatabase({
     )`,
     `ALTER TABLE automations ADD COLUMN IF NOT EXISTS instruction_template TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE automations ADD COLUMN IF NOT EXISTS execution TEXT NOT NULL DEFAULT 'core'`,
+    `ALTER TABLE automations ADD COLUMN IF NOT EXISTS workflow_definition_json TEXT`,
+    `ALTER TABLE automations ADD COLUMN IF NOT EXISTS definition_hash TEXT`,
     `UPDATE automations
      SET tools_json = '["workspace.summary"]'
      WHERE execution = 'core'
@@ -1837,6 +1842,7 @@ export async function openDatabase({
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
+    `ALTER TABLE mail_automation_rules ADD COLUMN IF NOT EXISTS conditions_json TEXT NOT NULL DEFAULT '[]'`,
     `CREATE TABLE IF NOT EXISTS mail_rule_events (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -2035,6 +2041,11 @@ export async function openDatabase({
     `ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS completed_at TEXT`,
     `ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS due_at TEXT`,
     `ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS provenance_json TEXT NOT NULL DEFAULT '{}'`,
+    `ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS source_key TEXT`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS source_key TEXT`,
+    `DROP INDEX IF EXISTS idx_clients_workspace_email_unique`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_workspace_source_key_unique ON projects (workspace_id, source_key) WHERE source_key IS NOT NULL AND source_key <> ''`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_project_tasks_workspace_source_key_unique ON project_tasks (workspace_id, source_key) WHERE source_key IS NOT NULL AND source_key <> ''`,
     `CREATE TABLE IF NOT EXISTS quotes (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -2987,9 +2998,10 @@ export async function openDatabase({
 
     async transaction(operation) {
       if (isSqlite) {
+        if (transactionStorage.getStore()) return await operation()
         await query('BEGIN IMMEDIATE')
         try {
-          const result = await operation()
+          const result = await transactionStorage.run({ provider: 'sqlite' }, operation)
           await query('COMMIT')
           return result
         } catch (error) {
@@ -2998,9 +3010,10 @@ export async function openDatabase({
         }
       }
       if (isInMemory) {
+        if (transactionStorage.getStore()) return await operation()
         await query('BEGIN')
         try {
-          const result = await operation()
+          const result = await transactionStorage.run({ provider: 'memory' }, operation)
           await query('COMMIT')
           return result
         } catch (error) {
@@ -5716,7 +5729,7 @@ export async function openDatabase({
 
     async listAutomations(selectedWorkspaceId) {
       const rows = await query(
-        `SELECT id, workspace_id, created_by, name, description, icon, accent, status, model, instruction_template, execution, tools_json, runs, success_rate, last_run_at, created_at, updated_at
+        `SELECT id, workspace_id, created_by, name, description, icon, accent, status, model, instruction_template, execution, tools_json, workflow_definition_json, definition_hash, runs, success_rate, last_run_at, created_at, updated_at
          FROM automations
          WHERE workspace_id = $1
          ORDER BY created_at DESC`,
@@ -5727,7 +5740,7 @@ export async function openDatabase({
 
     async getAutomation(selectedWorkspaceId, id) {
       const rows = await query(
-        `SELECT id, workspace_id, created_by, name, description, icon, accent, status, model, instruction_template, execution, tools_json, runs, success_rate, last_run_at, created_at, updated_at
+        `SELECT id, workspace_id, created_by, name, description, icon, accent, status, model, instruction_template, execution, tools_json, workflow_definition_json, definition_hash, runs, success_rate, last_run_at, created_at, updated_at
          FROM automations
          WHERE workspace_id = $1 AND id = $2`,
         [selectedWorkspaceId, id],
@@ -5750,6 +5763,30 @@ export async function openDatabase({
         [id, workspaceId, createdBy, name, description, model, instructionTemplate, executionMode, JSON.stringify(tools), createdAt, createdAt],
       )
       return await this.getAutomation(workspaceId, id)
+    },
+
+    async createWorkflowDefinitionAtomic({ workspaceId, createdBy, definition, definitionHash, description = 'Create projects and an initial task from matching email.' }) {
+      const timestamp = nowIso()
+      const automationId = `aut_${createHash('sha256').update(`${workspaceId}:${definitionHash}:${timestamp}`).digest('hex').slice(0, 12)}`
+      const ruleId = stableId('mailrule', `${workspaceId}:${automationId}:${definitionHash}`)
+      const sender = definition.trigger.conditions.find((condition) => condition.field === 'sender.email' && condition.operator === 'equals')?.value || ''
+      return await this.transaction(async () => {
+        await query(
+          `INSERT INTO automations (
+             id, workspace_id, created_by, name, description, model, instruction_template, execution, status,
+             tools_json, workflow_definition_json, definition_hash, created_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, 'Workflow definition v1', '', 'core', 'active', $6, $7, $8, $9, $10)`,
+          [automationId, workspaceId, createdBy, definition.name, description, JSON.stringify(definition.steps.map((step) => step.tool)), JSON.stringify(definition), definitionHash, timestamp, timestamp],
+        )
+        await query(
+          `INSERT INTO mail_automation_rules (
+             id, workspace_id, automation_id, created_by, name, sender, recipient, subject, keywords_json,
+             match_mode, instruction, enabled, conditions_json, created_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, '', '', '[]', $7, $8, $9, $10, $11, $12)`,
+          [ruleId, workspaceId, automationId, createdBy, definition.name, sender, definition.trigger.matchMode, JSON.stringify({ workflow: definition }), isSqlite ? 1 : true, JSON.stringify(definition.trigger.conditions), timestamp, timestamp],
+        )
+        return { automation: await this.getAutomation(workspaceId, automationId), rule: await this.getMailAutomationRule(workspaceId, ruleId) }
+      })
     },
 
     async toggleAutomation(selectedWorkspaceId, id) {
@@ -6249,14 +6286,15 @@ export async function openDatabase({
       matchMode = 'all',
       instruction,
       enabled = true,
+      conditions = [],
     }) {
       const timestamp = nowIso()
       const id = stableId('mailrule', `${workspaceId}:${name}:${timestamp}`)
       await query(
         `INSERT INTO mail_automation_rules (
            id, workspace_id, automation_id, created_by, name, sender, recipient,
-           subject, keywords_json, match_mode, instruction, enabled, created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+           subject, keywords_json, match_mode, instruction, enabled, conditions_json, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
         [
           id,
           workspaceId,
@@ -6270,6 +6308,7 @@ export async function openDatabase({
           matchMode,
           instruction,
           isSqlite ? (enabled ? 1 : 0) : Boolean(enabled),
+          JSON.stringify(conditions),
           timestamp,
           timestamp,
         ],
@@ -7295,6 +7334,35 @@ export async function openDatabase({
       }
     },
 
+    async findOrCreateWorkflowClient({ workspaceId, email, name }) {
+      const normalizedEmail = String(email || '').trim().toLowerCase()
+      const normalizedName = String(name || normalizedEmail).trim().slice(0, 160) || normalizedEmail
+      const existing = await query(
+        `SELECT id, workspace_id, name, email FROM clients WHERE workspace_id = $1 AND email = $2 ORDER BY created_at ASC, id ASC LIMIT 1`,
+        [workspaceId, normalizedEmail],
+      )
+      if (existing[0]) return { id: existing[0].id, email: existing[0].email, name: existing[0].name, created: false }
+      const id = stableId('cli', `${workspaceId}:email:${normalizedEmail}`)
+      const timestamp = nowIso()
+      await query(
+        `INSERT INTO clients (id, workspace_id, name, email, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING`,
+        [id, workspaceId, normalizedName, normalizedEmail, timestamp, timestamp],
+      )
+      const rows = await query(`SELECT id, name, email FROM clients WHERE workspace_id = $1 AND email = $2 ORDER BY created_at ASC, id ASC LIMIT 1`, [workspaceId, normalizedEmail])
+      if (!rows[0]) throw codedError('WORKFLOW_CLIENT_CREATE_FAILED', 'Unable to resolve the workflow client.')
+      return { id: rows[0].id, email: rows[0].email, name: rows[0].name, created: rows[0].id === id }
+    },
+
+    async findWorkflowClientByEmail({ workspaceId, email }) {
+      const normalizedEmail = String(email || '').trim().toLowerCase()
+      const rows = await query(
+        `SELECT id, name, email FROM clients WHERE workspace_id = $1 AND email = $2 ORDER BY created_at ASC LIMIT 1`,
+        [workspaceId, normalizedEmail],
+      )
+      return rows[0] ? { id: rows[0].id, email: rows[0].email, name: rows[0].name } : null
+    },
+
     async updateClient(selectedWorkspaceId, id, fields) {
       const sets = []
       const params = []
@@ -7472,26 +7540,42 @@ export async function openDatabase({
       return rows.map(mapProjectTask)
     },
 
-    async createProjectTask({ workspaceId, projectId, bucketId, title, notes = '' }) {
+    async createProjectTask({ workspaceId, projectId, bucketId, title, notes = '', sourceKey = null }) {
       const projects = await query(
         `SELECT id FROM projects WHERE workspace_id = $1 AND id = $2`,
         [workspaceId, projectId],
       )
       if (!projects[0]) return null
+      const normalizedSourceKey = String(sourceKey || '').trim().slice(0, 320)
+      if (normalizedSourceKey) {
+        const existing = await query(
+          `SELECT id, workspace_id, project_id, bucket_id, title, notes, completed_at, created_at, updated_at
+           FROM project_tasks WHERE workspace_id = $1 AND source_key = $2`,
+          [workspaceId, normalizedSourceKey],
+        )
+        if (existing[0]) return { ...mapProjectTask(existing[0]), created: false }
+      }
       const timestamp = nowIso()
-      const id = `tsk_${randomUUID()}`
+      const id = normalizedSourceKey ? stableId('tsk', `${workspaceId}:${normalizedSourceKey}`) : `tsk_${randomUUID()}`
       await query(
         `INSERT INTO project_tasks (
-           id, workspace_id, project_id, bucket_id, title, notes, created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [id, workspaceId, projectId, bucketId, title, notes, timestamp, timestamp],
+           id, workspace_id, project_id, bucket_id, title, notes, source_key, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT DO NOTHING`,
+        [id, workspaceId, projectId, bucketId, title, notes, normalizedSourceKey || null, timestamp, timestamp],
       )
       const rows = await query(
         `SELECT id, workspace_id, project_id, bucket_id, title, notes, completed_at, created_at, updated_at
-         FROM project_tasks WHERE workspace_id = $1 AND id = $2`,
-        [workspaceId, id],
+         FROM project_tasks WHERE workspace_id = $1 AND ${normalizedSourceKey ? 'source_key = $2' : 'id = $2'}`,
+        [workspaceId, normalizedSourceKey || id],
       )
-      return mapProjectTask(rows[0])
+      return rows[0] ? { ...mapProjectTask(rows[0]), created: rows[0].id === id } : null
+    },
+
+    async createWorkflowTask({ workspaceId, projectId, title, notes, sourceKey }) {
+      const key = String(sourceKey || '').trim().slice(0, 320)
+      const task = await this.createProjectTask({ workspaceId, projectId, bucketId: 'todo', title: String(title).slice(0, 160), notes: String(notes).slice(0, 2_000), sourceKey: key })
+      if (!task) throw codedError('WORKFLOW_PROJECT_NOT_FOUND', 'The referenced project is not available in this workspace.')
+      return { id: task.id, projectId: task.projectId, title: task.title, created: task.created }
     },
 
     async updateProjectTask(selectedWorkspaceId, id, fields) {
@@ -7540,7 +7624,7 @@ export async function openDatabase({
       return rows.length > 0
     },
 
-    async createProject({ workspaceId, name, clientId, client, clientEmail = '', scope = 'New project · add deliverables', due = 'Set date', status = 'In progress', progress = 0, accent = '#6854e8', boardId, idempotencyKey = null }) {
+    async createProject({ workspaceId, name, clientId, client, clientEmail = '', scope = 'New project · add deliverables', due = 'Set date', status = 'In progress', progress = 0, accent = '#6854e8', boardId, idempotencyKey = null, sourceKey = null }) {
       const clientRecord = await ensureClient({
         selectedWorkspaceId: workspaceId,
         clientId,
@@ -7548,6 +7632,7 @@ export async function openDatabase({
         email: clientEmail,
       })
       const normalizedIdempotencyKey = String(idempotencyKey || '').trim()
+      const normalizedSourceKey = String(sourceKey || normalizedIdempotencyKey).trim().slice(0, 320)
       const id = `prj_${createHash('sha256')
         .update(normalizedIdempotencyKey
           ? `${workspaceId}:automation:${normalizedIdempotencyKey}`
@@ -7557,10 +7642,10 @@ export async function openDatabase({
       const timestamp = nowIso()
       await query(
         `INSERT INTO projects (
-           id, workspace_id, client_id, name, client, scope, due, status, progress, accent, created_at, updated_at, board_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+           id, workspace_id, client_id, name, client, scope, due, status, progress, accent, source_key, created_at, updated_at, board_id
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          ON CONFLICT(id) DO NOTHING`,
-        [id, workspaceId, clientRecord.id, name, clientRecord.name, scope, due, status, progress, accent, timestamp, timestamp, boardId || null],
+        [id, workspaceId, clientRecord.id, name, clientRecord.name, scope, due, status, progress, accent, normalizedSourceKey || null, timestamp, timestamp, boardId || null],
       )
       const rows = await query(`SELECT * FROM projects WHERE workspace_id = $1 AND id = $2`, [workspaceId, id])
       const row = rows[0]
@@ -7579,6 +7664,25 @@ export async function openDatabase({
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       }
+    },
+
+    async createWorkflowProject({ workspaceId, createdBy, name, clientId, scope, sourceKey }) {
+      const key = String(sourceKey || '').trim().slice(0, 320)
+      const clientRows = await query(`SELECT id, name FROM clients WHERE workspace_id = $1 AND id = $2`, [workspaceId, clientId])
+      if (!clientRows[0]) throw codedError('WORKFLOW_CLIENT_NOT_FOUND', 'The referenced client is not available in this workspace.')
+      const existing = await query(`SELECT id, client_id, name FROM projects WHERE workspace_id = $1 AND source_key = $2`, [workspaceId, key])
+      if (existing[0]) return { id: existing[0].id, clientId: existing[0].client_id, name: existing[0].name, created: false }
+      const project = await this.createAutomationProject({
+        workspaceId,
+        createdBy,
+        name: String(name).slice(0, 160),
+        clientId,
+        clientName: clientRows[0].name,
+        scope: String(scope).slice(0, 1_000),
+        sourceKey: key,
+      })
+      if (!project) throw codedError('WORKFLOW_PROJECT_CREATE_FAILED', 'Unable to create the workflow project.')
+      return { id: project.id, clientId: project.clientId, name: project.name, created: true }
     },
 
     async createAutomationProject({

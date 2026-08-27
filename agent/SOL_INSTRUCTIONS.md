@@ -1,4 +1,5 @@
-Review the current uncommitted changes against your previous 10 review findings.
+Review the current uncommitted changes against agent/workflow_builder.md instructions
+
 
 Follow AGENTS.md Review-Only Mode.
 
@@ -7,8 +8,8 @@ Do not perform another broad repository audit.
 
 Verify:
 
-* each of the 10 findings is actually resolved,
-* no regression was introduced by the fixes,
+* workfliw_builder.md instructions were followed correctly based on output.
+* no regression was introduced by the changes,
 * targeted validation passes.
 
 Return:

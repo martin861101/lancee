@@ -400,6 +400,20 @@ export default function WorkspaceChat({ user }: { user: User }) {
                   <div className="workspace-chat__action">
                     <span>{item.proposedAction.title}</span>
                     <small>{item.proposedAction.description}</small>
+                    {item.proposedAction.preview && (
+                      <div className="workspace-chat__workflow-preview">
+                        <strong>{item.proposedAction.preview.workflowName}</strong>
+                        <small>Trigger: {item.proposedAction.preview.trigger}</small>
+                        {item.proposedAction.preview.conditions.map((condition, conditionIndex) => (
+                          <small key={`${condition.field}:${conditionIndex}`}>Condition: {condition.field} {condition.operator} {condition.value}</small>
+                        ))}
+                        <small>Actions: {item.proposedAction.preview.actions.map(readableLabel).join(' → ')}</small>
+                        <small>Confidence: create at {Math.round(item.proposedAction.preview.confidencePolicy.createAtOrAbove * 100)}%+, review from {Math.round(item.proposedAction.preview.confidencePolicy.reviewFrom * 100)}%, otherwise skip.</small>
+                        <small>May create: {item.proposedAction.preview.recordsMayCreate.join(', ')}</small>
+                        {item.proposedAction.preview.assumptions.map((assumption, assumptionIndex) => <small key={`assumption:${assumptionIndex}`}>Assumption: {assumption}</small>)}
+                        {item.proposedAction.preview.warnings.map((warning, warningIndex) => <small key={`warning:${warningIndex}`}>Warning: {warning}</small>)}
+                      </div>
+                    )}
                     <small>{item.proposedAction.risk === 'high' ? 'High risk · owner approval required' : `${readableLabel(item.proposedAction.risk)} risk · confirmation required`}</small>
                     <small>{summarizeOutput(item.proposedAction.arguments)}</small>
                     {item.actionState === 'pending' && (

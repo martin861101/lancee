@@ -1,10 +1,12 @@
+import { executeWorkflowDefinition, workflowCoreAutomationCatalog } from './workflow-builder.mjs'
+
 export const CORE_TOOL_CATALOG = [
   { id: 'workspace.summary', label: 'Read workspace summary', mutating: false },
   { id: 'projects.list', label: 'Read projects', mutating: false },
   { id: 'clients.list', label: 'Read clients', mutating: false },
   { id: 'invoices.list', label: 'Read invoices', mutating: false },
   { id: 'projects.update_status', label: 'Update project status', mutating: true },
-  { id: 'projects.create', label: 'Create projects', mutating: true },
+  ...workflowCoreAutomationCatalog(),
   { id: 'projects.create_draft_invoice', label: 'Create draft invoice', mutating: true },
 ]
 
@@ -166,7 +168,25 @@ function assertToolPermission(automation, tool) {
   }
 }
 
-export async function executeCoreAutomation({ context, automation, run, database, log }) {
+export async function executeCoreAutomation({ context, automation, run, database, log, extractProjectRequest = null }) {
+  if (automation.workflowDefinition?.version === 1) {
+    let instruction
+    try { instruction = JSON.parse(run.instruction) } catch { throw new CoreAutomationError('WORKFLOW_EVENT_INVALID', 'The mail workflow event is invalid.') }
+    const result = await executeWorkflowDefinition({
+      database,
+      context,
+      definition: automation.workflowDefinition,
+      event: instruction.event,
+      extractProjectRequest: async (input) => {
+        if (typeof extractProjectRequest !== 'function') {
+          throw new CoreAutomationError('EXTRACTION_UNAVAILABLE', 'Structured email extraction is unavailable.')
+        }
+        return extractProjectRequest(input, context)
+      },
+      log,
+    })
+    return { steps: automation.workflowDefinition.steps.length, results: result }
+  }
   const plan = automationPlan(run.instruction, automation)
   await log({
     eventType: 'plan.created',
@@ -216,6 +236,15 @@ export async function executeCoreAutomation({ context, automation, run, database
         createdBy: context.user.id,
         ...input,
       })
+    } else if (step.tool === 'tasks.create') {
+      const projectId = String(step.input?.projectId || '').trim()
+      const title = String(step.input?.title || '').trim().slice(0, 160)
+      const notes = String(step.input?.notes || '').trim().slice(0, 2_000)
+      const sourceKey = String(step.input?.sourceKey || '').trim().slice(0, 320)
+      if (!projectId || !title || !notes || !sourceKey) {
+        throw new CoreAutomationError('CORE_TASK_INPUT_REQUIRED', 'A project id, title, notes, and source key are required to create a task.')
+      }
+      output = await database.createWorkflowTask({ workspaceId: context.workspace.id, projectId, title, notes, sourceKey })
     } else if (step.tool === 'projects.create_draft_invoice') {
       const projects = await database.listProjects(context.workspace.id)
       const project = projectFromInput(projects, step.input)

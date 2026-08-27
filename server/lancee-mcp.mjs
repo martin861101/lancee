@@ -3,6 +3,7 @@ import {
   LanceeCapabilityError,
   lanceeMcpCapabilityBindings,
 } from './capabilities/index.mjs'
+import { coreToolCatalog } from './core.mjs'
 import {
   LANCEE_MCP_RESULT_CONTRACT_VERSION,
   mcpOutputSchema,
@@ -17,6 +18,7 @@ const automationIdPattern = /^aut_[a-f0-9]{12}$/
 const runIdPattern = /^run_[a-f0-9]{12}$/
 const MAX_INSTRUCTION_LENGTH = 5_000
 const MAX_FILE_CONTENT_LENGTH = 512_000
+const coreWorkflowToolIds = coreToolCatalog().map((tool) => tool.id)
 
 export class LanceeMcpError extends Error {
   constructor(code, message, status = 400, details = {}) {
@@ -61,14 +63,7 @@ export const lanceeMcpToolDefinitions = [
           type: 'array',
           items: {
             type: 'string',
-            enum: [
-              'workspace.summary',
-              'projects.list',
-              'clients.list',
-              'invoices.list',
-              'projects.update_status',
-              'projects.create_draft_invoice',
-            ],
+            enum: coreWorkflowToolIds,
           },
           maxItems: 20,
         },
@@ -805,6 +800,7 @@ export function createLanceeMcpRuntime({
   integrationGateway,
   semanticDecisionAssessor,
   connectedIntelligence,
+  additionalCapabilities = [],
   authorize,
   audit,
 }) {
@@ -1405,7 +1401,7 @@ export function createLanceeMcpRuntime({
     integrationGateway,
     authorize,
     audit,
-    additionalCapabilities: createPlatformCapabilityDefinitions(invokePlatformTool),
+    additionalCapabilities: [...createPlatformCapabilityDefinitions(invokePlatformTool), ...additionalCapabilities],
   })
 
   async function invoke(name, rawArguments, rawContext, invocation = {}) {
