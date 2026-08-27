@@ -107,7 +107,7 @@ function planner({ objective }) {
 async function pendingApproval(runtime, context, objective, clock, budget = {}) {
   const run = await runtime.start({ context, objective, title: objective, budget })
   assert.equal(run.status, 'waiting_approval')
-  const approval = (await database.listAgentApprovals(context.workspace.id, { runId: run.id }))[0]
+  const approval = (await database.listAgentApprovals(context.workspace.id, { runId: run.id, userId: context.user.id }))[0]
   assert(approval)
   assert.equal(approval.status, 'pending')
   assert.equal(run.pendingAction.argumentsHash, approval.argumentsHash)
@@ -218,6 +218,7 @@ try {
       id: approvedCase.approval.id,
       toolId: approvedCase.approval.toolId,
       argumentsHash: 'wrong-hash',
+      actorUserId: context.user.id,
       now: new Date(clock).toISOString(),
     }),
     null,
@@ -237,6 +238,7 @@ try {
       id: approvedCase.approval.id,
       toolId: approvedCase.approval.toolId,
       argumentsHash: approvedCase.approval.argumentsHash,
+      actorUserId: context.user.id,
       now: new Date(clock).toISOString(),
     }),
     null,

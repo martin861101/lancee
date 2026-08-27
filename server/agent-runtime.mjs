@@ -322,7 +322,7 @@ export function createAgentRuntime({
 
       let approvalProof = null
       if (planned.requiresApproval) {
-        const approvals = await database.listAgentApprovals(workspaceId, { runId, limit: 200 })
+        const approvals = await database.listAgentApprovals(workspaceId, { runId, limit: 200, userId })
         const approval = approvals.find((item) => item.stepId === step.id)
         if (!approval) {
           const requested = await database.requestAgentApproval({
@@ -362,10 +362,11 @@ export function createAgentRuntime({
           id: approval.id,
           toolId: step.toolId,
           argumentsHash: step.argumentsHash,
+          actorUserId: userId,
           now: new Date(now()).toISOString(),
         })
         if (!consumed) return failRun(workspaceId, runId, new AgentRuntimeError('APPROVAL_INVALID', 'The approval was expired, replayed, or did not match the arguments.'), 'failed', ['running'])
-        approvalProof = { approved: true, id: consumed.id, stepId: step.id, argumentsHash: step.argumentsHash, consumedAt: consumed.consumedAt }
+        approvalProof = { approved: true, serverIssued: true, id: consumed.id, stepId: step.id, argumentsHash: step.argumentsHash, consumedAt: consumed.consumedAt }
       }
 
       const callKey = `${planned.toolId}:${resolvedArgumentsHash}`
@@ -565,7 +566,7 @@ export function createAgentRuntime({
     const workspaceId = trusted.workspace.id
     const run = await database.getAgentRun(workspaceId, runId, trusted.user.id)
     if (!run) throw new AgentRuntimeError('RUN_NOT_FOUND', 'The agent run was not found in this workspace.')
-    const approval = await database.getAgentApproval(workspaceId, approvalId)
+    const approval = await database.getAgentApproval(workspaceId, approvalId, trusted.user.id)
     if (!approval || approval.runId !== runId) throw new AgentRuntimeError('APPROVAL_NOT_FOUND', 'The approval was not found for this run.')
     const decided = await database.decideAgentApproval({ workspaceId, id: approvalId, decidedBy: trusted.user.id, decision, reason, now: new Date(now()).toISOString() })
     if (!decided) {

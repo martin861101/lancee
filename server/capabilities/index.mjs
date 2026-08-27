@@ -10,6 +10,8 @@ export { LanceeCapabilityError } from './registry.mjs'
 export const lanceeMcpCapabilityBindings = Object.freeze({
   run_workflow: 'automation.run',
   create_workflow: 'automation.create',
+  propose_workflow: 'workflow.propose',
+  activate_workflow_proposal: 'workflow.activate-proposal',
   query_dashboard: 'workspace.query',
   create_client: 'client.create',
   create_project: 'project.create',

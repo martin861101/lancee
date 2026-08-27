@@ -100,7 +100,14 @@ const resultContracts = Object.freeze({
   'intelligence.get-activity': { mode: 'single', resourceKey: 'activity', resourceType: 'intelligence-activity' },
   'intelligence.get-evidence': { mode: 'terminal' },
   'workspace.query': { mode: 'dashboard' },
+  'clients.find_or_create': { mode: 'single', resourceType: 'client', canonicalOnly: true },
+  'clients.resolve': { mode: 'single', resourceType: 'client', canonicalOnly: true },
+  'projects.create': { mode: 'single', resourceType: 'project', canonicalOnly: true },
+  'projects.add_note': { mode: 'single', resourceType: 'project-note', canonicalOnly: true },
+  'tasks.create': { mode: 'single', resourceType: 'task', canonicalOnly: true },
+  'tasks.create_many': { mode: 'list', collection: 'tasks', resourceType: 'task' },
   'workflow.propose': { mode: 'workflow-proposal' },
+  'workflow.activate-proposal': { mode: 'single', resourceKey: 'automation', resourceType: 'workflow', canonicalOnly: true },
 })
 
 export const lanceeMcpResultContracts = resultContracts
@@ -393,7 +400,7 @@ function normalizeData(capabilityId, value) {
       diagnostics: { resourceType: contract.resourceType, resultCount: 1, canonicalIdPresent: true },
     }
   }
-  const data = baseObject(value)
+  const data = contract.canonicalOnly ? {} : baseObject(value)
   const source = contract.resourceKey ? value?.[contract.resourceKey] : value
   const resource = normalizeResource(source, contract.resourceType, { allowMissingId: contract.allowMissingId })
   if (!resource.id && contract.allowMissingId) {
@@ -461,6 +468,7 @@ export function normalizeMcpError(error, { tool = null, capabilityId = null, pro
       resultCount: 0,
       canonicalIdPresent: false,
       schemaValidationPassed: false,
+      ...(error?.diagnostic ? { diagnostic: error.diagnostic } : {}),
     },
   }
 }

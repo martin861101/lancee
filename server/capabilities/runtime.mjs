@@ -257,6 +257,7 @@ export function createRuntimeCapabilities({ database, executionWorker } = {}) {
           runId: textInput(input, 'run_id', { maxLength: 100 }) || null,
           status: input.status || null,
           limit: Number.isInteger(input.limit) ? input.limit : 50,
+          userId: context.user.id,
         })
         return { approvals, total: approvals.length }
       },
@@ -287,6 +288,7 @@ export function createRuntimeCapabilities({ database, executionWorker } = {}) {
         const approval = await database.getAgentApproval(
           context.workspace.id,
           textInput(input, 'approval_id', { required: true, maxLength: 100 }),
+          context.user.id,
         )
         if (!approval) throw new LanceeCapabilityError('NOT_FOUND', 'The agent approval was not found.', 404)
         return { approval }

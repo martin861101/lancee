@@ -6,6 +6,13 @@ import { createHermesAgentProvider } from '../server/agents/hermes-agent-provide
 import { createLanceeCapabilityRegistry, lanceeMcpCapabilityBindings } from '../server/capabilities/index.mjs'
 import { openDatabase } from '../server/database.mjs'
 import { createLanceeMcpRuntime } from '../server/lancee-mcp.mjs'
+import { createLanceeMcpProtocolServer } from '../server/lancee-mcp-protocol.mjs'
+import {
+  createWorkflowRequestPlanner,
+  workflowActivationCapability,
+  workflowCapabilityDefinitions,
+  workflowPlannerCapability,
+} from '../server/workflow-builder.mjs'
 
 const directory = mkdtempSync(join(tmpdir(), 'lancee-hermes-integration-'))
 let database
@@ -52,6 +59,34 @@ try {
   assert.equal(lanceeMcpCapabilityBindings.rename_file, 'file.rename')
   assert.equal(capabilities.has('file.rename'), true)
   assert.equal(mcp.listTools().some((tool) => tool.name === 'rename_file'), true)
+
+  const workflowContext = { ...context, permissions: ['workspace:read', 'workspace:write'] }
+  const workflowObjective = 'Create a workflow automation that triggers when a new email arrives from mschoeman3@gmail.com and it is a request to create a website or develop a platform. If those conditions are met create a project linked to Hookitup client with a note of the requirement and a task list.'
+  const workflowDefinition = {
+    version: 1,
+    name: 'Hookitup website requests',
+    trigger: { type: 'mail.received', matchMode: 'all', conditions: [{ field: 'sender.email', operator: 'equals', value: 'mschoeman3@gmail.com' }] },
+    steps: [
+      { id: 'understand_request', tool: 'ai.extract_project_request', input: { subject: '{{event.subject}}', body: '{{event.body}}' } },
+      { id: 'resolve_client', tool: 'clients.resolve', input: { query: 'Hookitup' } },
+      { id: 'create_project', tool: 'projects.create', input: { name: { $ref: 'steps.understand_request.output.projectName' }, clientId: { $ref: 'steps.resolve_client.output.resource.id' }, scope: { $ref: 'steps.understand_request.output.summary' }, sourceKey: 'mail:{{event.messageId}}' } },
+      { id: 'add_note', tool: 'projects.add_note', input: { projectId: { $ref: 'steps.create_project.output.resource.id' }, body: { $ref: 'steps.understand_request.output.summary' }, sourceKey: 'mail:{{event.messageId}}:note' } },
+      { id: 'create_tasks', tool: 'tasks.create_many', input: { projectId: { $ref: 'steps.create_project.output.resource.id' }, tasks: { $ref: 'steps.understand_request.output.tasks' }, sourceKey: 'mail:{{event.messageId}}:tasks' } },
+    ],
+  }
+  const workflowPlanner = createWorkflowRequestPlanner({
+    complete: async () => ({ content: JSON.stringify({ status: 'ready', workflow: workflowDefinition, assumptions: [], warnings: [], questions: [] }) }),
+  })
+  const workflowMcp = createLanceeMcpRuntime({
+    database,
+    additionalCapabilities: [
+      ...workflowCapabilityDefinitions({ database, extractProjectRequest: async () => ({}) }),
+      workflowPlannerCapability({ database, createProposal: workflowPlanner, getConnectionState: async () => ({ mailConnected: true }) }),
+      workflowActivationCapability({ database }),
+    ],
+  })
+  const workflowProtocol = createLanceeMcpProtocolServer({ runtime: workflowMcp, logger: { error() {} } })
+  let workflowProposalResponse = null
 
   const documents = {
     notes: await database.createWorkspaceDocument({
@@ -113,6 +148,15 @@ try {
       const runId = `hermes-focused-${++runSequence}`
       runRequests.push({ body, headers: init.headers })
       runs.set(runId, { body, polls: 0 })
+      if (body.input === workflowObjective) {
+        const tools = await workflowProtocol.handleMessage({ jsonrpc: '2.0', id: 'workflow-list', method: 'tools/list' }, workflowContext)
+        assert.equal(tools.result.tools.some((tool) => tool.name === 'propose_workflow'), true)
+        assert.equal(tools.result.tools.some((tool) => tool.name === 'activate_workflow_proposal'), true)
+        workflowProposalResponse = await workflowProtocol.handleMessage({
+          jsonrpc: '2.0', id: 'workflow-propose', method: 'tools/call', params: { name: 'propose_workflow', arguments: { objective: workflowObjective } },
+        }, workflowContext)
+        assert.equal(workflowProposalResponse.result.structuredContent.success, true)
+      }
       if (body.input === 'Rename that file to meeting-notes.md.') {
         assert.match(JSON.stringify(body.conversation_history), new RegExp(documents.notes.id))
         assert.match(JSON.stringify(body.conversation_history), /notes\.md/)
@@ -163,6 +207,13 @@ try {
         assert.match(JSON.stringify(run.body.conversation_history), new RegExp(documents.notes.id))
         return Response.json({ status: 'completed', output: 'meeting-notes.md' })
       }
+      if (input === workflowObjective) {
+        return Response.json({
+          status: 'completed',
+          output: 'I prepared the requested workflow for approval.',
+          results: [{ data: workflowProposalResponse.result.structuredContent.data }],
+        })
+      }
       if (input === 'Generate the file matrix.') {
         return Response.json({
           status: 'completed',
@@ -198,6 +249,45 @@ try {
     logger: { info() {}, warn() {} },
   }
   const provider = createHermesAgentProvider(providerOptions)
+
+  const workflowProvider = createHermesAgentProvider({
+    ...providerOptions,
+    activateWorkflowProposal: async ({ context: activationContext, proposalId, approvalGrantId }) => {
+      const response = await workflowProtocol.handleMessage({
+        jsonrpc: '2.0', id: 'workflow-activate', method: 'tools/call',
+        params: { name: 'activate_workflow_proposal', arguments: { proposal_id: proposalId, approval_grant_id: approvalGrantId } },
+      }, activationContext)
+      const payload = response.result.structuredContent
+      if (!payload.success) throw Object.assign(new Error(payload.error.message), { code: payload.error.code })
+      return payload.data
+    },
+  })
+
+  const workflowRun = await workflowProvider.runAgent({ context: workflowContext, message: workflowObjective })
+  assert.equal(workflowRun.status, 'waiting_approval')
+  const workflowApproval = (await database.listAgentApprovals(workflowContext.workspace.id, { runId: workflowRun.id, userId: workflowContext.user.id }))[0]
+  assert(workflowApproval)
+  assert.equal((await database.listAutomations(workflowContext.workspace.id)).length, 0)
+  const workflowActivated = await workflowProvider.decideApproval({
+    context: workflowContext,
+    runId: workflowRun.id,
+    approvalId: workflowApproval.id,
+    decision: 'approved',
+  })
+  assert.equal(workflowActivated.status, 'completed')
+  assert.equal((await database.listAutomations(workflowContext.workspace.id)).length, 1)
+  const deniedWorkflowRun = await workflowProvider.runAgent({ context: workflowContext, message: workflowObjective })
+  assert.equal(deniedWorkflowRun.status, 'waiting_approval')
+  const deniedWorkflowApproval = (await database.listAgentApprovals(workflowContext.workspace.id, { runId: deniedWorkflowRun.id, userId: workflowContext.user.id }))[0]
+  const deniedWorkflow = await workflowProvider.decideApproval({
+    context: workflowContext,
+    runId: deniedWorkflowRun.id,
+    approvalId: deniedWorkflowApproval.id,
+    decision: 'denied',
+  })
+  assert.equal(deniedWorkflow.status, 'failed')
+  assert.equal(deniedWorkflow.errorCode, 'APPROVAL_DENIED')
+  assert.equal((await database.listAutomations(workflowContext.workspace.id)).length, 1)
 
   const memoryRun = await provider.runAgent({ context, message: 'Remember the code word is pineapple.' })
   assert.match(runRequests[0].body.instructions, /Connected Intelligence is Lancee’s current intelligence product/)

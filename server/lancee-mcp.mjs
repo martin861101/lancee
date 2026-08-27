@@ -49,8 +49,8 @@ export const lanceeMcpToolDefinitions = [
   },
   {
     name: 'create_workflow',
-    title: 'Create Lancee workflow',
-    description: 'Create a workspace-scoped Lancee workflow with bounded Core tool permissions and make it active by default.',
+    title: 'Create legacy Lancee Core workflow',
+    description: 'Create a legacy imperative Core or Edge workflow. For a mail-triggered workflow proposal with validation, preview, hash-bound approval, and mail-rule activation, use propose_workflow then activate_workflow_proposal.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -70,6 +70,33 @@ export const lanceeMcpToolDefinitions = [
         activate: { type: 'boolean', description: 'Set false only when the user explicitly asks for a draft.' },
       },
       required: ['name', 'description'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  {
+    name: 'propose_workflow',
+    title: 'Propose mail workflow',
+    description: 'Turn a natural-language automation request into a validated, reviewable mail-workflow definition. This does not activate or mutate a workflow.',
+    inputSchema: {
+      type: 'object',
+      properties: { objective: { type: 'string', minLength: 1, maxLength: 4000 } },
+      required: ['objective'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: 'activate_workflow_proposal',
+    title: 'Activate approved workflow proposal',
+    description: 'Persist the exact hash-bound, approved workflow definition and its mail trigger.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        proposal_id: { type: 'string', minLength: 1, maxLength: 100 },
+        approval_grant_id: { type: 'string', minLength: 1, maxLength: 100 },
+      },
+      required: ['proposal_id', 'approval_grant_id'],
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
@@ -1413,13 +1440,29 @@ export function createLanceeMcpRuntime({
     }
     if (name === 'call_external_api') requireOwner(context)
     try {
+      const workflowApproval = name === 'activate_workflow_proposal' && args.proposal_id && args.approval_grant_id
+        ? { serverIssued: true, grantId: args.approval_grant_id, proposalId: args.proposal_id }
+        : null
       return await capabilityRegistry.invoke(capabilityId, args, context, {
         origin: 'mcp',
         ...invocation,
+        ...(workflowApproval ? { approval: workflowApproval } : {}),
       })
     } catch (error) {
       if (error instanceof LanceeCapabilityError) {
         throw new LanceeMcpError(`MCP_${error.code}`, error.message, error.status)
+      }
+      if (/^(?:WORKFLOW|AUTOMATION|EXTRACTION)_[A-Z0-9_]+$/.test(String(error?.code || ''))) {
+        throw new LanceeMcpError(`MCP_${error.code}`, error.message, 409, {
+          diagnostic: error?.validationStage
+            ? {
+                requestedCapability: error.requestedCapability || error.action || null,
+                stepId: error.stepId || null,
+                validationStage: error.validationStage,
+                plannerOutput: error.plannerOutput || null,
+              }
+            : undefined,
+        })
       }
       throw error
     }

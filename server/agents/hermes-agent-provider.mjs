@@ -96,6 +96,23 @@ function rawOutputFromStatus(status) {
   return typeof value === 'string' ? value : value ? JSON.stringify(value) : ''
 }
 
+function workflowProposalFrom(value, seen = new WeakSet()) {
+  if (!value || typeof value !== 'object') return null
+  if (seen.has(value)) return null
+  seen.add(value)
+  const proposalId = String(value.proposalId || '').trim()
+  const approvalGrantId = String(value.approvalGrantId || '').trim()
+  const definitionHash = String(value.definitionHash || '').trim()
+  if (proposalId && approvalGrantId && /^[a-f0-9]{64}$/i.test(definitionHash)) {
+    return { proposalId, approvalGrantId, definitionHash }
+  }
+  for (const child of Object.values(value)) {
+    const found = workflowProposalFrom(child, seen)
+    if (found) return found
+  }
+  return null
+}
+
 function hasInternalPath(value) {
   const withoutWebUrls = String(value || '').replace(/https?:\/\/[^\s<>"']+/gi, '')
   return /(?:file:\/\/)?\/(?:tmp|var\/tmp|workspace|app|root|home\/[^/\s]+)(?:\/[^\s'"`)>\],;]*)?/i.test(withoutWebUrls)
@@ -255,6 +272,7 @@ function trustedInstructions(context, preferences = '') {
 export function createHermesAgentProvider({
   database,
   memoryRouter,
+  activateWorkflowProposal = null,
   env = process.env,
   fetchImpl = globalThis.fetch,
   sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
@@ -518,11 +536,21 @@ export function createHermesAgentProvider({
     }
     const messages = []
     for (const priorRun of [...runs].reverse()) {
-      if (priorRun.status !== 'completed') continue
+      if (!['completed', 'failed'].includes(priorRun.status)) continue
       if (priorRun.objective) {
         messages.push({ role: 'user', content: historyText(priorRun.objective) })
       }
-      if (priorRun.finalOutput) {
+      if (priorRun.status === 'failed') {
+        const failureText = priorRun.errorCode && priorRun.errorMessage
+          ? `The previous operation failed (${priorRun.errorCode}): ${priorRun.errorMessage}. Preserve this failure as immediate context; if the user asks "why?" or says "that's wrong", explain this specific failure, do not switch to unrelated workspace data.`
+          : priorRun.errorMessage
+            ? `The previous operation failed: ${priorRun.errorMessage}.`
+            : 'The previous operation failed.'
+        const extra = priorRun.results && Array.isArray(priorRun.results) && priorRun.results[0]?.error
+          ? ` Structured error: ${JSON.stringify(priorRun.results[0].error).slice(0, 500)}`
+          : ''
+        messages.push({ role: 'assistant', content: historyText(failureText + extra) })
+      } else if (priorRun.finalOutput) {
         messages.push({ role: 'assistant', content: historyText(priorRun.finalOutput) })
       }
       const runArtifacts = artifactsByRun.get(priorRun.id) || []
@@ -762,6 +790,33 @@ export function createHermesAgentProvider({
     return database.getAgentRun(run.workspaceId, run.id, run.userId)
   }
 
+  async function adoptWorkflowProposal({ status, run, context, usage }) {
+    const proposal = workflowProposalFrom(status)
+    if (!proposal || typeof database.adoptWorkflowProposalApproval !== 'function') return null
+    const adopted = await database.adoptWorkflowProposalApproval({
+      workspaceId: context.workspace.id,
+      originatingRunId: run.id,
+      actorUserId: context.user.id,
+      proposalId: proposal.proposalId,
+      approvalId: proposal.approvalGrantId,
+      definitionHash: proposal.definitionHash,
+    })
+    if (!adopted?.run || !adopted.approval || !adopted.step) return null
+    await database.updateAgentRun(context.workspace.id, run.id, {
+      usage,
+      errorCode: null,
+      errorMessage: null,
+    }, ['waiting_approval'])
+    await database.appendAgentRunEvent({
+      workspaceId: context.workspace.id,
+      runId: run.id,
+      eventType: 'workflow.proposal.awaiting_approval',
+      message: 'A validated workflow proposal is awaiting approval.',
+      data: { approvalId: adopted.approval.id, stepId: adopted.step.id },
+    })
+    return database.getAgentRun(context.workspace.id, run.id, context.user.id)
+  }
+
   async function waitForRun({ run, externalRunId, externalSessionId: sessionId, eventState, context, profile }) {
     const startedAt = now()
     while (now() - startedAt <= timeoutMs) {
@@ -827,6 +882,8 @@ export function createHermesAgentProvider({
             error?.message || 'Hermes artifacts could not be persisted to Lancee Files.',
           )
         }
+        const adoptedProposal = await adoptWorkflowProposal({ status, run, context, usage })
+        if (adoptedProposal) return adoptedProposal
         output = safeDisplayText(output, 65_536)
         const files = persistedArtifacts.map(({ file }) => file)
         const artifacts = persistedArtifacts.map(({ artifact }) => artifact)
@@ -1016,11 +1073,85 @@ export function createHermesAgentProvider({
   async function decideApproval(input) {
     const requestInput = trustedAgentRequest({ ...input, message: input.message || 'Decide the existing Hermes approval.' })
     const run = await database.getAgentRun(requestInput.workspaceId, input.runId, requestInput.userId)
-    if (!run || run.pendingAction?.provider !== 'hermes') {
+    if (!run) {
       throw new AgentProviderError('HERMES_APPROVAL_NOT_FOUND', 'The Hermes approval was not found.', { status: 404 })
     }
-    if (run.pendingAction.approvalId !== input.approvalId) {
+    if (run.pendingAction?.approvalId !== input.approvalId) {
       throw new AgentProviderError('HERMES_APPROVAL_MISMATCH', 'The Hermes approval does not match this run.', { status: 409 })
+    }
+    if (run.pendingAction?.provider === 'workflow-proposal') {
+      const approval = await database.getAgentApproval(requestInput.workspaceId, input.approvalId, requestInput.userId)
+      const step = await database.getAgentStep(requestInput.workspaceId, run.pendingAction.stepId)
+      if (
+        !approval || !step || approval.runId !== run.id || step.runId !== run.id ||
+        approval.stepId !== step.id || approval.toolId !== 'workflow.activate-proposal' ||
+        step.toolId !== 'workflow.activate-proposal' || approval.argumentsHash !== step.argumentsHash ||
+        run.pendingAction.proposalId !== step.id
+      ) {
+        throw new AgentProviderError('HERMES_APPROVAL_MISMATCH', 'The workflow approval does not match this run.', { status: 409 })
+      }
+      const decided = await database.decideAgentApproval({
+        workspaceId: requestInput.workspaceId,
+        id: approval.id,
+        decidedBy: requestInput.userId,
+        decision: input.decision,
+        reason: input.reason || '',
+      })
+      if (!decided) throw new AgentProviderError('HERMES_APPROVAL_NOT_PENDING', 'The workflow approval is expired or has already been decided.', { status: 409 })
+      await database.appendAgentRunEvent({
+        workspaceId: requestInput.workspaceId,
+        runId: run.id,
+        eventType: `approval.${input.decision}`,
+        message: `Workflow proposal ${input.decision}.`,
+        data: { approvalId: approval.id, stepId: step.id },
+      })
+      if (input.decision === 'denied') {
+        await database.updateAgentStep(requestInput.workspaceId, step.id, {
+          status: 'denied', errorCode: 'APPROVAL_DENIED', errorMessage: 'The workflow proposal was denied.',
+        }, ['waiting_approval', 'pending'])
+        await database.updateAgentRun(requestInput.workspaceId, run.id, {
+          status: 'failed', pendingAction: null, errorCode: 'APPROVAL_DENIED', errorMessage: 'The workflow proposal was denied.',
+        }, ['waiting_approval'])
+        return database.getAgentRun(requestInput.workspaceId, run.id, requestInput.userId)
+      }
+      if (typeof activateWorkflowProposal !== 'function') {
+        throw new AgentProviderError('WORKFLOW_ACTIVATION_UNAVAILABLE', 'Workflow activation is unavailable.', { status: 503 })
+      }
+      try {
+        const activation = await activateWorkflowProposal({
+          context: requestInput.context,
+          proposalId: step.id,
+          approvalGrantId: approval.id,
+        })
+        await database.updateAgentStep(requestInput.workspaceId, step.id, { status: 'completed', result: activation }, ['waiting_approval', 'pending'])
+        await database.updateAgentRun(requestInput.workspaceId, run.id, {
+          status: 'completed',
+          pendingAction: null,
+          results: [{ success: true, data: activation, artifacts: [], warnings: [], error: null, metadata: { provider: 'workflow-proposal' } }],
+          finalOutput: 'The workflow was approved and activated.',
+          errorCode: null,
+          errorMessage: null,
+        }, ['waiting_approval'])
+        await database.appendAgentRunEvent({
+          workspaceId: requestInput.workspaceId,
+          runId: run.id,
+          eventType: 'workflow.activated',
+          message: 'The approved workflow was activated.',
+          data: { approvalId: approval.id, stepId: step.id },
+        })
+        return database.getAgentRun(requestInput.workspaceId, run.id, requestInput.userId)
+      } catch (error) {
+        const code = String(error?.code || 'WORKFLOW_ACTIVATION_FAILED')
+        const message = String(error?.message || 'The approved workflow could not be activated.')
+        await database.updateAgentStep(requestInput.workspaceId, step.id, { status: 'failed', errorCode: code, errorMessage: message }, ['waiting_approval', 'pending'])
+        await database.updateAgentRun(requestInput.workspaceId, run.id, {
+          status: 'failed', pendingAction: null, errorCode: code, errorMessage: message,
+        }, ['waiting_approval'])
+        return database.getAgentRun(requestInput.workspaceId, run.id, requestInput.userId)
+      }
+    }
+    if (run.pendingAction?.provider !== 'hermes') {
+      throw new AgentProviderError('HERMES_APPROVAL_NOT_FOUND', 'The Hermes approval was not found.', { status: 404 })
     }
     const profile = profileForContext(requestInput.context)
     const externalRunId = run.pendingAction.externalRunId

@@ -1706,6 +1706,7 @@ async function executeCoreAutomationRun(context, automation, run, startedAt) {
     database,
     log,
     extractProjectRequest: projectRequestExtractor,
+    capabilityRegistry: lanceeMcp.capabilities,
   })
   const workflowResult = execution?.results
   if (workflowResult?.decision === 'review_required') {
@@ -4292,7 +4293,7 @@ app.get('/api/agent/runs/:runId', requireAuth, async (request, response) => {
   if (!run) throw new HttpError(404, 'Agent run not found.')
   const [steps, approvals, events] = await Promise.all([
     database.listAgentSteps(request.auth.context.workspace.id, runId),
-    database.listAgentApprovals(request.auth.context.workspace.id, { runId, limit: 200 }),
+    database.listAgentApprovals(request.auth.context.workspace.id, { runId, limit: 200, userId: request.auth.context.user.id }),
     database.listAgentRunEvents(request.auth.context.workspace.id, runId, { limit: 500 }),
   ])
   response.json({ run, steps, approvals, events })
@@ -8591,6 +8592,7 @@ const lanceeMcp = createLanceeMcpRuntime({
   additionalCapabilities: [
     ...workflowCapabilityDefinitions({ database, extractProjectRequest: projectRequestExtractor }),
     workflowPlannerCapability({
+      database,
       createProposal: workflowRequestPlanner,
       getConnectionState: async (context) => ({ mailConnected: Boolean(await database.getMailAccount(context.workspace.id)) }),
     }),
@@ -8748,7 +8750,31 @@ const agentRuntime = createAgentRuntime({
 const memoryRouter = createMemoryRouter({ database })
 
 const agentProviderConfig = getAgentProviderConfig()
-const hermesAgentProvider = createHermesAgentProvider({ database, memoryRouter })
+let lanceeMcpProtocol
+const hermesAgentProvider = createHermesAgentProvider({
+  database,
+  memoryRouter,
+  activateWorkflowProposal: async ({ context, proposalId, approvalGrantId }) => {
+    const response = await lanceeMcpProtocol.handleMessage({
+      jsonrpc: '2.0',
+      id: randomUUID(),
+      method: 'tools/call',
+      params: {
+        name: 'activate_workflow_proposal',
+        arguments: { proposal_id: proposalId, approval_grant_id: approvalGrantId },
+      },
+    }, context)
+    const result = response?.result?.structuredContent
+    if (!result?.success) {
+      throw new LanceeMcpError(
+        result?.error?.code || 'MCP_WORKFLOW_ACTIVATION_FAILED',
+        result?.error?.message || 'The approved workflow could not be activated.',
+        409,
+      )
+    }
+    return result.data
+  },
+})
 const lanceeAgentProvider = createLanceeAgentProvider({ runtime: agentRuntime })
 const agentGateway = createAgentProviderGateway({
   database,
@@ -8774,7 +8800,7 @@ async function agentRunResponse(context, run) {
       }
     } else {
       const [approval, step] = await Promise.all([
-        database.getAgentApproval(context.workspace.id, run.pendingAction.approvalId),
+        database.getAgentApproval(context.workspace.id, run.pendingAction.approvalId, context.user.id),
         database.getAgentStep(context.workspace.id, run.pendingAction.stepId),
       ])
       const capability = step ? lanceeMcp.capabilities.get(step.toolId) : null
@@ -8823,7 +8849,7 @@ async function agentRunResponse(context, run) {
   }
 }
 
-const lanceeMcpProtocol = createLanceeMcpProtocolServer({ runtime: lanceeMcp })
+lanceeMcpProtocol = createLanceeMcpProtocolServer({ runtime: lanceeMcp })
 
 app.post(
   '/api/codex/lancee-mcp/:tool',
@@ -9274,6 +9300,7 @@ app.post('/api/workflows/dry-run', secureMutations, requireAuth, async (request,
     definition,
     event: email,
     extractProjectRequest: projectRequestExtractor,
+    capabilityRegistry: lanceeMcp.capabilities,
     dryRun: true,
   })
   response.json(result)

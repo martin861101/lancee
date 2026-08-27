@@ -4723,14 +4723,115 @@ export async function openDatabase({
       return mapAgentApproval(insertedRows[0])
     },
 
+    async adoptWorkflowProposalApproval({
+      workspaceId,
+      originatingRunId,
+      actorUserId,
+      proposalId,
+      approvalId,
+      definitionHash,
+    }) {
+      return await this.transaction(async () => {
+        const originRows = await query(
+          `SELECT id, user_id, status FROM agent_runs
+           WHERE workspace_id = $1 AND id = $2 AND user_id = $3`,
+          [workspaceId, originatingRunId, actorUserId],
+        )
+        const origin = originRows[0]
+        if (!origin || !['running', 'waiting_approval'].includes(origin.status)) return null
+        const proposalRows = await query(
+          `SELECT approval.id AS approval_id, approval.run_id AS approval_run_id,
+                  approval.step_id AS approval_step_id, approval.tool_id AS approval_tool_id,
+                  approval.arguments_hash AS approval_arguments_hash, approval.status AS approval_status,
+                  step.id AS step_id, step.run_id AS step_run_id, step.tool_id AS step_tool_id,
+                  step.arguments_hash AS step_arguments_hash, step.arguments_json,
+                  run.thread_id AS proposal_thread_id, run.user_id AS proposal_user_id,
+                  run.status AS proposal_run_status
+           FROM agent_approvals approval
+           JOIN agent_steps step ON step.workspace_id = approval.workspace_id AND step.id = approval.step_id
+           JOIN agent_runs run ON run.workspace_id = approval.workspace_id AND run.id = approval.run_id
+           WHERE approval.workspace_id = $1 AND approval.id = $2 AND step.id = $3`,
+          [workspaceId, approvalId, proposalId],
+        )
+        const proposal = proposalRows[0]
+        if (
+          !proposal ||
+          proposal.proposal_user_id !== actorUserId ||
+          proposal.approval_run_id !== proposal.step_run_id ||
+          proposal.approval_step_id !== proposal.step_id ||
+          proposal.approval_tool_id !== 'workflow.activate-proposal' ||
+          proposal.step_tool_id !== 'workflow.activate-proposal' ||
+          proposal.approval_arguments_hash !== proposal.step_arguments_hash ||
+          proposal.approval_status !== 'pending' ||
+          proposal.proposal_run_status !== 'waiting_approval'
+        ) return null
+        let argumentsValue
+        try { argumentsValue = JSON.parse(proposal.arguments_json) } catch { return null }
+        if (
+          !definitionHash ||
+          argumentsValue?.definition_hash !== definitionHash ||
+          !argumentsValue?.definition ||
+          proposal.approval_run_id === originatingRunId
+        ) return null
+        const timestamp = nowIso()
+        await query(
+          `UPDATE agent_steps SET run_id = $1, updated_at = $2
+           WHERE workspace_id = $3 AND id = $4 AND run_id = $5`,
+          [originatingRunId, timestamp, workspaceId, proposal.step_id, proposal.step_run_id],
+        )
+        await query(
+          `UPDATE agent_approvals SET run_id = $1
+           WHERE workspace_id = $2 AND id = $3 AND run_id = $4`,
+          [originatingRunId, workspaceId, proposal.approval_id, proposal.approval_run_id],
+        )
+        await query(
+          `UPDATE agent_runs
+           SET status = 'waiting_approval', pending_action_json = $1, updated_at = $2
+           WHERE workspace_id = $3 AND id = $4 AND user_id = $5`,
+          [
+            stableJson({
+              provider: 'workflow-proposal',
+              approvalId: proposal.approval_id,
+              stepId: proposal.step_id,
+              proposalId: proposal.step_id,
+              toolId: proposal.step_tool_id,
+              argumentsHash: proposal.step_arguments_hash,
+            }),
+            timestamp,
+            workspaceId,
+            originatingRunId,
+            actorUserId,
+          ],
+        )
+        await query(
+          `DELETE FROM agent_runs WHERE workspace_id = $1 AND id = $2 AND user_id = $3`,
+          [workspaceId, proposal.approval_run_id, actorUserId],
+        )
+        await query(
+          `DELETE FROM agent_threads WHERE workspace_id = $1 AND id = $2 AND user_id = $3`,
+          [workspaceId, proposal.proposal_thread_id, actorUserId],
+        )
+        return {
+          run: await this.getAgentRun(workspaceId, originatingRunId, actorUserId),
+          approval: await this.getAgentApproval(workspaceId, proposal.approval_id, actorUserId),
+          step: await this.getAgentStep(workspaceId, proposal.step_id),
+        }
+      })
+    },
+
     async createAgentApproval(input) {
       return await this.requestAgentApproval(input)
     },
 
-    async getAgentApproval(selectedWorkspaceId, id) {
+    async getAgentApproval(selectedWorkspaceId, id, userId) {
+      if (!userId) return null
       const rows = await query(
-        `SELECT * FROM agent_approvals WHERE workspace_id = $1 AND id = $2`,
-        [selectedWorkspaceId, id],
+        `SELECT approval.*
+         FROM agent_approvals approval
+         JOIN agent_runs run
+           ON run.workspace_id = approval.workspace_id AND run.id = approval.run_id
+         WHERE approval.workspace_id = $1 AND approval.id = $2 AND run.user_id = $3`,
+        [selectedWorkspaceId, id, userId],
       )
       return mapAgentApproval(rows[0])
     },
@@ -4739,22 +4840,29 @@ export async function openDatabase({
       runId = null,
       status = null,
       limit = 100,
+      userId,
     } = {}) {
+      if (!userId) return []
       const params = [selectedWorkspaceId]
-      const filters = ['workspace_id = $1']
+      const filters = ['approval.workspace_id = $1']
       if (runId) {
         params.push(runId)
-        filters.push(`run_id = $${params.length}`)
+        filters.push(`approval.run_id = $${params.length}`)
       }
       if (status) {
         params.push(status)
-        filters.push(`status = $${params.length}`)
+        filters.push(`approval.status = $${params.length}`)
       }
+      params.push(userId)
+      filters.push(`run.user_id = $${params.length}`)
       params.push(Math.min(200, Math.max(1, Number(limit) || 100)))
       const rows = await query(
-        `SELECT * FROM agent_approvals
+        `SELECT approval.*
+         FROM agent_approvals approval
+         JOIN agent_runs run
+           ON run.workspace_id = approval.workspace_id AND run.id = approval.run_id
          WHERE ${filters.join(' AND ')}
-         ORDER BY requested_at DESC
+         ORDER BY approval.requested_at DESC
          LIMIT $${params.length}`,
         params,
       )
@@ -4791,6 +4899,12 @@ export async function openDatabase({
          SET status = $1, decided_by = $2, decided_at = $3, reason = $4
          WHERE workspace_id = $5 AND id = $6
            AND status = 'pending' AND expires_at > $3
+           AND EXISTS (
+             SELECT 1 FROM agent_runs run
+             WHERE run.workspace_id = agent_approvals.workspace_id
+               AND run.id = agent_approvals.run_id
+               AND run.user_id = $2
+           )
          RETURNING *`,
         [
           decision,
@@ -4810,8 +4924,10 @@ export async function openDatabase({
       id,
       toolId,
       argumentsHash,
+      actorUserId,
       now = nowIso(),
     }) {
+      if (!actorUserId) return null
       const resolvedWorkspaceId = selectedWorkspaceId || workspaceId
       await query(
         `UPDATE agent_approvals
@@ -4826,8 +4942,14 @@ export async function openDatabase({
          WHERE workspace_id = $2 AND id = $3
            AND status = 'approved' AND consumed_at IS NULL
            AND expires_at > $1 AND tool_id = $4 AND arguments_hash = $5
+           AND EXISTS (
+             SELECT 1 FROM agent_runs run
+             WHERE run.workspace_id = agent_approvals.workspace_id
+               AND run.id = agent_approvals.run_id
+               AND run.user_id = $6
+           )
          RETURNING *`,
-        [now, resolvedWorkspaceId, id, toolId, argumentsHash],
+        [now, resolvedWorkspaceId, id, toolId, argumentsHash, actorUserId],
       )
       return mapAgentApproval(rows[0])
     },
@@ -7363,6 +7485,69 @@ export async function openDatabase({
       return rows[0] ? { id: rows[0].id, email: rows[0].email, name: rows[0].name } : null
     },
 
+    async resolveWorkflowClient({ workspaceId, clientId, name, email, query: rawQuery }) {
+      const trimmedId = String(clientId || '').trim()
+      const trimmedEmail = String(email || '').trim().toLowerCase()
+      const trimmedName = String(name || '').trim()
+      const trimmedQuery = String(rawQuery || trimmedName || trimmedEmail || trimmedId || '').trim()
+      if (trimmedId) {
+        const byId = await query(`SELECT id, name, email FROM clients WHERE workspace_id = $1 AND id = $2`, [workspaceId, trimmedId])
+        if (byId[0]) return { id: byId[0].id, email: byId[0].email, name: byId[0].name }
+      }
+      if (trimmedEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+        const byEmail = await query(`SELECT id, name, email FROM clients WHERE workspace_id = $1 AND LOWER(email) = LOWER($2)`, [workspaceId, trimmedEmail])
+        if (byEmail[0]) return { id: byEmail[0].id, email: byEmail[0].email, name: byEmail[0].name }
+      }
+      const search = trimmedQuery || trimmedName
+      if (!search) throw codedError('WORKFLOW_CLIENT_REQUIRED', 'A client identifier is required.')
+      const exactName = await query(`SELECT id, name, email FROM clients WHERE workspace_id = $1 AND LOWER(name) = LOWER($2)`, [workspaceId, search])
+      if (exactName.length === 1) return { id: exactName[0].id, email: exactName[0].email, name: exactName[0].name }
+      if (exactName.length > 1) throw codedError('WORKFLOW_CLIENT_AMBIGUOUS', `Client "${search}" is ambiguous; multiple matches exist.`)
+      const likePattern = `%${search.toLowerCase()}%`
+      const substring = await query(`SELECT id, name, email FROM clients WHERE workspace_id = $1 AND LOWER(name) LIKE $2`, [workspaceId, likePattern])
+      if (substring.length === 1) return { id: substring[0].id, email: substring[0].email, name: substring[0].name }
+      if (substring.length > 1) throw codedError('WORKFLOW_CLIENT_AMBIGUOUS', `Client "${search}" is ambiguous; multiple matches exist.`)
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(search.toLowerCase())) {
+        const byEmailQuery = await query(`SELECT id, name, email FROM clients WHERE workspace_id = $1 AND LOWER(email) = LOWER($2)`, [workspaceId, search.toLowerCase()])
+        if (byEmailQuery[0]) return { id: byEmailQuery[0].id, email: byEmailQuery[0].email, name: byEmailQuery[0].name }
+      }
+      throw codedError('WORKFLOW_CLIENT_NOT_FOUND', `Client "${search}" was not found in this workspace.`)
+    },
+
+    async createWorkflowProjectNote({ workspaceId, createdBy, projectId, body, sourceKey }) {
+      const projectRows = await query(`SELECT id FROM projects WHERE workspace_id = $1 AND id = $2`, [workspaceId, projectId])
+      if (!projectRows[0]) throw codedError('WORKFLOW_PROJECT_NOT_FOUND', 'The referenced project is not available in this workspace.')
+      const key = String(sourceKey || '').trim().slice(0, 320)
+      const id = key ? stableId('cmt', `${workspaceId}:${projectId}:note:${key}`) : `cmt_${createHash('sha256').update(`${workspaceId}:${projectId}:${body}:${nowIso()}`).digest('hex').slice(0, 16)}`
+      const existing = await query(`SELECT id, workspace_id, project_id, body FROM project_comments WHERE workspace_id = $1 AND id = $2`, [workspaceId, id])
+      if (existing[0]) return { id: existing[0].id, projectId: existing[0].project_id, body: existing[0].body, created: false }
+      const context = createdBy ? await this.getContextByIds(createdBy, workspaceId) : null
+      const authorName = context?.user?.name || 'Workflow'
+      const timestamp = nowIso()
+      await query(
+        `INSERT INTO project_comments (id, workspace_id, project_id, author_type, author_name, body, created_at) VALUES ($1, $2, $3, 'workspace', $4, $5, $6) ON CONFLICT DO NOTHING`,
+        [id, workspaceId, projectId, authorName, String(body).slice(0, 2000), timestamp],
+      )
+      const rows = await query(`SELECT id, project_id, body FROM project_comments WHERE workspace_id = $1 AND id = $2`, [workspaceId, id])
+      if (!rows[0]) throw codedError('WORKFLOW_NOTE_CREATE_FAILED', 'Unable to create project note.')
+      return { id: rows[0].id, projectId: rows[0].project_id, body: rows[0].body, created: rows[0].id === id && !existing[0] }
+    },
+
+    async createWorkflowTasks({ workspaceId, projectId, tasks }) {
+      if (!Array.isArray(tasks) || !tasks.length) throw codedError('WORKFLOW_TASK_INPUT_REQUIRED', 'At least one task is required.')
+      if (tasks.length > 20) throw codedError('WORKFLOW_TASK_INPUT_REQUIRED', 'Too many tasks.')
+      const results = []
+      for (const task of tasks) {
+        const title = String(task?.title || '').trim().slice(0, 160)
+        const notes = String(task?.notes || '').trim().slice(0, 2000)
+        const sourceKey = String(task?.sourceKey || '').trim().slice(0, 320)
+        if (!title || !notes || !sourceKey) throw codedError('WORKFLOW_TASK_INPUT_REQUIRED', 'Each task requires title, notes, and sourceKey.')
+        const created = await this.createWorkflowTask({ workspaceId, projectId, title, notes, sourceKey })
+        results.push(created)
+      }
+      return { projectId, tasks: results }
+    },
+
     async updateClient(selectedWorkspaceId, id, fields) {
       const sets = []
       const params = []
@@ -7553,7 +7738,12 @@ export async function openDatabase({
            FROM project_tasks WHERE workspace_id = $1 AND source_key = $2`,
           [workspaceId, normalizedSourceKey],
         )
-        if (existing[0]) return { ...mapProjectTask(existing[0]), created: false }
+        if (existing[0]) {
+          if (existing[0].project_id !== projectId) {
+            throw codedError('WORKFLOW_TASK_SOURCE_KEY_CONFLICT', 'The task idempotency key belongs to a different project.')
+          }
+          return { ...mapProjectTask(existing[0]), created: false }
+        }
       }
       const timestamp = nowIso()
       const id = normalizedSourceKey ? stableId('tsk', `${workspaceId}:${normalizedSourceKey}`) : `tsk_${randomUUID()}`
@@ -7671,7 +7861,12 @@ export async function openDatabase({
       const clientRows = await query(`SELECT id, name FROM clients WHERE workspace_id = $1 AND id = $2`, [workspaceId, clientId])
       if (!clientRows[0]) throw codedError('WORKFLOW_CLIENT_NOT_FOUND', 'The referenced client is not available in this workspace.')
       const existing = await query(`SELECT id, client_id, name FROM projects WHERE workspace_id = $1 AND source_key = $2`, [workspaceId, key])
-      if (existing[0]) return { id: existing[0].id, clientId: existing[0].client_id, name: existing[0].name, created: false }
+      if (existing[0]) {
+        if (existing[0].client_id !== clientId) {
+          throw codedError('WORKFLOW_PROJECT_SOURCE_KEY_CONFLICT', 'The project idempotency key belongs to a different client.')
+        }
+        return { id: existing[0].id, clientId: existing[0].client_id, name: existing[0].name, created: false }
+      }
       const project = await this.createAutomationProject({
         workspaceId,
         createdBy,

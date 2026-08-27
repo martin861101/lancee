@@ -1,0 +1,63 @@
+{
+  "status": "ready",
+  "workflow": {
+    "version": 1,
+    "name": "Hookitup email project requests",
+    "trigger": {
+      "type": "mail.received",
+      "matchMode": "all",
+      "conditions": [
+        {
+          "field": "sender.email",
+          "operator": "equals",
+          "value": "mschoeman3@gmail.com"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "id": "classify_request",
+        "toolId": "ai.extract_project_request",
+        "input": {
+          "subject": "{{event.subject}}",
+          "body": "{{event.body}}"
+        }
+      },
+      {
+        "id": "resolve_client",
+        "capability": "clients.resolve",
+        "input": {
+          "query": "Hookitup"
+        }
+      },
+      {
+        "id": "create_project",
+        "tool": "projects.create",
+        "input": {
+          "name": "{{event.subject}}",
+          "clientId": {
+            "$ref": "steps.resolve_client.output.resource.id"
+          },
+          "scope": {
+            "$ref": "steps.classify_request.output.summary"
+          },
+          "sourceKey": "mail:{{event.messageId}}"
+        }
+      },
+      {
+        "id": "add_note",
+        "capabilityId": "projects.add_note",
+        "input": {
+          "projectId": {
+            "$ref": "steps.create_project.output.resource.id"
+          },
+          "body": "{{event.body}}",
+          "sourceKey": "mail:{{event.messageId}}:note"
+        }
+      }
+    ]
+  },
+  "assumptions": [],
+  "warnings": [],
+  "questions": []
+}

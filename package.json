@@ -43,6 +43,8 @@
     "verify:project-reviews": "node scripts/verify-project-review-packages.mjs",
     "verify:agent": "node scripts/verify-agent.mjs",
     "verify:hermes": "node scripts/verify-hermes-integration.mjs",
+    "verify:hermes-workflow": "node scripts/verify-hermes-workflow-approval.mjs",
+    "verify:hermes-natural-language": "node scripts/verify-hermes-natural-language.mjs",
     "verify:signals": "node scripts/verify-signal-engine.mjs",
     "verify:connected-intelligence": "node scripts/verify-connected-intelligence.mjs",
     "verify:connected-inspections": "node scripts/verify-connected-inspections.mjs",

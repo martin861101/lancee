@@ -156,6 +156,7 @@ try {
     id: approval.id,
     toolId: step.toolId,
     argumentsHash: step.argumentsHash,
+    actorUserId: userId,
   })
   assert.equal(consumed.status, 'consumed')
   assert.equal(
@@ -164,6 +165,7 @@ try {
       id: approval.id,
       toolId: step.toolId,
       argumentsHash: step.argumentsHash,
+      actorUserId: userId,
     }),
     null,
   )

@@ -99,12 +99,12 @@ function schemaFailure(path, message) {
   throw new LanceeCapabilityError('INVALID_ARGUMENTS', `${path} ${message}`)
 }
 
-function validateInputSchema(value, schema, path = 'input') {
+export function validateCapabilitySchema(value, schema, path = 'input') {
   if (!schema || typeof schema !== 'object') return
   if (Array.isArray(schema.anyOf)) {
     const valid = schema.anyOf.some((candidate) => {
       try {
-        validateInputSchema(value, candidate, path)
+        validateCapabilitySchema(value, candidate, path)
         return true
       } catch {
         return false
@@ -127,10 +127,10 @@ function validateInputSchema(value, schema, path = 'input') {
       schemaFailure(path, `must have at most ${schema.maxProperties} properties.`)
     }
     for (const [key, child] of entries) {
-      if (properties[key]) validateInputSchema(child, properties[key], `${path}.${key}`)
+      if (properties[key]) validateCapabilitySchema(child, properties[key], `${path}.${key}`)
       else if (schema.additionalProperties === false) schemaFailure(`${path}.${key}`, 'is not supported.')
       else if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
-        validateInputSchema(child, schema.additionalProperties, `${path}.${key}`)
+        validateCapabilitySchema(child, schema.additionalProperties, `${path}.${key}`)
       }
     }
     return
@@ -140,7 +140,7 @@ function validateInputSchema(value, schema, path = 'input') {
     if (Number.isInteger(schema.minItems) && value.length < schema.minItems) schemaFailure(path, `must contain at least ${schema.minItems} items.`)
     if (Number.isInteger(schema.maxItems) && value.length > schema.maxItems) schemaFailure(path, `must contain at most ${schema.maxItems} items.`)
     for (let index = 0; index < value.length; index += 1) {
-      validateInputSchema(value[index], schema.items || {}, `${path}[${index}]`)
+      validateCapabilitySchema(value[index], schema.items || {}, `${path}[${index}]`)
     }
     return
   }
@@ -174,10 +174,15 @@ function inputHash(input) {
 
 function normalizedError(error) {
   if (error instanceof LanceeCapabilityError) {
-    return { code: error.code, message: error.message, retryable: Boolean(error.retryable) }
+    const base = { code: error.code, message: error.message, retryable: Boolean(error.retryable) }
+    if (error.action) base.action = String(error.action)
+    if (error.details?.action) base.action = String(error.details.action)
+    return base
   }
-  if (/^(?:WORKFLOW|EXTRACTION)_[A-Z0-9_]+$/.test(String(error?.code || ''))) {
-    return { code: error.code, message: String(error.message || 'The workflow capability failed.').slice(0, 500), retryable: false }
+  if (/^(?:WORKFLOW|EXTRACTION|AUTOMATION)_[A-Z0-9_]+$/.test(String(error?.code || '')) || error?.code === 'TIMEOUT') {
+    const base = { code: error.code, message: String(error.message || 'The workflow capability failed.').slice(0, 500), retryable: false }
+    if (error.action) base.action = String(error.action)
+    return base
   }
   return { code: 'PROVIDER_ERROR', message: 'The capability provider failed.', retryable: false }
 }
@@ -235,7 +240,7 @@ export function createCapabilityRegistry(definitions, {
     if (!context?.workspace?.id || !context?.user?.id) {
       throw new LanceeCapabilityError('CONTEXT_UNAVAILABLE', 'The capability workspace context is unavailable.', 401)
     }
-    validateInputSchema(input, definition.inputSchema)
+    validateCapabilitySchema(input, definition.inputSchema)
     const available = definition.enabled && (
       typeof definition.isAvailable !== 'function' || await definition.isAvailable(context)
     )
@@ -245,7 +250,10 @@ export function createCapabilityRegistry(definitions, {
     if (declaredPermissions && definition.requiredPermissions.some((permission) => !declaredPermissions.includes(permission))) {
       throw new LanceeCapabilityError('PERMISSION_DENIED', `Permission is required for ${definition.id}.`, 403)
     }
-    if (invocation.autonomous && definition.requiresApproval && !invocation.approval?.approved) {
+    if (
+      (definition.id === 'workflow.activate-proposal' && !invocation.approval?.serverIssued)
+      || (definition.id !== 'workflow.activate-proposal' && invocation.autonomous && definition.requiresApproval && !invocation.approval?.approved)
+    ) {
       throw new LanceeCapabilityError('APPROVAL_REQUIRED', `${definition.id} requires human approval.`, 409, {
         capabilityId: definition.id,
         riskLevel: definition.riskLevel,
@@ -306,7 +314,7 @@ export function createCapabilityRegistry(definitions, {
         }),
       ])
       try {
-        validateInputSchema(result, definition.outputSchema, 'output')
+        validateCapabilitySchema(result, definition.outputSchema, 'output')
       } catch {
         throw new LanceeCapabilityError(
           'INVALID_RESULT',

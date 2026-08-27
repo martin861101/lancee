@@ -168,7 +168,23 @@ function assertToolPermission(automation, tool) {
   }
 }
 
-export async function executeCoreAutomation({ context, automation, run, database, log, extractProjectRequest = null }) {
+function legacyCapabilityInput(step, automation, run, index) {
+  if (step.tool === 'tasks.create') {
+    const projectId = String(step.input?.projectId || '').trim()
+    const title = String(step.input?.title || '').trim().slice(0, 160)
+    const notes = String(step.input?.notes || '').trim().slice(0, 2_000)
+    const sourceKey = String(step.input?.sourceKey || '').trim().slice(0, 320)
+    if (!projectId || !title || !notes || !sourceKey) throw new CoreAutomationError('CORE_TASK_INPUT_REQUIRED', 'A project id, title, notes, and source key are required to create a task.')
+    return { projectId, title, notes, sourceKey }
+  }
+  const input = projectCreationInput(step.input)
+  if (!input.clientId || input.clientEmail || (step.input?.due && input.due !== 'Set date') || (step.input?.status && input.status !== 'In progress')) {
+    throw new CoreAutomationError('CORE_LEGACY_CAPABILITY_UNMAPPABLE', 'This legacy project creation input cannot be safely mapped to projects.create.')
+  }
+  return { name: input.name, clientId: input.clientId, scope: input.scope, sourceKey: input.sourceKey || `legacy:${automation.id}:${run.id}:${index}` }
+}
+
+export async function executeCoreAutomation({ context, automation, run, database, log, extractProjectRequest = null, capabilityRegistry = null }) {
   if (automation.workflowDefinition?.version === 1) {
     let instruction
     try { instruction = JSON.parse(run.instruction) } catch { throw new CoreAutomationError('WORKFLOW_EVENT_INVALID', 'The mail workflow event is invalid.') }
@@ -183,7 +199,9 @@ export async function executeCoreAutomation({ context, automation, run, database
         }
         return extractProjectRequest(input, context)
       },
+      capabilityRegistry,
       log,
+      workflowId: automation.id,
     })
     return { steps: automation.workflowDefinition.steps.length, results: result }
   }
@@ -223,35 +241,27 @@ export async function executeCoreAutomation({ context, automation, run, database
       output = await database.listClients(context.workspace.id)
     } else if (step.tool === 'invoices.list') {
       output = await database.listInvoices(context.workspace.id)
-    } else if (step.tool === 'projects.update_status') {
-      const projects = await database.listProjects(context.workspace.id)
-      const project = projectFromInput(projects, step.input)
-      const status = projectStatus(step.input.status)
-      if (!status) throw new CoreAutomationError('CORE_INVALID_STATUS', 'Use a supported project status.')
-      output = await database.updateProjectStatus(context.workspace.id, project.id, status)
-    } else if (step.tool === 'projects.create') {
-      const input = projectCreationInput(step.input)
-      output = await database.createAutomationProject({
-        workspaceId: context.workspace.id,
-        createdBy: context.user.id,
-        ...input,
+    } else if (['projects.update_status', 'projects.create_draft_invoice'].includes(step.tool)) {
+      throw new CoreAutomationError('CORE_EXECUTION_UNAVAILABLE', `Core tool “${step.tool}” has no registered capability implementation.`)
+    } else if (['projects.create', 'tasks.create'].includes(step.tool)) {
+      if (!capabilityRegistry?.has(step.tool)) throw new CoreAutomationError('CORE_EXECUTION_UNAVAILABLE', `Core tool “${step.tool}” has no registered capability implementation.`)
+      const envelope = await capabilityRegistry.invokeNormalized(step.tool, legacyCapabilityInput(step, automation, run, index), context, {
+        autonomous: true,
+        origin: 'core-automation',
+        runId: run.id,
       })
-    } else if (step.tool === 'tasks.create') {
-      const projectId = String(step.input?.projectId || '').trim()
-      const title = String(step.input?.title || '').trim().slice(0, 160)
-      const notes = String(step.input?.notes || '').trim().slice(0, 2_000)
-      const sourceKey = String(step.input?.sourceKey || '').trim().slice(0, 320)
-      if (!projectId || !title || !notes || !sourceKey) {
-        throw new CoreAutomationError('CORE_TASK_INPUT_REQUIRED', 'A project id, title, notes, and source key are required to create a task.')
-      }
-      output = await database.createWorkflowTask({ workspaceId: context.workspace.id, projectId, title, notes, sourceKey })
-    } else if (step.tool === 'projects.create_draft_invoice') {
-      const projects = await database.listProjects(context.workspace.id)
-      const project = projectFromInput(projects, step.input)
-      output = await database.createDraftInvoiceForProject({
-        workspaceId: context.workspace.id,
-        projectId: project.id,
+      if (!envelope.success) throw new CoreAutomationError(envelope.error?.code || 'CORE_CAPABILITY_FAILED', envelope.error?.message || `${step.tool} failed.`)
+      output = envelope.data
+    } else if (capabilityRegistry?.has(step.tool)) {
+      const envelope = await capabilityRegistry.invokeNormalized(step.tool, step.input, context, {
+        autonomous: true,
+        origin: 'core-automation',
+        runId: run.id,
       })
+      if (!envelope.success) throw new CoreAutomationError(envelope.error?.code || 'CORE_CAPABILITY_FAILED', envelope.error?.message || `${step.tool} failed.`)
+      output = envelope.data
+    } else {
+      throw new CoreAutomationError('CORE_EXECUTION_UNAVAILABLE', `Core tool “${step.tool}” has no runtime implementation.`)
     }
     const durationMs = performance.now() - startedAt
     results.push({ index, tool: step.tool, output })
