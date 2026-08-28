@@ -338,7 +338,31 @@ export type WorkflowPreview = {
   recordsMayCreate: string[]
 }
 
+export type AssistantResponseType =
+  | 'message'
+  | 'workflow_preview'
+  | 'confirmation'
+  | 'error'
+  | 'data'
+  | 'artifact'
+
+export type AssistantResponseAction = {
+  id: string
+  label: string
+  variant?: 'primary' | 'secondary' | 'danger'
+  payload?: unknown
+}
+
+export type AssistantResponse = {
+  type: AssistantResponseType
+  message: string
+  data?: unknown
+  actions?: AssistantResponseAction[]
+  debug?: { model?: string; rawOutput?: unknown }
+}
+
 export type AgentChatResponse = {
+  response: AssistantResponse
   content: string
   proposedAction?: ProposedMcpAction | null
   run: {
@@ -1762,6 +1786,8 @@ export const api = {
           objective: string
           status: AgentChatResponse['run']['status']
           finalOutput?: string | null
+          assistantResponse?: AssistantResponse | null
+          proposedAction?: ProposedMcpAction | null
           results?: unknown[]
         }>
         error?: string
@@ -1804,6 +1830,7 @@ export const api = {
         body: JSON.stringify({ message, history, ...(continuation ? { continuation } : {}) }),
       })
       const payload = (await response.json()) as {
+        response?: AssistantResponse
         content?: string
         model?: string
         proposedAction?: ProposedMcpAction | null

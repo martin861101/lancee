@@ -5,6 +5,7 @@ import { once } from 'node:events'
 import { scryptSync } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { normalizePlannerTrigger } from '../server/workflow-builder.mjs'
 
 const directory = mkdtempSync(join(tmpdir(), 'lancee-hermes-natural-language-'))
 let application
@@ -55,6 +56,8 @@ try {
   let mcpToken = ''
   let sequence = 0
   const responses = new Map()
+  const plannerInputs = []
+  const plannerOutputs = []
 
   // The completion mock represents the provider's structured planner output.
   // It is deliberately a fixture, not a direct workflow.propose call: the
@@ -67,6 +70,8 @@ try {
     const content = userPrompt.includes('unsupported calendar operation')
       ? JSON.stringify({ ...modelResponse, workflow: { ...modelResponse.workflow, steps: [{ ...modelResponse.workflow.steps[0], capability: 'calendar.create', toolId: undefined }] } })
       : JSON.stringify(modelResponse)
+    plannerInputs.push({ userPrompt, systemPrompt: payload.messages?.[0]?.content || '' })
+    plannerOutputs.push(JSON.parse(content))
     response.writeHead(200, { 'Content-Type': 'application/json' })
     response.end(JSON.stringify({ choices: [{ message: { content } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }))
   })
@@ -159,6 +164,20 @@ try {
   })
   mcpToken = (await token.json()).access_token
 
+  // This regression failure shape selects mail.received and preserves the
+  // sender as a named trigger property instead of canonical conditions. The
+  // planner adapter must construct the canonical condition before
+  // validateWorkflowDefinition() runs.
+  assert.deepEqual(modelResponse.workflow.trigger, { type: 'mail.received', sender: 'mschoeman3@gmail.com' })
+  assert.deepEqual(normalizePlannerTrigger(modelResponse.workflow).trigger, {
+    type: 'mail.received',
+    sender: 'mschoeman3@gmail.com',
+    conditions: [{ field: 'sender.email', operator: 'equals', value: 'mschoeman3@gmail.com' }],
+  })
+  assert.deepEqual(normalizePlannerTrigger({ trigger: { type: 'mail.received' } }, { objective: exactPrompt }).trigger.conditions, [
+    { field: 'sender.email', operator: 'equals', value: 'mschoeman3@gmail.com' },
+  ])
+
   for (const [index, objective] of [exactPrompt, ...paraphrases].entries()) {
     const result = await sessionRequest(application.origin, cookie, '/api/agent/runs', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `natural-language-run-${index}` }, body: JSON.stringify({ objective }),
@@ -171,7 +190,20 @@ try {
     assert.deepEqual(payload.proposedAction.preview.recordsMayCreate, ['client', 'project', 'note'])
     assert.match(payload.proposedAction.description, /email subject/)
     assert.match(payload.proposedAction.description, /email body/)
+    const workflow = responses.get(`natural-language-${index + 1}`)?.result?.structuredContent?.data?.workflow
+    assert.deepEqual(workflow?.trigger.conditions, [{ field: 'sender.email', operator: 'equals', value: 'mschoeman3@gmail.com' }])
+    assert.equal(workflow?.steps?.[0]?.tool, 'ai.extract_project_request')
+    assert.deepEqual(workflow?.steps?.[0]?.input, { subject: '{{event.subject}}', body: '{{event.body}}' })
+    assert.equal(workflow?.steps?.[1]?.tool, 'clients.resolve')
+    assert.equal(workflow?.steps?.[1]?.input?.query, 'Hookitup')
+    assert.equal(workflow?.steps?.[2]?.tool, 'projects.create')
+    assert.equal(workflow?.steps?.[2]?.input?.name, '{{event.subject}}')
+    assert.equal(workflow?.steps?.[3]?.tool, 'projects.add_note')
   }
+  assert.equal(plannerOutputs[0].workflow.trigger.conditions, undefined)
+  assert.equal(plannerOutputs[0].workflow.trigger.sender, 'mschoeman3@gmail.com')
+  assert.equal(plannerOutputs[0].workflow.steps[3].input.body, '{{event.body}}')
+  assert.match(plannerInputs[0].userPrompt, /"conditions"/)
 
   const unsupported = await fetch(`${application.origin}/mcp`, {
     method: 'POST', headers: { Authorization: `Bearer ${mcpToken}`, 'Content-Type': 'application/json' },

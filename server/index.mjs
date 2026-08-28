@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url'
 import express from 'express'
 import { openDatabase } from './database.mjs'
 import { createAgentRuntime, AgentRuntimeError } from './agent-runtime.mjs'
+import { normalizeAssistantError, normalizeAssistantResponse } from './assistant-response.mjs'
 import {
   AgentProviderError,
   createAgentProviderGateway,
@@ -4283,7 +4284,16 @@ app.get('/api/agent/runs', requireAuth, async (request, response) => {
     threadId,
     limit: 100,
   })
-  response.json({ runs })
+  const hydratedRuns = await Promise.all(runs.map(async (run) => {
+    const envelope = await agentRunResponse(request.auth.context, run, { persist: false })
+    return {
+      ...run,
+      finalOutput: envelope.response.message,
+      assistantResponse: envelope.response,
+      proposedAction: envelope.proposedAction,
+    }
+  }))
+  response.json({ runs: hydratedRuns })
 })
 
 app.get('/api/agent/runs/:runId', requireAuth, async (request, response) => {
@@ -4296,7 +4306,18 @@ app.get('/api/agent/runs/:runId', requireAuth, async (request, response) => {
     database.listAgentApprovals(request.auth.context.workspace.id, { runId, limit: 200, userId: request.auth.context.user.id }),
     database.listAgentRunEvents(request.auth.context.workspace.id, runId, { limit: 500 }),
   ])
-  response.json({ run, steps, approvals, events })
+  const envelope = await agentRunResponse(request.auth.context, run, { persist: false })
+  response.json({
+    run: {
+      ...run,
+      finalOutput: envelope.response.message,
+      assistantResponse: envelope.response,
+      proposedAction: envelope.proposedAction,
+    },
+    steps,
+    approvals,
+    events,
+  })
 })
 
 app.post('/api/agent/runs/:runId/resume', secureMutations, requireAuth, async (request, response) => {
@@ -4650,18 +4671,28 @@ app.post('/api/ai/chat', secureMutations, requireAuth, async (request, response)
     const displayContent = result.content.trim() || (proposedAction
       ? 'I can do that after you approve the tool request below.'
       : 'I could not produce a response for that request.')
+    const assistantResponse = normalizeAssistantResponse(displayContent, {
+      objective: message,
+      model: result.model,
+      proposedAction,
+      message: displayContent,
+      log: (event, data) => console.warn(event, data),
+    })
     await database.saveAiConversation({
       workspaceId: request.auth.context.workspace.id,
       userId: request.auth.context.user.id,
       title: message.slice(0, 120),
       model: result.model,
-      messages: [...normalizedHistory, { role: 'user', content: message }, { role: 'assistant', content: displayContent }],
+      messages: [...normalizedHistory, { role: 'user', content: message }, { role: 'assistant', content: assistantResponse.message, response: assistantResponse }],
       tokensUsed: result.usage.totalTokens,
     })
-    response.json({ ...result, content: displayContent, proposedAction, toolCall: undefined })
+    response.json({ ...result, response: assistantResponse, content: assistantResponse.message, proposedAction, toolCall: undefined })
   } catch (error) {
     if (error instanceof AiError) {
-      response.status(error.status).json({ error: error.message, code: error.code })
+      const assistantResponse = normalizeAssistantError(error, {
+        log: (event, data) => console.warn(event, data),
+      })
+      response.status(error.status).json({ error: assistantResponse.message, code: error.code, response: assistantResponse })
       return
     }
     response.status(502).json({ error: 'Workspace assistant request failed.' })
@@ -8783,8 +8814,10 @@ const agentGateway = createAgentProviderGateway({
   lancee: lanceeAgentProvider,
 })
 
-async function agentRunResponse(context, run) {
+async function agentRunResponse(context, run, { persist = true } = {}) {
   let proposedAction = null
+  let workflowDefinition = null
+  let workflowPreview = null
   if (run.status === 'waiting_approval' && run.pendingAction?.approvalId) {
     if (run.pendingAction.provider === 'hermes') {
       proposedAction = {
@@ -8806,7 +8839,10 @@ async function agentRunResponse(context, run) {
       const capability = step ? lanceeMcp.capabilities.get(step.toolId) : null
       if (approval && step && capability) {
         const highRisk = ['external-action', 'destructive', 'administrative'].includes(capability.riskLevel)
-        const workflowPreview = capability.id === 'workflow.activate-proposal'
+        workflowDefinition = capability.id === 'workflow.activate-proposal'
+          ? step.arguments.definition
+          : null
+        workflowPreview = workflowDefinition
           ? previewWorkflow(step.arguments.definition, {
             warnings: (await database.getMailAccount(context.workspace.id))
               ? []
@@ -8835,8 +8871,30 @@ async function agentRunResponse(context, run) {
       : run.status === 'cancelled'
         ? 'The agent run was cancelled.'
         : run.errorMessage || `The agent run is ${run.status}.`
+  const artifacts = (Array.isArray(run.results) ? run.results : []).flatMap((result) => {
+    const data = result?.data && typeof result.data === 'object' ? result.data : {}
+    return [
+      ...(Array.isArray(data.files) ? data.files : []),
+      ...(Array.isArray(data.artifacts) ? data.artifacts : []),
+      ...(Array.isArray(result?.artifacts) ? result.artifacts : []),
+    ]
+  })
+  const assistantResponse = normalizeAssistantResponse(content, {
+    objective: run.objective,
+    status: run.status,
+    errorCode: run.errorCode,
+    model: run.model,
+    workflow: workflowDefinition,
+    preview: workflowPreview,
+    proposedAction,
+    message: content,
+    artifacts,
+    log: (event, data) => console.warn(event, { runId: run.id, ...data }),
+  })
+  if (persist) await database.updateAgentRun(context.workspace.id, run.id, { assistantResponse })
   return {
-    content,
+    response: assistantResponse,
+    content: assistantResponse.message,
     proposedAction,
     run: {
       id: run.id,

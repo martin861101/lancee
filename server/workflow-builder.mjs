@@ -374,6 +374,45 @@ function parsePlannerResult(content) {
   try { return JSON.parse(json) } catch { throw workflowError('WORKFLOW_PLANNER_INVALID_OUTPUT', 'The AI provider did not return a valid structured workflow proposal.') }
 }
 
+function plannerWorkflowSnapshot(workflow) {
+  return JSON.stringify(workflow && typeof workflow === 'object'
+    ? { version: workflow.version, name: workflow.name, trigger: workflow.trigger, steps: workflow.steps }
+    : workflow).slice(0, 4_000)
+}
+
+function plannerSenderValue(trigger) {
+  const value = trigger?.sender ?? trigger?.from ?? trigger?.senderEmail ?? trigger?.fromEmail
+  if (typeof value === 'string') return value
+  if (value && typeof value === 'object') return value.email ?? value.address ?? null
+  return null
+}
+
+function senderFromObjective(objective) {
+  const senders = [...String(objective || '').matchAll(/\b(?:from|sender)\s*(?:is|=|:)?\s*<?([^\s<>@]+@[^\s<>@]+\.[^\s<>@]+)>?/gi)]
+    .map((match) => match[1])
+    .filter((value) => EMAIL.test(value))
+  return new Set(senders.map((value) => value.toLowerCase())).size === 1 ? senders[0] : null
+}
+
+export function normalizePlannerTrigger(workflow, { objective = '' } = {}) {
+  if (!workflow || typeof workflow !== 'object' || !workflow.trigger || typeof workflow.trigger !== 'object') return workflow
+  const trigger = workflow.trigger
+  // Some model tool contracts express the deterministic sender filter as a
+  // named trigger property. Convert only that explicit filter to the one
+  // canonical WorkflowDefinition form; semantic body intent remains an
+  // ai.extract_project_request step and is never converted to a mail match.
+  if (Array.isArray(trigger.conditions) && trigger.conditions.length) return workflow
+  const sender = plannerSenderValue(trigger) || senderFromObjective(objective)
+  if (!sender) return workflow
+  return {
+    ...workflow,
+    trigger: {
+      ...trigger,
+      conditions: [{ field: 'sender.email', operator: 'equals', value: sender }],
+    },
+  }
+}
+
 export function createWorkflowRequestPlanner({ complete }) {
   if (typeof complete !== 'function') throw new TypeError('A provider-independent completion function is required.')
   return async (objective, { capabilities = WORKFLOW_CAPABILITIES, connectionState = null } = {}) => {
@@ -381,8 +420,8 @@ export function createWorkflowRequestPlanner({ complete }) {
     if (!/\b(email|mail)\b/i.test(message) || !/\b(project|task|website|platform|Hookitup)\b/i.test(message)) return null
     const capabilitySummary = capabilities.map(({ id, description, inputSchema, outputSchema }) => ({ id, description, inputSchema, outputSchema }))
     const result = await complete({
-      messages: [{ role: 'user', content: `${message}\n\nReturn ready workflow steps with the exact shape {"id":"step_name","tool":"<exact registered capability id>","input":{...}}. Use the catalogue id in the tool field; never use toolId, capability, capabilityId, action, display names, or invented aliases. If the request says to use the email subject as the project title, map it to {{event.subject}}; if it says to save the email as a note, map it to {{event.body}}. Include tasks.create_many only when task creation is requested.` }],
-      systemPrompt: `Create a workflow proposal from the user's request. Return JSON only. Each ready workflow step MUST use exactly {"id":"step_name","tool":"<exact registered capability id>","input":{...}}. Use the exact catalogue id in tool; never use toolId, capability, capabilityId, action, display names, or invented aliases. The only supported trigger is mail.received with matchMode all|any and conditions using sender.email|recipient.email|subject|body with equals|contains. Exact sender matching is required. The first step must be ai.extract_project_request; no write step may precede it. For semantic website/platform detection, use ai.extract_project_request with confidence thresholds (0.85 create, 0.60 review). Available capabilities: ${JSON.stringify(capabilitySummary)}. Use clients.resolve for existing named clients like "Hookitup" (query by name), projects.create (needs clientId, name, scope, sourceKey mail:{{event.messageId}}), projects.add_note (needs projectId ref, body, sourceKey), and tasks.create_many only when the user requests task creation, with the extracted tasks array and a sourceKey. Map an explicit request for the email subject as project title to {{event.subject}} and an explicit request to save the email as a note to {{event.body}}. Canonical single-resource references are shaped as {"$ref":"steps.<earlier-step-id>.output.resource.id"}; use {"$ref":"steps.understand_request.output.tasks"} for tasks.create_many.tasks. Step inputs may use declared mail templates {{event.subject}}, {{event.body}}, {{event.messageId}}, {{event.sender.email}}, {{event.sender.name}}. Never invent capabilities, credentials, permissions, workspace IDs, or hidden actions. Do not activate anything. Return either {"status":"needs_clarification","workflow":null,"assumptions":[],"warnings":[],"questions":[{"id":"...","question":"..."}]} or {"status":"ready","workflow":{"version":1,"name":"...","trigger":{...},"steps":[...]},"assumptions":[],"warnings":[],"questions":[]}. Ask a concise clarification when a required trigger value or action detail is missing.`,
+      messages: [{ role: 'user', content: `${message}\n\nReturn ready workflow steps with the exact shape {"id":"step_name","tool":"<exact registered capability id>","input":{...}}. For a mail sender named in the request, return trigger exactly as {"type":"mail.received","matchMode":"all","conditions":[{"field":"sender.email","operator":"equals","value":"sender@example.com"}]}. Use the catalogue id in the tool field; never use toolId, capability, capabilityId, action, display names, or invented aliases. If the request says to use the email subject as the project title, map it to {{event.subject}}; if it says to save the email as a note, map it to {{event.body}}. Include tasks.create_many only when task creation is requested.` }],
+      systemPrompt: `Create a workflow proposal from the user's request. Return JSON only. Each ready workflow step MUST use exactly {"id":"step_name","tool":"<exact registered capability id>","input":{...}}. Use the exact catalogue id in tool; never use toolId, capability, capabilityId, action, display names, or invented aliases. The only supported trigger is mail.received. For any named mail sender, the trigger MUST be exactly {"type":"mail.received","matchMode":"all","conditions":[{"field":"sender.email","operator":"equals","value":"<the sender email>"}]}. Conditions are an array; never put the sender in a trigger sender/from field. The only condition fields are sender.email|recipient.email|subject|body and operators are equals|contains. Exact sender matching is required. The first step must be ai.extract_project_request; no write step may precede it. For semantic website/platform detection, use ai.extract_project_request with confidence thresholds (0.85 create, 0.60 review), not a mail trigger body condition. Available capabilities: ${JSON.stringify(capabilitySummary)}. Use clients.resolve for existing named clients like "Hookitup" (query by name), projects.create (needs clientId, name, scope, sourceKey mail:{{event.messageId}}), projects.add_note (needs projectId ref, body, sourceKey), and tasks.create_many only when the user requests task creation, with the extracted tasks array and a sourceKey. Map an explicit request for the email subject as project title to {{event.subject}} and an explicit request to save the email as a note to {{event.body}}. Canonical single-resource references are shaped as {"$ref":"steps.<earlier-step-id>.output.resource.id"}; use {"$ref":"steps.understand_request.output.tasks"} for tasks.create_many.tasks. Step inputs may use declared mail templates {{event.subject}}, {{event.body}}, {{event.messageId}}, {{event.sender.email}}, {{event.sender.name}}. Never invent capabilities, credentials, permissions, workspace IDs, or hidden actions. Do not activate anything. Return either {"status":"needs_clarification","workflow":null,"assumptions":[],"warnings":[],"questions":[{"id":"...","question":"..."}]} or {"status":"ready","workflow":{"version":1,"name":"...","trigger":{...},"steps":[...]},"assumptions":[],"warnings":[],"questions":[]}. Ask a concise clarification when a required trigger value or action detail is missing.`,
     })
     const proposal = parsePlannerResult(result?.content)
     const assumptions = Array.isArray(proposal?.assumptions) ? proposal.assumptions.map((value) => normalizeText(value, 500)).filter(Boolean) : []
@@ -395,7 +434,18 @@ export function createWorkflowRequestPlanner({ complete }) {
       return { status: 'needs_clarification', workflow: null, assumptions, warnings, questions }
     }
     if (proposal?.status !== 'ready') throw workflowError('WORKFLOW_PLANNER_INVALID_OUTPUT', 'The workflow proposal has an invalid status.')
-    const workflow = validateWorkflowDefinition(proposal.workflow)
+    let workflow
+    try {
+      workflow = validateWorkflowDefinition(normalizePlannerTrigger(proposal.workflow, { objective: message }))
+    } catch (error) {
+      // Preserve the unmodified model definition at the planner/validator
+      // boundary. This is internal MCP diagnostic data, not a user-facing
+      // stack trace, and distinguishes a missing filter from translation loss.
+      error.validationStage = error.validationStage || 'workflow-definition.validation'
+      error.plannerOutput = error.plannerOutput || plannerWorkflowSnapshot(proposal.workflow)
+      error.plannerTrigger = error.plannerTrigger || proposal.workflow?.trigger || null
+      throw error
+    }
     const availableTools = new Set(capabilities.map((capability) => capability.id))
     if (workflow.steps.some((step) => !availableTools.has(step.tool))) throw workflowError('WORKFLOW_UNKNOWN_CAPABILITY', 'The workflow uses a capability unavailable in this workspace.')
     if (!connectionState?.mailConnected) warnings.push('No connected mailbox was found. Connect a mailbox before this workflow can receive email.')
@@ -656,6 +706,7 @@ export function workflowPlannerCapability({ database = null, createProposal, get
               stepId: error.stepId || null,
               validationStage: error.validationStage,
               plannerOutput: error.plannerOutput || null,
+              plannerTrigger: error.plannerTrigger || null,
             },
             level: 'error',
           }).catch(() => undefined)

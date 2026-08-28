@@ -45,6 +45,7 @@
     "verify:hermes": "node scripts/verify-hermes-integration.mjs",
     "verify:hermes-workflow": "node scripts/verify-hermes-workflow-approval.mjs",
     "verify:hermes-natural-language": "node scripts/verify-hermes-natural-language.mjs",
+    "verify:assistant-response": "node scripts/verify-assistant-response.mjs",
     "verify:signals": "node scripts/verify-signal-engine.mjs",
     "verify:connected-intelligence": "node scripts/verify-connected-intelligence.mjs",
     "verify:connected-inspections": "node scripts/verify-connected-inspections.mjs",

@@ -5,14 +5,7 @@
     "name": "Hookitup email project requests",
     "trigger": {
       "type": "mail.received",
-      "matchMode": "all",
-      "conditions": [
-        {
-          "field": "sender.email",
-          "operator": "equals",
-          "value": "mschoeman3@gmail.com"
-        }
-      ]
+      "sender": "mschoeman3@gmail.com"
     },
     "steps": [
       {

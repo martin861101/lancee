@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import DOMPurify from 'dompurify'
-import { marked } from 'marked'
-import { api, type ProposedMcpAction, type RunEvent, type User } from '../../lib/api'
+import { api, type AssistantResponse, type AssistantResponseAction, type ProposedMcpAction, type RunEvent, type User } from '../../lib/api'
+import { safeAssistantResponse } from '../../lib/assistantResponse'
+import AssistantResponseRenderer from './AssistantResponseRenderer'
 
 type ChatAttachment = {
   id: string
@@ -13,6 +13,7 @@ type ChatAttachment = {
 type Message = {
   role: 'user' | 'assistant'
   content: string
+  response?: AssistantResponse
   proposedAction?: ProposedMcpAction
   actionState?: 'pending' | 'running' | 'completed' | 'failed' | 'denied'
   actionMessage?: string
@@ -34,21 +35,6 @@ function readableLabel(value: string) {
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .trim()
   return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : 'Result'
-}
-
-function normalizedMarkdown(value: string) {
-  return value
-    .replace(/\s+(#{1,6}\s+)/g, '\n\n$1')
-    .replace(/:\s*[-*]\s+(?=\*\*)/g, ':\n\n- ')
-    .replace(/([.!?])\s+([-*]\s+(?=\*\*))/g, '$1\n\n$2')
-}
-
-function renderedMarkdown(value: string) {
-  return DOMPurify.sanitize(String(marked.parse(normalizedMarkdown(value), {
-    async: false,
-    gfm: true,
-    breaks: true,
-  })))
 }
 
 function attachmentsFromResults(results: unknown[] = []) {
@@ -96,6 +82,15 @@ function messagesFromHistory(runs: Awaited<ReturnType<typeof api.chat.history>>)
       content: run.finalOutput || (run.status === 'completed'
         ? 'The agent run completed without a text response.'
         : `The agent run is ${readableLabel(run.status)}.`),
+      response: safeAssistantResponse(
+        run.assistantResponse,
+        run.finalOutput || (run.status === 'completed'
+          ? 'The agent run completed without a text response.'
+          : `The agent run is ${readableLabel(run.status)}.`),
+        run.objective,
+      ),
+      proposedAction: run.proposedAction || undefined,
+      actionState: run.proposedAction ? 'pending' as const : undefined,
       attachments: attachmentsFromResults(run.results),
     },
   ]))
@@ -216,13 +211,15 @@ export default function WorkspaceChat({ user }: { user: User }) {
         {
           role: 'assistant',
           content: result.content || '',
+          response: safeAssistantResponse(result.response, result.content || '', content),
           proposedAction: result.proposedAction || undefined,
           actionState: result.proposedAction ? 'pending' : undefined,
           attachments: attachmentsFromResults(result.run.results),
         },
       ])
     } catch (error) {
-      setMessages([...next, { role: 'assistant', content: error instanceof Error ? error.message : 'The workspace assistant is unavailable.' }])
+      const errorMessage = error instanceof Error ? error.message : 'The workspace assistant is unavailable.'
+      setMessages([...next, { role: 'assistant', content: errorMessage, response: { type: 'error', message: errorMessage } }])
     } finally {
       setBusy(false)
     }
@@ -245,6 +242,7 @@ export default function WorkspaceChat({ user }: { user: User }) {
           ? {
               ...item,
               content: agentResult.content,
+              response: safeAssistantResponse(agentResult.response, agentResult.content, ''),
               proposedAction: agentResult.proposedAction || undefined,
               actionState: agentResult.proposedAction
                 ? 'pending'
@@ -269,6 +267,7 @@ export default function WorkspaceChat({ user }: { user: User }) {
       let actionMessage = `${result.message} (${result.duration}ms)`
       let actionState: Message['actionState'] = result.ok ? 'completed' : 'failed'
       let continuedResponse: Awaited<ReturnType<typeof api.chat.complete>> | null = null
+      let continuationObjective = ''
       const createdAttachments: ChatAttachment[] = []
       if (typeof workflow.id === 'string') {
         actionMessage = `${String(workflow.name || 'Workflow')} created · ${String(workflow.status || 'ready')}`
@@ -305,6 +304,7 @@ export default function WorkspaceChat({ user }: { user: User }) {
       if (result.ok && action.continueAfterSuccess) {
         const originalRequest = messages.slice(0, index).findLast((item) => item.role === 'user')?.content
         if (originalRequest) {
+          continuationObjective = originalRequest
           actionMessage = `${actionMessage} · preparing the next approval…`
           continuedResponse = await api.chat.complete(
             originalRequest,
@@ -322,6 +322,7 @@ export default function WorkspaceChat({ user }: { user: User }) {
           ? [...updated, {
               role: 'assistant' as const,
               content: continuedResponse.content || '',
+              response: safeAssistantResponse(continuedResponse.response, continuedResponse.content || '', continuationObjective),
               proposedAction: continuedResponse.proposedAction || undefined,
               actionState: continuedResponse.proposedAction ? 'pending' as const : undefined,
             }]
@@ -351,6 +352,7 @@ export default function WorkspaceChat({ user }: { user: User }) {
           ? {
               ...item,
               content: agentResult.content,
+              response: safeAssistantResponse(agentResult.response, agentResult.content, ''),
               proposedAction: undefined,
               actionState: 'denied',
               actionMessage: 'Action denied · persisted run stopped.',
@@ -368,6 +370,21 @@ export default function WorkspaceChat({ user }: { user: User }) {
       : item))
   }
 
+  const responseAction = (index: number, action: AssistantResponseAction) => {
+    if (action.id === 'create_workflow' || action.id === 'confirm_action') {
+      void approveAction(index)
+      return
+    }
+    if (action.id === 'deny_action') {
+      void denyAction(index)
+      return
+    }
+    if (action.id === 'edit_workflow') {
+      const workflow = objectValue(objectValue(messages[index]?.response?.data).workflow)
+      setMessage(`Edit “${String(workflow.name || 'this workflow')}”: `)
+    }
+  }
+
   return (
     <aside className={`workspace-chat${open ? ' is-open' : ''}`}>
       {open && (
@@ -383,7 +400,13 @@ export default function WorkspaceChat({ user }: { user: User }) {
             {messages.map((item, index) => (
               <div className={`workspace-chat__message workspace-chat__message--${item.role}`} key={`${item.role}:${index}`}>
                 {item.role === 'assistant'
-                  ? <div className="workspace-chat__markdown" dangerouslySetInnerHTML={{ __html: renderedMarkdown(item.content) }} />
+                  ? <AssistantResponseRenderer
+                      response={item.response || safeAssistantResponse(null, item.content)}
+                      proposedAction={item.proposedAction}
+                      actionState={item.actionState}
+                      actionMessage={item.actionMessage}
+                      onAction={(action) => responseAction(index, action)}
+                    />
                   : <div>{item.content}</div>}
                 {item.attachments?.map((attachment) => (
                   <a
@@ -396,7 +419,7 @@ export default function WorkspaceChat({ user }: { user: User }) {
                     <span><strong>{attachment.name}</strong><small>{attachmentLabel(attachment)}</small></span>
                   </a>
                 ))}
-                {item.proposedAction && (
+                {item.proposedAction && !['workflow_preview', 'confirmation'].includes(item.response?.type || '') && (
                   <div className="workspace-chat__action">
                     <span>{item.proposedAction.title}</span>
                     <small>{item.proposedAction.description}</small>

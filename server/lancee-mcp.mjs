@@ -1460,6 +1460,7 @@ export function createLanceeMcpRuntime({
                 stepId: error.stepId || null,
                 validationStage: error.validationStage,
                 plannerOutput: error.plannerOutput || null,
+                plannerTrigger: error.plannerTrigger || null,
               }
             : undefined,
         })

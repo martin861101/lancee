@@ -368,6 +368,7 @@ function mapAgentRun(row) {
     results: parseJsonObject(row.results_json, []),
     pendingAction: parseJsonObject(row.pending_action_json, null),
     finalOutput: row.final_output,
+    assistantResponse: parseJsonObject(row.assistant_response_json, null),
     budget: parseJsonObject(row.budget_json, {}),
     usage: parseJsonObject(row.usage_json, {}),
     iterations: Number(row.iterations || 0),
@@ -1665,6 +1666,7 @@ export async function openDatabase({
       results_json TEXT NOT NULL DEFAULT '[]',
       pending_action_json TEXT,
       final_output TEXT,
+      assistant_response_json TEXT,
       budget_json TEXT NOT NULL DEFAULT '{}',
       usage_json TEXT NOT NULL DEFAULT '{}',
       iterations INTEGER NOT NULL DEFAULT 0,
@@ -1680,6 +1682,7 @@ export async function openDatabase({
     )`,
     `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS step_sequence INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS event_sequence INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS assistant_response_json TEXT`,
     `CREATE TABLE IF NOT EXISTS agent_steps (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -4422,6 +4425,9 @@ export async function openDatabase({
         set('pending_action_json', fields.pendingAction === null ? null : stableJson(fields.pendingAction))
       }
       if (fields.finalOutput !== undefined) set('final_output', fields.finalOutput === null ? null : String(fields.finalOutput))
+      if (fields.assistantResponse !== undefined) {
+        set('assistant_response_json', fields.assistantResponse === null ? null : stableJson(fields.assistantResponse))
+      }
       if (fields.budget !== undefined) set('budget_json', stableJson(fields.budget || {}))
       if (fields.usage !== undefined) set('usage_json', stableJson(fields.usage || {}))
       if (fields.iterations !== undefined) set('iterations', Math.max(0, Number(fields.iterations) || 0))
