@@ -116,7 +116,7 @@ try {
   })
   await collaboratorDatabase.close()
   const collaborator = await database.getContextByEmail('workflow-collaborator@example.test')
-  await database.updateTeamMember(context.workspace.id, collaborator.user.id, { name: collaborator.user.name, role: 'collaborator' })
+  await database.updateTeamMember(context.workspace.id, collaborator.user.id, { name: collaborator.user.name, role: 'member' })
   const collaboratorContext = await database.getContextByEmail('workflow-collaborator@example.test')
   const otherWorkspaceDatabase = await openDatabase({
     databasePath: join(directory, 'workflow.sqlite'), adminEmail: 'workflow-other@example.test', adminName: 'Workflow Other', adminPasswordSalt: 'salt', adminPasswordHash: 'hash', workspaceId: 'wsp_workflow_other', workspaceName: 'Workflow Other',
@@ -432,7 +432,7 @@ try {
     /timed out/,
   )
   assert.deepEqual(await zeroWriteCount(), beforeLow)
-  await database.updateTeamMember(context.workspace.id, context.user.id, { name: context.user.name, role: 'viewer' })
+  await database.updateTeamMember(context.workspace.id, context.user.id, { name: context.user.name, role: 'member' })
   const viewerContext = await database.getContextByIds(context.user.id, context.workspace.id)
   await assert.rejects(
     () => executeCoreAutomation({ database, context: viewerContext, automation: targetAutomation, run: { id: 'run_target_viewer', instruction: JSON.stringify({ event: { ...targetEvent, messageId: '<hookitup-viewer>' } }) }, log: async () => {}, extractProjectRequest: targetExtraction, capabilityRegistry: hermesMcp.capabilities }),

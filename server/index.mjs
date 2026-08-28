@@ -14,6 +14,7 @@ import { isIP } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import express from 'express'
 import { openDatabase } from './database.mjs'
+import { canAccessWorkspace, hasWorkspaceRole } from './workspace-auth.mjs'
 import { createAgentRuntime, AgentRuntimeError } from './agent-runtime.mjs'
 import { normalizeAssistantError, normalizeAssistantResponse } from './assistant-response.mjs'
 import {
@@ -436,8 +437,10 @@ async function insertOwnedWorkspace({ userId, workspaceId, workspaceName, timest
     [workspaceId, workspaceName, timestamp, timestamp],
   )
   await database.query(
-    `INSERT INTO workspace_members (workspace_id, user_id, role, created_at) VALUES ($1, $2, 'owner', $3)`,
-    [workspaceId, userId, timestamp],
+    `INSERT INTO workspace_members (
+       id, workspace_id, user_id, role, status, joined_at, created_at, updated_at
+     ) VALUES ($1, $2, $3, 'owner', 'active', $4, $4, $4)`,
+    [stableId('wsm', `${workspaceId}:${userId}`), workspaceId, userId, timestamp],
   )
   await database.query(
     `INSERT INTO workspace_settings (workspace_id, name, updated_at) VALUES ($1, $2, $3)`,
@@ -584,6 +587,30 @@ function requireOwner(request, response, next) {
     return
   }
   next()
+}
+
+function requireWorkspaceMember(request, response, next) {
+  const context = request.auth?.context
+  if (!canAccessWorkspace(context, context?.workspace?.id)) {
+    response.status(403).json({ error: 'An active workspace membership is required.' })
+    return
+  }
+  next()
+}
+
+function requireWorkspaceRole(...roles) {
+  return (request, response, next) => {
+    const context = request.auth?.context
+    if (!canAccessWorkspace(context, context?.workspace?.id)) {
+      response.status(403).json({ error: 'An active workspace membership is required.' })
+      return
+    }
+    if (!hasWorkspaceRole(context, roles)) {
+      response.status(403).json({ error: 'Your workspace role cannot perform this action.' })
+      return
+    }
+    next()
+  }
 }
 
 function requirePlatformAdmin(request, response, next) {
@@ -2887,7 +2914,7 @@ app.post('/api/auth/register', secureMutations, rateLimitLogin, async (request, 
 
     const acceptedUserId = existingUser?.id || stableId('usr', email)
     const timestamp = nowIso()
-    await database.transaction(async () => {
+    const accepted = await database.transaction(async () => {
       if (!existingUser) {
         const passwordSalt = randomBytes(16).toString('hex')
         const passwordHash = scryptSync(password, passwordSalt, 64).toString('hex')
@@ -2906,17 +2933,20 @@ app.post('/api/auth/register', secureMutations, rateLimitLogin, async (request, 
           ],
         )
       }
-      await database.acceptTeamInvitation({
-        invitationId: invitation.id,
-        workspaceId: invitation.workspaceId,
+      const acceptedInvitation = await database.acceptTeamInvitation({
+        tokenHash: hashSecret(invitationToken),
         userId: acceptedUserId,
-        role: invitation.role,
+        email,
       })
+      if (!acceptedInvitation) {
+        throw new HttpError(410, 'This invitation is invalid, expired, or has already been accepted.')
+      }
+      return acceptedInvitation
     })
     loginAttempts.delete(clientAddress(request))
     const context = await database.getContextByIds(
       acceptedUserId,
-      invitation.workspaceId,
+      accepted.workspaceId,
     )
     response.setHeader('Set-Cookie', createSessionCookie(context))
     response.status(201).json({ user: userResponse(context) })
@@ -5706,55 +5736,52 @@ app.get('/api/database/info', requireAuth, async (request, response) => {
   response.json(await database.getDatabaseInfo())
 })
 
-app.get('/api/workspace/team', requireAuth, async (request, response) => {
+app.get('/api/workspace/team', requireAuth, requireWorkspaceMember, async (request, response) => {
   response.json({
     members: await database.listTeamMembers(request.auth.context.workspace.id),
   })
 })
 
-app.patch('/api/workspace/team/:memberId', secureMutations, requireAuth, requireOwner, async (request, response) => {
+function assertTeamTargetIsManageable(actor, target, nextRole) {
+  if (!target) throw new HttpError(404, 'Team member not found.')
+  if (target.role === 'owner') {
+    throw new HttpError(403, 'Workspace owners cannot be changed or removed here.')
+  }
+  if (actor.role === 'admin' && target.role !== 'member') {
+    throw new HttpError(403, 'Admins can manage members, but not other admins.')
+  }
+  if (nextRole && !['admin', 'member'].includes(nextRole)) {
+    throw new HttpError(400, 'Team roles must be admin or member.')
+  }
+}
+
+app.patch('/api/workspace/team/:memberId', secureMutations, requireAuth, requireWorkspaceRole('owner', 'admin'), async (request, response) => {
   const memberId = String(request.params.memberId || '').trim()
   const name = String(request.body?.name || '').trim()
   const role = String(request.body?.role || '').trim()
   if (!memberId || memberId.length > 160) throw new HttpError(400, 'A valid member id is required.')
-  if (!name || name.length > 120) throw new HttpError(400, 'Member name must be between 1 and 120 characters.')
-  if (!['owner', 'collaborator', 'viewer'].includes(role)) {
-    throw new HttpError(400, 'Role must be admin, collaborator, or viewer.')
-  }
+  if (name.length > 120) throw new HttpError(400, 'Member name must be 120 characters or fewer.')
   const members = await database.listTeamMembers(request.auth.context.workspace.id)
   const current = members.find((member) => member.id === memberId)
-  if (!current) throw new HttpError(404, 'Team member not found.')
-  if (
-    current.role === 'owner' &&
-    role !== 'owner' &&
-    members.filter((member) => member.role === 'owner' && member.status === 'active').length <= 1
-  ) {
-    throw new HttpError(409, 'Add another admin before changing the last admin role.')
-  }
+  assertTeamTargetIsManageable(request.auth.context.membership, current, role)
   const member = await database.updateTeamMember(
     request.auth.context.workspace.id,
     memberId,
-    { name, role },
+    { name: name || current.name, role },
   )
   response.json({ member })
 })
 
-app.delete('/api/workspace/team/:memberId', secureMutations, requireAuth, requireOwner, async (request, response) => {
+app.delete('/api/workspace/team/:memberId', secureMutations, requireAuth, requireWorkspaceRole('owner', 'admin'), async (request, response) => {
   const memberId = String(request.params.memberId || '').trim()
   if (!memberId || memberId.length > 160) throw new HttpError(400, 'A valid member id is required.')
-  if (memberId === request.auth.context.user.id) {
-    throw new HttpError(409, 'You cannot remove yourself from the workspace.')
-  }
   const members = await database.listTeamMembers(request.auth.context.workspace.id)
   const current = members.find((member) => member.id === memberId)
-  if (!current) throw new HttpError(404, 'Team member not found.')
-  if (
-    current.role === 'owner' &&
-    members.filter((member) => member.role === 'owner' && member.status === 'active').length <= 1
-  ) {
-    throw new HttpError(409, 'The last workspace admin cannot be removed.')
+  assertTeamTargetIsManageable(request.auth.context.membership, current)
+  if (current.userId === request.auth.context.user.id) {
+    throw new HttpError(409, 'You cannot disable your own workspace membership.')
   }
-  await database.removeTeamMember(request.auth.context.workspace.id, memberId)
+  await database.disableTeamMember(request.auth.context.workspace.id, memberId)
   response.status(204).end()
 })
 
@@ -5836,80 +5863,108 @@ app.delete('/api/workspace/cloud-links/:linkId', secureMutations, requireAuth, a
   response.status(204).end()
 })
 
-app.post('/api/workspace/team/invite', secureMutations, requireAuth, requireOwner, async (request, response) => {
+async function deliverWorkspaceInvitation({ email, name, inviterName, workspaceName, token }) {
+  const acceptUrl = new URL('/', publicOrigin)
+  acceptUrl.searchParams.set('invite', token)
+  if (!getSmtpStatus().configured) {
+    return { delivery: 'share', acceptUrl: acceptUrl.toString() }
+  }
+  try {
+    const inviteMail = invitationEmail({
+      name,
+      inviterName,
+      workspaceName,
+      acceptUrl: acceptUrl.toString(),
+    })
+    await sendNotification({
+      to: email,
+      subject: `You're invited to ${workspaceName} on lancee`,
+      text: inviteMail.text,
+      html: inviteMail.html,
+    })
+    return { delivery: 'sent' }
+  } catch {
+    // The invitation remains valid. Never log the URL or raw token.
+    return { delivery: 'failed', acceptUrl: acceptUrl.toString() }
+  }
+}
+
+app.post('/api/workspace/team/invite', secureMutations, requireAuth, requireWorkspaceRole('owner', 'admin'), async (request, response) => {
   const email = String(request.body?.email || '').trim().toLowerCase()
   const name = String(request.body?.name || '').trim()
-  const role = String(request.body?.role || 'collaborator').trim()
+  const role = String(request.body?.role || 'member').trim()
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     throw new HttpError(400, 'A valid email address is required.')
   }
   if (name.length > 120) {
     throw new HttpError(400, 'Member name must be 120 characters or fewer.')
   }
-  if (!['owner', 'collaborator', 'viewer'].includes(role)) {
-    throw new HttpError(400, 'Role must be admin, collaborator, or viewer.')
+  if (!['admin', 'member'].includes(role)) {
+    throw new HttpError(400, 'Role must be admin or member.')
   }
   const existingMembership = await database.getWorkspaceMembershipByEmail(
     request.auth.context.workspace.id,
     email,
   )
   if (existingMembership) {
-    if (existingMembership.password_hash !== 'temp_hash') {
-      throw new HttpError(409, 'This person is already a workspace member.')
-    }
-    await database.removeLegacyInvitationMember(
-      request.auth.context.workspace.id,
-      existingMembership.id,
-    )
+    throw new HttpError(409, 'This person already has a workspace membership.')
   }
-  const result = await executeIdempotentMutation({
-    request,
-    route: 'POST /api/workspace/team/invite',
-    input: { email, name, role },
-    operation: async () => {
-      const token = randomBytes(32).toString('base64url')
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-      const acceptUrl = new URL('/', publicOrigin)
-      acceptUrl.searchParams.set('invite', token)
-      return {
-        status: 201,
-        response: {
-          ...await database.inviteTeamMember({
-        workspaceId: request.auth.context.workspace.id,
-        invitedBy: request.auth.context.user.id,
-        email,
-        name,
-        role,
-            tokenHash: hashSecret(token),
-            expiresAt,
-          }),
-          acceptUrl: acceptUrl.toString(),
-          delivery: 'share',
-        },
-      }
-    },
+  const token = randomBytes(32).toString('base64url')
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+  const invitation = await database.inviteTeamMember({
+    workspaceId: request.auth.context.workspace.id,
+    invitedBy: request.auth.context.user.id,
+    email,
+    name,
+    role,
+    tokenHash: hashSecret(token),
+    expiresAt,
   })
-  const payload = { ...result.response }
-  if (!result.replayed && getSmtpStatus().configured) {
-    try {
-      const inviteMail = invitationEmail({
-        name,
-        inviterName: request.auth.context.user.name,
-        workspaceName: request.auth.context.workspace.name,
-        acceptUrl: payload.acceptUrl,
-      })
-      await sendNotification({
-        to: email,
-        subject: `Invitation to ${request.auth.context.workspace.name}`,
-        text: inviteMail.text,
-        html: inviteMail.html,
-      })
-      payload.delivery = 'sent'
-    } catch {
-      payload.delivery = 'failed'
-    }
+  const delivery = await deliverWorkspaceInvitation({
+    email,
+    name: invitation.name,
+    inviterName: request.auth.context.user.name,
+    workspaceName: request.auth.context.workspace.name,
+    token,
+  })
+  response.status(201).set('Cache-Control', 'no-store').json({
+    ...invitation,
+    ...delivery,
+  })
+})
+
+app.post('/api/workspace/team/:invitationId/resend', secureMutations, requireAuth, requireWorkspaceRole('owner', 'admin'), async (request, response) => {
+  const invitationId = String(request.params.invitationId || '').trim()
+  if (!invitationId.startsWith('inv_') || invitationId.length > 160) {
+    throw new HttpError(400, 'A valid invitation id is required.')
   }
-  sendMutationResponse(response, result, payload)
+  const invitation = await database.getTeamInvitation(
+    request.auth.context.workspace.id,
+    invitationId,
+  )
+  if (!invitation) throw new HttpError(404, 'Invitation not found.')
+  if (invitation.status !== 'pending') {
+    throw new HttpError(409, 'Only pending invitations can be resent.')
+  }
+  if (Date.now() - Date.parse(invitation.updatedAt) < 60_000) {
+    throw new HttpError(429, 'Please wait a minute before resending this invitation.')
+  }
+  const token = randomBytes(32).toString('base64url')
+  const refreshed = await database.refreshTeamInvitation({
+    workspaceId: request.auth.context.workspace.id,
+    invitationId,
+    tokenHash: hashSecret(token),
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+  })
+  if (!refreshed) throw new HttpError(409, 'This invitation is no longer pending.')
+  const delivery = await deliverWorkspaceInvitation({
+    email: refreshed.email,
+    name: refreshed.name,
+    inviterName: request.auth.context.user.name,
+    workspaceName: request.auth.context.workspace.name,
+    token,
+  })
+  response.json({ id: refreshed.id, expiresAt: refreshed.expiresAt, ...delivery })
 })
 
 app.get('/api/projects', requireAuth, async (request, response) => {

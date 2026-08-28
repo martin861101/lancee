@@ -98,6 +98,7 @@ function mapContext(row) {
     },
     membership: {
       role: row.membership_role,
+      status: row.membership_status,
     },
   }
 }
@@ -1219,11 +1220,17 @@ export async function openDatabase({
       updated_at TEXT NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS workspace_members (
+      id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      role TEXT NOT NULL CHECK (role IN ('owner', 'collaborator', 'viewer')),
+      role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member')),
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'invited', 'disabled')),
+      invited_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      invited_at TEXT,
+      joined_at TEXT,
       created_at TEXT NOT NULL,
-      PRIMARY KEY (workspace_id, user_id)
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, user_id)
     )`,
     `CREATE TABLE IF NOT EXISTS workspace_fixture_markers (
       workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1252,11 +1259,12 @@ export async function openDatabase({
       invited_by TEXT NOT NULL REFERENCES users(id),
       email TEXT NOT NULL,
       name TEXT NOT NULL,
-      role TEXT NOT NULL CHECK (role IN ('owner', 'collaborator', 'viewer')),
+      role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
       token_hash TEXT NOT NULL UNIQUE,
-      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted')),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'revoked')),
       expires_at TEXT NOT NULL,
       accepted_at TEXT,
+      revoked_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE (workspace_id, email)
@@ -2519,23 +2527,51 @@ export async function openDatabase({
       `SELECT name, sql FROM sqlite_master
        WHERE type = 'table' AND name IN ('workspace_members', 'team_invitations')`,
     )
-    if (roleTables.some((row) => !String(row.sql || '').includes("'viewer'"))) {
+    if (roleTables.some((row) => {
+      const sql = String(row.sql || '')
+      return !sql.includes("'admin'") ||
+        (row.name === 'workspace_members' && !sql.includes('joined_at')) ||
+        (row.name === 'team_invitations' && !sql.includes('revoked_at'))
+    })) {
       await query('PRAGMA foreign_keys = OFF')
       try {
         await query('BEGIN IMMEDIATE')
         await query('ALTER TABLE workspace_members RENAME TO workspace_members_role_legacy')
         await query(
           `CREATE TABLE workspace_members (
+            id TEXT PRIMARY KEY,
             workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
             user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            role TEXT NOT NULL CHECK (role IN ('owner', 'collaborator', 'viewer')),
+            role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member')),
+            status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'invited', 'disabled')),
+            invited_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+            invited_at TEXT,
+            joined_at TEXT,
             created_at TEXT NOT NULL,
-            PRIMARY KEY (workspace_id, user_id)
+            updated_at TEXT NOT NULL,
+            UNIQUE (workspace_id, user_id)
           )`,
         )
         await query(
-          `INSERT INTO workspace_members (workspace_id, user_id, role, created_at)
-           SELECT workspace_id, user_id, role, created_at FROM workspace_members_role_legacy`,
+          `INSERT INTO workspace_members (
+             id, workspace_id, user_id, role, status, invited_at, joined_at, created_at, updated_at
+           )
+           SELECT
+             'wsm_' || workspace_members_role_legacy.workspace_id || '_' || workspace_members_role_legacy.user_id,
+             workspace_members_role_legacy.workspace_id,
+             workspace_members_role_legacy.user_id,
+             CASE WHEN workspace_members_role_legacy.role = 'owner' THEN 'owner' ELSE 'member' END,
+             CASE
+               WHEN users.disabled_at IS NOT NULL THEN 'disabled'
+               WHEN users.password_hash = 'temp_hash' THEN 'invited'
+               ELSE 'active'
+             END,
+             CASE WHEN users.password_hash = 'temp_hash' THEN workspace_members_role_legacy.created_at END,
+             CASE WHEN users.password_hash <> 'temp_hash' THEN workspace_members_role_legacy.created_at END,
+             workspace_members_role_legacy.created_at,
+             workspace_members_role_legacy.created_at
+           FROM workspace_members_role_legacy
+           JOIN users ON users.id = workspace_members_role_legacy.user_id`,
         )
         await query('DROP TABLE workspace_members_role_legacy')
         await query('ALTER TABLE team_invitations RENAME TO team_invitations_role_legacy')
@@ -2546,11 +2582,12 @@ export async function openDatabase({
             invited_by TEXT NOT NULL REFERENCES users(id),
             email TEXT NOT NULL,
             name TEXT NOT NULL,
-            role TEXT NOT NULL CHECK (role IN ('owner', 'collaborator', 'viewer')),
+            role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
             token_hash TEXT NOT NULL UNIQUE,
-            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted')),
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'revoked')),
             expires_at TEXT NOT NULL,
             accepted_at TEXT,
+            revoked_at TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             UNIQUE (workspace_id, email)
@@ -2561,7 +2598,9 @@ export async function openDatabase({
              id, workspace_id, invited_by, email, name, role, token_hash, status,
              expires_at, accepted_at, created_at, updated_at
            )
-           SELECT id, workspace_id, invited_by, email, name, role, token_hash, status,
+           SELECT id, workspace_id, invited_by, email, name,
+             CASE WHEN role = 'owner' THEN 'admin' ELSE 'member' END,
+             token_hash, status,
              expires_at, accepted_at, created_at, updated_at
            FROM team_invitations_role_legacy`,
         )
@@ -2579,19 +2618,56 @@ export async function openDatabase({
       }
     }
   } else {
+    await query(`ALTER TABLE workspace_members ADD COLUMN IF NOT EXISTS id TEXT`)
+    await query(`ALTER TABLE workspace_members ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`)
+    await query(`ALTER TABLE workspace_members ADD COLUMN IF NOT EXISTS invited_by TEXT REFERENCES users(id) ON DELETE SET NULL`)
+    await query(`ALTER TABLE workspace_members ADD COLUMN IF NOT EXISTS invited_at TEXT`)
+    await query(`ALTER TABLE workspace_members ADD COLUMN IF NOT EXISTS joined_at TEXT`)
+    await query(`ALTER TABLE workspace_members ADD COLUMN IF NOT EXISTS updated_at TEXT`)
+    await query(`UPDATE workspace_members SET id = 'wsm_' || workspace_id || '_' || user_id WHERE id IS NULL`)
+    await query(`UPDATE workspace_members SET role = CASE WHEN role = 'owner' THEN 'owner' ELSE 'member' END`)
+    await query(`UPDATE workspace_members SET joined_at = created_at, updated_at = created_at WHERE joined_at IS NULL OR updated_at IS NULL`)
+    await query(`ALTER TABLE workspace_members ALTER COLUMN id SET NOT NULL`)
+    await query(`ALTER TABLE workspace_members DROP CONSTRAINT IF EXISTS workspace_members_pkey`)
+    await query(`ALTER TABLE workspace_members ADD PRIMARY KEY (id)`)
+    await query(`ALTER TABLE workspace_members DROP CONSTRAINT IF EXISTS workspace_members_workspace_id_user_id_key`)
+    await query(`ALTER TABLE workspace_members ADD CONSTRAINT workspace_members_workspace_id_user_id_key UNIQUE (workspace_id, user_id)`)
     await query(`ALTER TABLE workspace_members DROP CONSTRAINT IF EXISTS workspace_members_role_check`)
     await query(
       `ALTER TABLE workspace_members
        ADD CONSTRAINT workspace_members_role_check
-       CHECK (role IN ('owner', 'collaborator', 'viewer'))`,
+       CHECK (role IN ('owner', 'admin', 'member'))`,
     )
+    await query(`ALTER TABLE workspace_members DROP CONSTRAINT IF EXISTS workspace_members_status_check`)
+    await query(
+      `ALTER TABLE workspace_members
+       ADD CONSTRAINT workspace_members_status_check
+       CHECK (status IN ('active', 'invited', 'disabled'))`,
+    )
+    await query(`ALTER TABLE team_invitations ADD COLUMN IF NOT EXISTS revoked_at TEXT`)
+    await query(`UPDATE team_invitations SET role = CASE WHEN role = 'owner' THEN 'admin' ELSE 'member' END`)
     await query(`ALTER TABLE team_invitations DROP CONSTRAINT IF EXISTS team_invitations_role_check`)
     await query(
       `ALTER TABLE team_invitations
        ADD CONSTRAINT team_invitations_role_check
-       CHECK (role IN ('owner', 'collaborator', 'viewer'))`,
+       CHECK (role IN ('admin', 'member'))`,
+    )
+    await query(`ALTER TABLE team_invitations DROP CONSTRAINT IF EXISTS team_invitations_status_check`)
+    await query(
+      `ALTER TABLE team_invitations
+       ADD CONSTRAINT team_invitations_status_check
+       CHECK (status IN ('pending', 'accepted', 'revoked'))`,
     )
   }
+
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace_status
+     ON workspace_members (workspace_id, status, role)`,
+  )
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_workspace_members_user_status
+     ON workspace_members (user_id, status)`,
+  )
 
   await query(
     `INSERT INTO workspace_integrations (
@@ -2812,11 +2888,18 @@ export async function openDatabase({
     [adminUserId, normalizedAdminEmail, adminName, adminPasswordSalt, adminPasswordHash, createdAt, createdAt],
   )
 
+  const seededAdmin = await query(
+    `SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1`,
+    [normalizedAdminEmail],
+  )
+  const membershipUserId = seededAdmin[0]?.id || adminUserId
+
   await query(
-    `INSERT INTO workspace_members (workspace_id, user_id, role, created_at)
-     VALUES ($1, $2, 'owner', $3)
+    `INSERT INTO workspace_members (
+       id, workspace_id, user_id, role, status, joined_at, created_at, updated_at
+     ) VALUES ($1, $2, $3, 'owner', 'active', $4, $4, $4)
      ON CONFLICT(workspace_id, user_id) DO NOTHING`,
-    [workspaceId, adminUserId, createdAt],
+    [stableId('wsm', `${workspaceId}:${membershipUserId}`), workspaceId, membershipUserId, createdAt],
   )
 
   const defaultIntegrations = [
@@ -3290,11 +3373,14 @@ export async function openDatabase({
            users.password_hash,
            workspaces.id AS workspace_id,
            workspaces.name AS workspace_name,
-           workspace_members.role AS membership_role
+           workspace_members.role AS membership_role,
+           workspace_members.status AS membership_status
          FROM users
          JOIN workspace_members ON workspace_members.user_id = users.id
          JOIN workspaces ON workspaces.id = workspace_members.workspace_id
-         WHERE lower(users.email) = lower($1) AND users.disabled_at IS NULL
+         WHERE lower(users.email) = lower($1)
+           AND users.disabled_at IS NULL
+           AND workspace_members.status = 'active'
          ORDER BY workspace_members.created_at ASC
          LIMIT 1`,
         [email.trim()],
@@ -3313,13 +3399,15 @@ export async function openDatabase({
            users.password_hash,
            workspaces.id AS workspace_id,
            workspaces.name AS workspace_name,
-           workspace_members.role AS membership_role
+           workspace_members.role AS membership_role,
+           workspace_members.status AS membership_status
          FROM users
          JOIN workspace_members ON workspace_members.user_id = users.id
          JOIN workspaces ON workspaces.id = workspace_members.workspace_id
          WHERE users.id = $1
            AND workspaces.id = $2
            AND users.disabled_at IS NULL
+           AND workspace_members.status = 'active'
          LIMIT 1`,
         [userId, selectedWorkspaceId],
       )
@@ -3332,7 +3420,7 @@ export async function openDatabase({
                 workspace_members.created_at
          FROM workspace_members
          JOIN workspaces ON workspaces.id = workspace_members.workspace_id
-         WHERE workspace_members.user_id = $1
+         WHERE workspace_members.user_id = $1 AND workspace_members.status = 'active'
          ORDER BY workspace_members.created_at ASC, workspaces.name ASC`,
         [userId],
       )
@@ -9523,7 +9611,10 @@ export async function openDatabase({
 
     async listTeamMembers(selectedWorkspaceId) {
       const rows = await query(
-        `SELECT users.id, users.name, users.email, workspace_members.role, workspace_members.created_at, users.disabled_at, users.password_hash
+        `SELECT workspace_members.id AS membership_id, users.id AS user_id, users.name, users.email,
+                users.avatar_url, workspace_members.role, workspace_members.status,
+                workspace_members.invited_at, workspace_members.joined_at,
+                workspace_members.created_at, workspace_members.updated_at
          FROM users
          JOIN workspace_members ON workspace_members.user_id = users.id
          WHERE workspace_members.workspace_id = $1
@@ -9531,33 +9622,38 @@ export async function openDatabase({
         [selectedWorkspaceId],
       )
       const invitations = await query(
-        `SELECT id, name, email, role, created_at, expires_at
+        `SELECT id, name, email, role, created_at, updated_at, expires_at
          FROM team_invitations
          WHERE workspace_id = $1 AND status = 'pending'
          ORDER BY created_at ASC`,
         [selectedWorkspaceId],
       )
       return [
-        ...rows.map((row) => {
-          let status = 'active'
-          if (row.disabled_at) status = 'disabled'
-          else if (row.password_hash === 'temp_hash') status = 'invited'
-          return {
-            id: row.id,
-            name: row.name,
-            email: row.email,
-            role: row.role,
-            status,
-            joinedAt: row.created_at,
-          }
-        }),
-        ...invitations.map((row) => ({
-          id: row.id,
+        ...rows.map((row) => ({
+          id: row.membership_id,
+          userId: row.user_id,
           name: row.name,
           email: row.email,
+          avatarUrl: row.avatar_url || '',
+          role: row.role,
+          status: row.status,
+          invitedAt: row.invited_at,
+          joinedAt: row.joined_at,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        })),
+        ...invitations.map((row) => ({
+          id: row.id,
+          userId: null,
+          name: row.name,
+          email: row.email,
+          avatarUrl: '',
           role: row.role,
           status: 'invited',
-          joinedAt: row.created_at,
+          invitedAt: row.created_at,
+          joinedAt: null,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
           expiresAt: row.expires_at,
         })),
       ]
@@ -9570,48 +9666,47 @@ export async function openDatabase({
           `UPDATE team_invitations
            SET name = $1, role = $2, updated_at = $3
            WHERE workspace_id = $4 AND id = $5 AND status = 'pending'
-           RETURNING id, name, email, role, created_at`,
+          RETURNING id, name, email, role, created_at, updated_at`,
           [name, role, timestamp, selectedWorkspaceId, memberId],
         )
         const row = rows[0]
         return row ? {
           id: row.id,
+          userId: null,
           name: row.name,
           email: row.email,
+          avatarUrl: '',
           role: row.role,
           status: 'invited',
-          joinedAt: row.created_at,
+          invitedAt: row.created_at,
+          joinedAt: null,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
         } : null
       }
       await query(
-        `UPDATE users SET name = $1 WHERE id = $2
-         AND EXISTS (
-           SELECT 1 FROM workspace_members
-           WHERE workspace_id = $3 AND user_id = $2
-         )`,
-        [name, memberId, selectedWorkspaceId],
-      )
-      await query(
-        `UPDATE workspace_members SET role = $1
-         WHERE workspace_id = $2 AND user_id = $3`,
-        [role, selectedWorkspaceId, memberId],
+        `UPDATE workspace_members SET role = $1, updated_at = $2
+         WHERE workspace_id = $3 AND (id = $4 OR user_id = $4)`,
+        [role, timestamp, selectedWorkspaceId, memberId],
       )
       return (await this.listTeamMembers(selectedWorkspaceId))
-        .find((member) => member.id === memberId) || null
+        .find((member) => member.id === memberId || member.userId === memberId) || null
     },
 
-    async removeTeamMember(selectedWorkspaceId, memberId) {
+    async disableTeamMember(selectedWorkspaceId, memberId) {
       if (String(memberId).startsWith('inv_')) {
         await query(
-          `DELETE FROM team_invitations
-           WHERE workspace_id = $1 AND id = $2 AND status = 'pending'`,
-          [selectedWorkspaceId, memberId],
+          `UPDATE team_invitations
+           SET status = 'revoked', revoked_at = $1, updated_at = $1
+           WHERE workspace_id = $2 AND id = $3 AND status = 'pending'`,
+          [nowIso(), selectedWorkspaceId, memberId],
         )
         return
       }
       await query(
-        `DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`,
-        [selectedWorkspaceId, memberId],
+        `UPDATE workspace_members SET status = 'disabled', updated_at = $1
+         WHERE workspace_id = $2 AND id = $3`,
+        [nowIso(), selectedWorkspaceId, memberId],
       )
     },
 
@@ -9900,14 +9995,22 @@ export async function openDatabase({
 
     async getWorkspaceMembershipByEmail(selectedWorkspaceId, email) {
       const rows = await query(
-        `SELECT users.id, users.email, users.password_hash, workspace_members.role
+        `SELECT workspace_members.id, users.id AS user_id, users.email, workspace_members.role,
+                workspace_members.status
          FROM workspace_members
          JOIN users ON users.id = workspace_members.user_id
          WHERE workspace_members.workspace_id = $1 AND lower(users.email) = lower($2)
          LIMIT 1`,
         [selectedWorkspaceId, email],
       )
-      return rows[0] || null
+      const row = rows[0]
+      return row ? {
+        id: row.id,
+        userId: row.user_id,
+        email: row.email,
+        role: row.role,
+        status: row.status,
+      } : null
     },
 
     async removeLegacyInvitationMember(selectedWorkspaceId, userId) {
@@ -9948,7 +10051,31 @@ export async function openDatabase({
         status: row.status,
         expiresAt: row.expires_at,
         acceptedAt: row.accepted_at,
+        revokedAt: row.revoked_at,
       }
+    },
+
+    async getTeamInvitation(selectedWorkspaceId, invitationId) {
+      const rows = await query(
+        `SELECT id, workspace_id, invited_by, email, name, role, status, expires_at, created_at, updated_at
+         FROM team_invitations
+         WHERE workspace_id = $1 AND id = $2
+         LIMIT 1`,
+        [selectedWorkspaceId, invitationId],
+      )
+      const row = rows[0]
+      return row ? {
+        id: row.id,
+        workspaceId: row.workspace_id,
+        invitedBy: row.invited_by,
+        email: row.email,
+        name: row.name,
+        role: row.role,
+        status: row.status,
+        expiresAt: row.expires_at,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      } : null
     },
 
     async inviteTeamMember({
@@ -9956,7 +10083,7 @@ export async function openDatabase({
       invitedBy,
       email,
       name,
-      role = 'collaborator',
+      role = 'member',
       tokenHash,
       expiresAt,
     }) {
@@ -9976,6 +10103,7 @@ export async function openDatabase({
            status = 'pending',
            expires_at = EXCLUDED.expires_at,
            accepted_at = NULL,
+           revoked_at = NULL,
            updated_at = EXCLUDED.updated_at`,
         [
           invitationId,
@@ -9996,25 +10124,57 @@ export async function openDatabase({
         email: normalizedEmail,
         role,
         status: 'invited',
-        joinedAt: timestamp,
+        invitedAt: timestamp,
+        joinedAt: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
         expiresAt,
       }
     },
 
-    async acceptTeamInvitation({ invitationId, workspaceId, userId, role }) {
+    async refreshTeamInvitation({ workspaceId, invitationId, tokenHash, expiresAt }) {
       const timestamp = nowIso()
-      await query(
-        `INSERT INTO workspace_members (workspace_id, user_id, role, created_at)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
-        [workspaceId, userId, role, timestamp],
+      const rows = await query(
+        `UPDATE team_invitations
+         SET token_hash = $1, expires_at = $2, updated_at = $3
+         WHERE workspace_id = $4 AND id = $5 AND status = 'pending'
+         RETURNING id, email, name, role, expires_at, updated_at`,
+        [tokenHash, expiresAt, timestamp, workspaceId, invitationId],
       )
-      await query(
+      const row = rows[0]
+      return row ? {
+        id: row.id,
+        email: row.email,
+        name: row.name,
+        role: row.role,
+        expiresAt: row.expires_at,
+        updatedAt: row.updated_at,
+      } : null
+    },
+
+    async acceptTeamInvitation({ tokenHash, userId, email }) {
+      const timestamp = nowIso()
+      const invitations = await query(
         `UPDATE team_invitations
          SET status = 'accepted', accepted_at = $1, updated_at = $2
-         WHERE id = $3 AND status = 'pending'`,
-        [timestamp, timestamp, invitationId],
+         WHERE token_hash = $3
+           AND lower(email) = lower($4)
+           AND status = 'pending'
+           AND expires_at > $1
+         RETURNING workspace_id, role`,
+        [timestamp, timestamp, tokenHash, email],
       )
+      const invitation = invitations[0]
+      if (!invitation) return null
+      await query(
+        `INSERT INTO workspace_members (
+           id, workspace_id, user_id, role, status, invited_at, joined_at, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, 'active', $5, $5, $5, $5)
+         ON CONFLICT (workspace_id, user_id) DO UPDATE SET
+           status = 'active', role = EXCLUDED.role, joined_at = EXCLUDED.joined_at, updated_at = EXCLUDED.updated_at`,
+        [stableId('wsm', `${invitation.workspace_id}:${userId}`), invitation.workspace_id, userId, invitation.role, timestamp],
+      )
+      return { workspaceId: invitation.workspace_id, role: invitation.role }
     },
   }
 }

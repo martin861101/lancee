@@ -22,7 +22,7 @@ export type CachedSessionUser = {
   avatarUrl: string
   workspaceId: string
   workspace: string
-  role: 'owner' | 'collaborator'
+  role: 'owner' | 'admin' | 'member'
   isAdmin: boolean
   initials: string
 }

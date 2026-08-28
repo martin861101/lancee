@@ -14,7 +14,7 @@ export type User = {
   avatarUrl: string
   workspaceId: string
   workspace: string
-  role: 'owner' | 'collaborator'
+  role: 'owner' | 'admin' | 'member'
   isAdmin: boolean
   initials: string
 }
@@ -22,7 +22,7 @@ export type User = {
 export type WorkspaceMembership = {
   id: string
   name: string
-  role: 'owner' | 'collaborator' | 'viewer'
+  role: 'owner' | 'admin' | 'member'
   createdAt: string
 }
 
@@ -2926,14 +2926,19 @@ export const api = {
       }
       return payload.members as Array<{
         id: string
+        userId: string | null
         name: string
         email: string
+        avatarUrl: string
         role: string
         status: string
-        joinedAt: string
+        invitedAt: string | null
+        joinedAt: string | null
+        createdAt: string
+        expiresAt?: string
       }>
     },
-    async update(id: string, input: { name: string; role: 'owner' | 'collaborator' | 'viewer' }) {
+    async update(id: string, input: { name?: string; role: 'admin' | 'member' }) {
       const response = await fetch(`/api/workspace/team/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         credentials: 'same-origin',
@@ -2964,7 +2969,7 @@ export const api = {
         throw new Error(payload.error || 'Unable to remove this team member.')
       }
     },
-    async invite(input: { email: string; name?: string; role: 'owner' | 'collaborator' | 'viewer' }) {
+    async invite(input: { email: string; name?: string; role: 'admin' | 'member' }) {
       const response = await fetch('/api/workspace/team/invite', {
         method: 'POST',
         credentials: 'same-origin',
@@ -2998,9 +3003,19 @@ export const api = {
         status: string
         joinedAt: string
         expiresAt: string
-        acceptUrl: string
+        acceptUrl?: string
         delivery: 'sent' | 'share' | 'failed'
       }
+    },
+    async resend(id: string) {
+      const response = await fetch(`/api/workspace/team/${encodeURIComponent(id)}/resend`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(),
+      })
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.error || 'Unable to resend this invitation.')
+      return payload as { id: string; expiresAt: string; delivery: 'sent' | 'share' | 'failed'; acceptUrl?: string }
     },
   },
   googleDrive: {

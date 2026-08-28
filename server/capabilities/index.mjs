@@ -113,9 +113,8 @@ export function createLanceeCapabilityRegistry({
     : null)
   const authorizeCapability = authorize || (({ definition, context }) => {
     const role = context.membership?.role
-    if (!['owner', 'collaborator', 'viewer'].includes(role)) return false
+    if (!['owner', 'admin', 'member'].includes(role)) return false
     if (definition.riskLevel === 'read') return true
-    if (role === 'viewer') return false
     if (['external-action', 'destructive', 'administrative'].includes(definition.riskLevel)) {
       return role === 'owner'
     }

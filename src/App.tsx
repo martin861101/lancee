@@ -6721,7 +6721,7 @@ function WorkspaceApp() {
       case 'team':
         page = (
           <Suspense fallback={<EmptySkeleton />}>
-            <TeamPage canInvite={user.role === 'owner'} />
+            <TeamPage canManage={user.role === 'owner' || user.role === 'admin'} />
           </Suspense>
         )
         break

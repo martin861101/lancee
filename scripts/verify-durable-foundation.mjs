@@ -159,7 +159,7 @@ try {
       body: JSON.stringify({
         email: 'invited-member@example.com',
         name: 'Invited Member',
-        role: 'collaborator',
+        role: 'member',
       }),
     },
   )
@@ -189,7 +189,21 @@ try {
   })
   assert.equal(acceptInvitation.status, 201)
   const invitedCookie = acceptInvitation.headers.get('set-cookie').split(';', 1)[0]
-  assert.equal((await acceptInvitation.json()).user.role, 'collaborator')
+  assert.equal((await acceptInvitation.json()).user.role, 'member')
+
+  const ownerTeam = await sessionRequest(application.origin, cookie, '/api/workspace/team')
+  assert.equal(ownerTeam.status, 200)
+  const ownerMember = (await ownerTeam.json()).members.find((member) => member.role === 'owner')
+  assert(ownerMember)
+  const memberTeam = await sessionRequest(application.origin, invitedCookie, '/api/workspace/team')
+  assert.equal(memberTeam.status, 200)
+  const protectedOwner = await sessionRequest(
+    application.origin,
+    cookie,
+    `/api/workspace/team/${ownerMember.id}`,
+    { method: 'DELETE' },
+  )
+  assert.equal(protectedOwner.status, 403)
 
   const forbiddenInvite = await sessionRequest(
     application.origin,
@@ -203,11 +217,34 @@ try {
       },
       body: JSON.stringify({
         email: 'unauthorized-invite@example.com',
-        role: 'collaborator',
+        role: 'member',
       }),
     },
   )
   assert.equal(forbiddenInvite.status, 403)
+
+  const revocableInvite = await sessionRequest(
+    application.origin,
+    cookie,
+    '/api/workspace/team/invite',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'revoked-member@example.com', role: 'member' }),
+    },
+  )
+  assert.equal(revocableInvite.status, 201)
+  const revocable = await revocableInvite.json()
+  const revokedToken = new URL(revocable.acceptUrl).searchParams.get('invite')
+  const revokeInvite = await sessionRequest(
+    application.origin,
+    cookie,
+    `/api/workspace/team/${revocable.id}`,
+    { method: 'DELETE' },
+  )
+  assert.equal(revokeInvite.status, 204)
+  const revokedDetails = await fetch(`${application.origin}/api/auth/invitations/${revokedToken}`)
+  assert.equal(revokedDetails.status, 410)
 
   const createKeyOptions = {
     method: 'POST',

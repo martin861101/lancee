@@ -1528,6 +1528,16 @@
   }
 }
 .team-row-actions { display: flex; gap: 6px; }
+.team-member { display: flex; align-items: center; gap: 12px; }
+.team-member > div { display: grid; gap: 2px; }
+.team-member small { color: var(--muted); }
+.team-member-avatar { display: grid; width: 36px; height: 36px; place-items: center; flex: 0 0 36px; border-radius: 50%; background: linear-gradient(135deg, #6854e8, #ee45aa); color: #fff; font-size: 13px; font-weight: 700; object-fit: cover; }
+.team-member-badge { display: inline-flex; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 650; }
+.team-member-badge--owner { background: rgba(104, 84, 232, .16); color: #8d7dff; }
+.team-member-badge--admin { background: rgba(67, 189, 244, .15); color: #55c7f5; }
+.team-member-badge--member { background: rgba(71, 135, 46, .12); color: var(--success); }
+.team-member-badge--invited { background: rgba(166, 107, 22, .12); color: var(--warning); }
+.team-member-badge--disabled { background: rgba(219, 91, 83, .12); color: var(--danger); }
 .team-edit-backdrop {
   position: fixed;
   z-index: 100;

@@ -243,7 +243,7 @@ const groups: FeatureGroup[] = [
         icon: 'layers',
         title: 'Team & roles',
         description:
-          'Invite collaborators with owner, collaborator, or viewer roles and keep a clear picture of who does what.',
+          'Invite teammates with owner, admin, or member roles and keep a clear picture of who does what.',
         tags: ['Invitations', 'Roles', 'Membership'],
       },
     ],
