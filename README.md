@@ -953,6 +953,16 @@ The notification SMTP settings above are separate from the workspace mailbox
 configured inside **Messages**. The workspace mailbox uses its own encrypted
 credential and requires `ENCRYPTION_MASTER_KEY` to be set.
 
+To enable Google sign-in and the Google Workspace connection for Gmail,
+Calendar, and Drive, configure these server-only values and register the same
+callback URL in Google Cloud:
+
+```dotenv
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URL=https://lancee.work/oauth/callback
+```
+
 `.env`, `.env.*`, and `.runtime/` are ignored. `.env.example` is intentionally
 tracked.
 

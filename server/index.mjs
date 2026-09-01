@@ -152,6 +152,7 @@ import {
   encryptDriveSecret,
   exchangeAuthorizationCode,
   getGoogleDriveConfig,
+  GOOGLE_IDENTITY_SCOPES,
   GoogleDriveError,
   convertDriveEditorContent,
   fetchGoogleDriveFileContent,
@@ -2500,7 +2501,154 @@ app.get('/api/auth/config', async (_request, response) => {
     registrationEnabled: await database.getRegistrationEnabled(
       registrationEnabledByDefault,
     ),
+    googleConfigured: googleDrive.configured,
   })
+})
+
+function createGoogleAuthState({ mode, nonce, name = '', workspace = '' }) {
+  const now = Math.floor(Date.now() / 1000)
+  const payload = Buffer.from(JSON.stringify({
+    typ: 'google-auth',
+    mode,
+    nonce,
+    name: name.slice(0, 120),
+    workspace: workspace.slice(0, 160),
+    iat: now,
+    exp: now + 10 * 60,
+  })).toString('base64url')
+  return `${payload}.${sign(payload)}`
+}
+
+function parseGoogleAuthState(state) {
+  const [payload, signature] = String(state || '').split('.')
+  if (!payload || !signature || !safeEqual(sign(payload), signature)) {
+    throw new HttpError(400, 'Google sign-in state is invalid. Please try again.')
+  }
+  let parsed
+  try { parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) } catch {
+    throw new HttpError(400, 'Google sign-in state is invalid. Please try again.')
+  }
+  if (
+    parsed?.typ !== 'google-auth' ||
+    !['login', 'register'].includes(parsed.mode) ||
+    !parsed.nonce ||
+    Number(parsed.exp) <= Math.floor(Date.now() / 1000)
+  ) {
+    throw new HttpError(400, 'Google sign-in state has expired. Please try again.')
+  }
+  return parsed
+}
+
+function isGoogleAuthState(state) {
+  try {
+    const [payload] = String(state || '').split('.')
+    return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))?.typ === 'google-auth'
+  } catch { return false }
+}
+
+function googleAuthCookie(nonce) {
+  return [
+    `lancee_google_auth=${encodeURIComponent(nonce)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    'Max-Age=600',
+    production ? 'Secure' : '',
+  ].filter(Boolean).join('; ')
+}
+
+function clearGoogleAuthCookie() {
+  return `lancee_google_auth=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${production ? '; Secure' : ''}`
+}
+
+function redirectGoogleAuthResult(response, { status, message = '' }) {
+  const target = new URL('/signin', publicOrigin)
+  target.searchParams.set('google', status)
+  if (message) target.searchParams.set('googleMessage', message.slice(0, 180))
+  response.redirect(target.toString())
+}
+
+app.get('/api/auth/google/url', rateLimitLogin, async (request, response) => {
+  response.set('Cache-Control', 'no-store')
+  if (!googleDrive.configured) {
+    throw new HttpError(503, 'Google sign-in is not configured on the server.')
+  }
+  const mode = String(request.query?.mode || 'login') === 'register' ? 'register' : 'login'
+  const name = String(request.query?.name || '').trim()
+  const workspace = String(request.query?.workspace || '').trim()
+  if (mode === 'register' && (name.length < 1 || name.length > 120 || workspace.length < 1 || workspace.length > 160)) {
+    throw new HttpError(400, 'Enter your name and workspace name before continuing with Google.')
+  }
+  if (mode === 'register' && !(await database.getRegistrationEnabled(registrationEnabledByDefault))) {
+    throw new HttpError(403, 'New workspace registration is disabled. Ask a workspace owner for an invitation.')
+  }
+  const nonce = randomBytes(24).toString('base64url')
+  const state = createGoogleAuthState({ mode, nonce, name, workspace })
+  response.setHeader('Set-Cookie', googleAuthCookie(nonce))
+  response.json({
+    url: buildGoogleAuthUrl({
+      clientId: googleDrive.clientId,
+      redirectUri: googleDrive.redirectUri,
+      state,
+      scope: GOOGLE_IDENTITY_SCOPES,
+      usePicker: false,
+    }),
+  })
+})
+
+app.get('/oauth/callback', async (request, response, next) => {
+  const state = String(request.query?.state || '').trim()
+  if (!isGoogleAuthState(state)) return next()
+  response.set('Cache-Control', 'no-store')
+  response.setHeader('Set-Cookie', clearGoogleAuthCookie())
+  try {
+    const claims = parseGoogleAuthState(state)
+    if (parseCookies(request.headers.cookie).lancee_google_auth !== claims.nonce) {
+      throw new HttpError(400, 'Google sign-in request did not match this browser. Please try again.')
+    }
+    if (request.query?.error) {
+      redirectGoogleAuthResult(response, { status: 'error', message: String(request.query.error_description || request.query.error) })
+      return
+    }
+    const code = String(request.query?.code || '').trim()
+    if (!code || !googleDrive.configured) throw new HttpError(400, 'Google sign-in could not be completed.')
+    const tokens = await exchangeAuthorizationCode({
+      code,
+      clientId: googleDrive.clientId,
+      clientSecret: googleDrive.clientSecret,
+      redirectUri: googleDrive.redirectUri,
+    })
+    const profileResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+      headers: { Authorization: `Bearer ${tokens.accessToken}` },
+    })
+    const profile = await profileResponse.json().catch(() => ({}))
+    const email = String(profile.email || '').trim().toLowerCase()
+    if (!profileResponse.ok || !profile.email_verified || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new HttpError(401, 'Google did not provide a verified email address.')
+    }
+    let context = await database.getContextByEmail(email)
+    if (!context && claims.mode === 'register') {
+      if (!(await database.getRegistrationEnabled(registrationEnabledByDefault))) {
+        throw new HttpError(403, 'New workspace registration is disabled. Ask a workspace owner for an invitation.')
+      }
+      context = await createWorkspaceAccount({
+        email,
+        password: randomBytes(32).toString('base64url'),
+        name: String(profile.name || claims.name || email.split('@')[0]).slice(0, 120),
+        workspaceName: claims.workspace,
+      })
+    }
+    if (!context) {
+      throw new HttpError(404, 'No Lancee account exists for this Google account. Choose Sign up with Google instead.')
+    }
+    response.setHeader('Set-Cookie', [clearGoogleAuthCookie(), createSessionCookie(context)])
+    response.redirect(new URL('/dashboard', publicOrigin).toString())
+  } catch (error) {
+    redirectGoogleAuthResult(response, {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Google sign-in could not be completed.',
+    })
+  }
 })
 
 app.get('/api/auth/invitations/:token', rateLimitLogin, async (request, response) => {

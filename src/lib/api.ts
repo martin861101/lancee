@@ -1350,6 +1350,7 @@ export const api = {
       })
       const payload = (await response.json()) as {
         registrationEnabled?: boolean
+        googleConfigured?: boolean
         error?: string
       }
       if (!response.ok || typeof payload.registrationEnabled !== 'boolean') {
@@ -1363,12 +1364,25 @@ export const api = {
       const response = await fetch('/api/auth/config', { credentials: 'same-origin' })
       const payload = (await response.json()) as {
         registrationEnabled?: boolean
+        googleConfigured?: boolean
         error?: string
       }
       if (!response.ok || typeof payload.registrationEnabled !== 'boolean') {
         throw new Error(payload.error || 'Unable to load registration settings.')
       }
-      return { registrationEnabled: payload.registrationEnabled }
+      return {
+        registrationEnabled: payload.registrationEnabled,
+        googleConfigured: Boolean(payload.googleConfigured),
+      }
+    },
+    async getGoogleAuthUrl(input: { mode: 'login' | 'register'; name?: string; workspace?: string }) {
+      const params = new URLSearchParams({ mode: input.mode })
+      if (input.name) params.set('name', input.name)
+      if (input.workspace) params.set('workspace', input.workspace)
+      const response = await fetch(`/api/auth/google/url?${params}`, { credentials: 'same-origin' })
+      const payload = (await response.json()) as { url?: string; error?: string }
+      if (!response.ok || !payload.url) throw new Error(payload.error || 'Unable to start Google sign-in.')
+      return payload.url
     },
     async getInvitation(token: string) {
       const response = await fetch(

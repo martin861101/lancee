@@ -10,6 +10,9 @@ import mammoth from 'mammoth'
 import sanitizeHtml from 'sanitize-html'
 
 export const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
+export const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
+export const GOOGLE_GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
+export const GOOGLE_IDENTITY_SCOPES = 'openid email profile'
 const RESTRICTED_DRIVE_SCOPES = new Set([
   'https://www.googleapis.com/auth/drive',
   'https://www.googleapis.com/auth/drive.readonly',
@@ -159,10 +162,10 @@ export function decryptDriveSecret(encrypted, serverSecret) {
 }
 
 export function getGoogleDriveConfig({ publicOrigin, env = process.env } = {}) {
-  const clientId = String(env.GOOGLE_DRIVE_CLIENT_ID || '').trim()
-  const clientSecret = String(env.GOOGLE_DRIVE_CLIENT_SECRET || '').trim()
+  const clientId = String(env.GOOGLE_CLIENT_ID || '').trim()
+  const clientSecret = String(env.GOOGLE_CLIENT_SECRET || '').trim()
   const redirectUri = String(
-    env.GOOGLE_DRIVE_REDIRECT_URI ||
+    env.GOOGLE_REDIRECT_URL ||
       `${publicOrigin}/oauth/callback`,
   ).trim()
   const pickerApiKey = String(env.GOOGLE_PICKER_API_KEY || '').trim()
@@ -175,7 +178,7 @@ export function getGoogleDriveConfig({ publicOrigin, env = process.env } = {}) {
     pickerApiKey,
     pickerAppId,
     pickerConfigured: Boolean(pickerApiKey && pickerAppId),
-    scope: DRIVE_FILE_SCOPE,
+    scope: [DRIVE_FILE_SCOPE, GOOGLE_CALENDAR_SCOPE, GOOGLE_GMAIL_SCOPE].join(' '),
   }
 }
 

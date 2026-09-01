@@ -1137,21 +1137,21 @@ function IntegrationsPage({
               </span>
             </div>
             <h3>Google Workspace</h3>
-            <p>Mail • Drive • Calendar • Contacts • Docs • Sheets — one Google account for your business.</p>
+            <p>Choose Gmail, Drive, and Calendar access from one Google account for your business.</p>
             <ul className="connected-capabilities">
-              <li><Icon name="check" size={11} /> Mail</li>
+              <li><Icon name="check" size={11} /> Gmail</li>
               <li><Icon name="check" size={11} /> Drive</li>
               <li><Icon name="check" size={11} /> Calendar</li>
               <li><Icon name="check" size={11} /> Contacts</li>
             </ul>
-            {googleConnected && <small className="connected-identity">Connected • Manage permissions in Google</small>}
+            {googleConnected && <small className="connected-identity">Gmail, Drive &amp; Calendar connected • Manage permissions in Google</small>}
             <button
               className={`button ${googleConnected ? 'button--secondary' : 'button--dark'}`}
               onClick={() => driveIntegration && onToggleGoogleDrive(driveIntegration)}
               disabled={busyId === 'drive'}
             >
               {busyId === 'drive' ? <span className="spinner spinner--dark" /> : <Icon name={googleConnected ? 'settings' : 'plus'} size={14} />}
-              {googleConnected ? 'Manage' : 'Connect'}
+              {googleConnected ? 'Manage Google Workspace' : 'Connect Google Workspace'}
             </button>
           </article>
 
@@ -3203,21 +3203,21 @@ function PrivacyPage({ onBack }: { onBack: () => void }) {
         <h1>Privacy Policy</h1>
         <p>Last updated: July 2026</p>
         <h2>1. Information We Collect</h2>
-        <p>We collect information you provide when creating an account, including your name, email address, and workspace details. We also collect data about your usage of the Service.</p>
+        <p>We collect information you provide when creating an account, including your name, email address, and workspace details. We also collect data about your usage of the Service. When you connect a Google account, we collect only the Google user profile information and the Gmail, Calendar, Drive, Contacts, Docs, or Sheets data that you explicitly authorize us to access.</p>
         <h2>2. How We Use Your Information</h2>
-        <p>Your information is used to provide, maintain, and improve the Service; to process transactions; to communicate with you; and to ensure security and compliance.</p>
+        <p>Your information is used to provide, maintain, and improve the Service; to process transactions; to communicate with you; and to ensure security and compliance. Authorized Google data is used only to provide the connected functionality you request, such as syncing calendar events, processing mail, and managing files within your workspace.</p>
         <h2>3. Data Storage and Security</h2>
         <p>We implement industry-standard security measures including encryption at rest and in transit. Credentials are stored server-side and never exposed to clients.</p>
         <h2>4. Third-Party Services</h2>
-        <p>The Service integrates with third-party tools you explicitly authorize. Data shared with these services is governed by their respective privacy policies.</p>
+        <p>The Service integrates with third-party tools you explicitly authorize. We do not sell your personal data or share it with third parties except where strictly necessary to provide the Service, where you instruct us to do so, or where required by law. Data shared with connected services is governed by their respective privacy policies.</p>
         <h2>5. Data Retention</h2>
         <p>We retain your data for as long as your account is active. Upon account deletion, data is permanently removed within 30 days.</p>
         <h2>6. Your Rights</h2>
-        <p>You may access, update, or delete your personal data at any time through your account settings. You may also request a copy of your data.</p>
+        <p>You may access, update, or delete your personal data at any time through your account settings. You may disconnect your Google account at any time, which stops future access to Google data. You may also request a copy or deletion of your data by contacting us.</p>
         <h2>7. Cookies</h2>
         <p>We use HTTP-only session cookies essential for authentication. No tracking cookies are used.</p>
         <h2>8. Contact</h2>
-        <p>For privacy-related inquiries, please contact us through the Service.</p>
+        <p>For privacy-related inquiries or data deletion requests, email <a href="mailto:support@lancee.app">support@lancee.app</a>.</p>
       </section>
       <PolicyFooter />
     </main>
@@ -4031,6 +4031,55 @@ if (policyView !== 'landing') {
         </div>
       </section>
 
+      <section className="landing-room" id="room" aria-labelledby="room-title">
+        <div className="landing-room__halo" aria-hidden="true" />
+        <div className="landing-room__intro">
+          <span className="landing-eyebrow"><i /> Lancee Room</span>
+          <h2 id="room-title">The room where the work keeps moving.</h2>
+          <p>
+            Bring your workspace team and external clients into one focused meeting. Every useful moment stays connected to the work that follows.
+          </p>
+          <div className="landing-room__audience" aria-label="Meeting participants">
+            <span>Workspace teams</span>
+            <i aria-hidden="true" />
+            <span>External meetings</span>
+          </div>
+        </div>
+
+        <div className="landing-room__stage">
+          <div className="landing-room__image-wrap">
+            <img src="/img/meeting.png" alt="Four people collaborating in a Lancee Room video meeting" />
+            <span className="landing-room__live"><i /> Live collaboration</span>
+          </div>
+          <div className="landing-room__signal" aria-hidden="true">
+            <span /><span /><span /><span />
+          </div>
+        </div>
+
+        <div className="landing-room__flow" aria-label="Lancee Room capabilities">
+          <div className="landing-room__capability">
+            <span>01</span>
+            <strong>In-meeting chat</strong>
+            <p>Decisions and links land beside the conversation.</p>
+          </div>
+          <div className="landing-room__capability">
+            <span>02</span>
+            <strong>Screen share</strong>
+            <p>Review the work in the same place it lives.</p>
+          </div>
+          <div className="landing-room__capability">
+            <span>03</span>
+            <strong>Transcript + AI summary</strong>
+            <p>Leave with the important points and next steps clear.</p>
+          </div>
+          <div className="landing-room__capability landing-room__capability--intelli">
+            <span>04</span>
+            <strong>Intelli-connect</strong>
+            <p>AI links meeting transcripts to the right clients and projects—then uses that context to make smarter connections.</p>
+          </div>
+        </div>
+      </section>
+
       <section className="landing-section landing-integrations" id="integrations">
         <div className="landing-section__heading">
           <span className="landing-eyebrow"><i /> Connected Tools</span>
@@ -4286,6 +4335,15 @@ function AuthScreen({
   }, [initialMode, invitationToken])
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('google') !== 'error') return
+    setError(params.get('googleMessage') || 'Google sign-in could not be completed.')
+    params.delete('google')
+    params.delete('googleMessage')
+    window.history.replaceState({}, '', `${window.location.pathname}${params.size ? `?${params}` : ''}`)
+  }, [])
+
+  useEffect(() => {
     let active = true
     if (invitationToken) {
       void api.auth
@@ -4346,6 +4404,25 @@ function AuthScreen({
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : `Unable to ${mode}.`)
     } finally {
+      setBusy(false)
+    }
+  }
+
+  const continueWithGoogle = async () => {
+    if (mode === 'register' && (!name.trim() || !workspace.trim())) {
+      setError('Enter your name and workspace name before continuing with Google.')
+      return
+    }
+    setError('')
+    setBusy(true)
+    try {
+      window.location.assign(await api.auth.getGoogleAuthUrl({
+        mode,
+        name: name.trim(),
+        workspace: workspace.trim(),
+      }))
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to start Google sign-in.')
       setBusy(false)
     }
   }
@@ -4411,6 +4488,15 @@ function AuthScreen({
             <Icon name="shield" size={17} />
             Protected by an encrypted, HTTP-only workspace session.
           </div>
+          {!invitationToken && (
+            <>
+              <button className="button button--secondary auth-google" type="button" onClick={() => void continueWithGoogle()} disabled={busy || invitationLoading}>
+                <span className="auth-google__mark" aria-hidden="true">G</span>
+                {mode === 'login' ? 'Sign in with Google' : 'Sign up with Google'}
+              </button>
+              <div className="auth-divider" aria-hidden="true"><span />or continue with email<span /></div>
+            </>
+          )}
           {mode === 'register' && (
             <>
               <label className="form-field">
@@ -6917,7 +7003,7 @@ function WorkspaceApp() {
             item.id === integration.id ? { ...item, connected: false } : item,
           ),
         )
-        setToast('Google Drive disconnected')
+        setToast('Google Workspace disconnected')
         setBusyId(null)
         return
       }
@@ -6927,7 +7013,7 @@ function WorkspaceApp() {
       setToast(
         error instanceof Error
           ? error.message
-          : 'Unable to update Google Drive.',
+          : 'Unable to update Google Workspace.',
       )
       setBusyId(null)
     }
