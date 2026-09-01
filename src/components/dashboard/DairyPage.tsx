@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { api, type CalendarEvent, type Client, type Project } from '../../lib/api'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { api, type CalendarEvent, type Client, type Meeting, type MeetingInvitation, type Project } from '../../lib/api'
+import MeetingRoom from '../meetings/MeetingRoom'
 import './dairy-page.css'
 
 type DairySection = 'calendar' | 'meetings'
@@ -81,19 +82,35 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
   const [eventProject, setEventProject] = useState('')
   const [eventClient, setEventClient] = useState('')
   const [savingEvent, setSavingEvent] = useState(false)
-  const [meetingNumber, setMeetingNumber] = useState('')
-  const [meetingPassword, setMeetingPassword] = useState('')
-  const [joining, setJoining] = useState(false)
-  const [joinError, setJoinError] = useState('')
-  const meetingRoot = useRef<HTMLDivElement>(null)
+  const [meetings, setMeetings] = useState<Meeting[]>([])
+  const [teamMembers, setTeamMembers] = useState<Array<{ userId: string | null; name: string; email: string; status: string }>>([])
+  const [activeMeeting, setActiveMeeting] = useState<Meeting | null>(null)
+  const [meetingFormOpen, setMeetingFormOpen] = useState(false)
+  const [meetingType, setMeetingType] = useState<Meeting['meetingType']>('internal')
+  const [meetingDescription, setMeetingDescription] = useState('')
+  const [meetingParticipants, setMeetingParticipants] = useState<string[]>([])
+  const [externalParticipants, setExternalParticipants] = useState('')
+  const [creatingMeeting, setCreatingMeeting] = useState(false)
+  const [newInvitations, setNewInvitations] = useState<MeetingInvitation[]>([])
+  const [liveKitConfigured, setLiveKitConfigured] = useState(true)
 
   useEffect(() => {
     let cancelled = false
-    void Promise.all([api.projects.list(), api.clients.list(), api.calendar.list()]).then(([nextProjects, nextClients, nextEvents]) => {
+    void Promise.all([
+      api.projects.list(),
+      api.clients.list(),
+      api.calendar.list(),
+      api.meetings.list(),
+      api.team.list(),
+      api.meetings.status(),
+    ]).then(([nextProjects, nextClients, nextEvents, nextMeetings, nextTeam, meetingStatus]) => {
       if (!cancelled) {
         setProjects(nextProjects)
         setClients(nextClients)
         setEvents(nextEvents)
+        setMeetings(nextMeetings)
+        setTeamMembers(nextTeam)
+        setLiveKitConfigured(meetingStatus.configured)
       }
     }).catch(() => onToast('Unable to load the calendar.'))
     return () => { cancelled = true }
@@ -139,9 +156,9 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
 
   const allEvents = useMemo(() => [...calendarEvents, ...projectDeadlines], [calendarEvents, projectDeadlines])
   const days = useMemo(() => monthDays(month), [month])
-  const upcomingMeetings = useMemo(() => events
-    .filter((event) => event.kind === 'meeting' && event.status === 'scheduled' && new Date(event.endAt) >= new Date())
-    .sort((a, b) => a.startAt.localeCompare(b.startAt)), [events])
+  const upcomingMeetings = useMemo(() => meetings
+    .filter((meeting) => ['scheduled', 'live'].includes(meeting.status) && new Date(meeting.scheduledEnd) >= new Date())
+    .sort((a, b) => a.scheduledStart.localeCompare(b.scheduledStart)), [meetings])
 
   const selectProject = (projectId: string) => {
     setEventProject(projectId)
@@ -154,18 +171,34 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
     event.preventDefault()
     setSavingEvent(true)
     try {
-      const nextEvent = await api.calendar.create({
-        title: eventTitle.trim(),
-        kind: eventKind,
-        startAt: new Date(`${eventDate}T${eventTime}:00`).toISOString(),
-        endAt: new Date(`${eventDate}T${eventEndTime}:00`).toISOString(),
-        projectId: eventProject || null,
-        clientId: eventClient || null,
-      })
-      setEvents((current) => [...current, nextEvent])
+      const startAt = new Date(`${eventDate}T${eventTime}:00`).toISOString()
+      const endAt = new Date(`${eventDate}T${eventEndTime}:00`).toISOString()
+      if (eventKind === 'meeting') {
+        const created = await api.meetings.create({
+          title: eventTitle.trim(),
+          meetingType: eventClient ? 'client' : 'internal',
+          scheduledStart: startAt,
+          scheduledEnd: endAt,
+          projectId: eventProject || null,
+          clientId: eventClient || null,
+          guestAccessEnabled: Boolean(eventClient),
+        })
+        setMeetings((current) => [...current, created.meeting])
+        setEvents(await api.calendar.list())
+      } else {
+        const nextEvent = await api.calendar.create({
+          title: eventTitle.trim(),
+          kind: eventKind,
+          startAt,
+          endAt,
+          projectId: eventProject || null,
+          clientId: eventClient || null,
+        })
+        setEvents((current) => [...current, nextEvent])
+      }
       setEventTitle('')
       if (closeDialog) setEntryDialogOpen(false)
-      onToast('Entry added to Dairy calendar')
+      onToast('Entry added to Diary calendar')
     } catch (error) {
       onToast(error instanceof Error ? error.message : 'Unable to add the calendar entry.')
     } finally {
@@ -173,42 +206,64 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
     }
   }
 
-  const joinZoomMeeting = async (event: FormEvent) => {
+  const createMeeting = async (event: FormEvent) => {
     event.preventDefault()
-    const normalizedNumber = meetingNumber.replace(/\D/g, '')
-    if (!meetingRoot.current || normalizedNumber.length < 9) {
-      setJoinError('Enter a valid Zoom meeting number.')
-      return
-    }
-    setJoining(true)
-    setJoinError('')
+    setCreatingMeeting(true)
+    setNewInvitations([])
     try {
-      const response = await fetch('/api/zoom/signature', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ meetingNumber: normalizedNumber }),
+      const created = await api.meetings.create({
+        title: eventTitle.trim(),
+        description: meetingDescription.trim(),
+        meetingType,
+        scheduledStart: new Date(`${eventDate}T${eventTime}:00`).toISOString(),
+        scheduledEnd: new Date(`${eventDate}T${eventEndTime}:00`).toISOString(),
+        projectId: eventProject || null,
+        clientId: eventClient || null,
+        participants: meetingParticipants,
+        externalParticipants: meetingType === 'client'
+          ? externalParticipants.split(/\n|,/).map((email) => email.trim()).filter(Boolean).map((email) => ({ email }))
+          : [],
+        guestAccessEnabled: meetingType === 'client',
       })
-      const payload = (await response.json()) as { signature?: string; error?: string }
-      if (!response.ok || !payload.signature) throw new Error(payload.error || 'Unable to authorize Zoom.')
-      const { default: ZoomMtgEmbedded } = await import('@zoom/meetingsdk/embedded')
-      const client = ZoomMtgEmbedded.createClient()
-      await client.init({
-        zoomAppRoot: meetingRoot.current,
-        language: 'en-US',
-        patchJsMedia: true,
-      })
-      await client.join({
-        signature: payload.signature,
-        meetingNumber: normalizedNumber,
-        password: meetingPassword,
-        userName,
-      })
+      setMeetings((current) => [...current, created.meeting].sort((left, right) => left.scheduledStart.localeCompare(right.scheduledStart)))
+      setEvents(await api.calendar.list())
+      setNewInvitations(created.invitations)
+      setEventTitle('')
+      setMeetingDescription('')
+      setMeetingParticipants([])
+      setExternalParticipants('')
+      if (!created.invitations.length) setMeetingFormOpen(false)
+      onToast('Meeting scheduled and added to Calendar')
     } catch (error) {
-      setJoinError(error instanceof Error ? error.message : 'Unable to join the Zoom meeting.')
+      onToast(error instanceof Error ? error.message : 'Unable to create the meeting.')
     } finally {
-      setJoining(false)
+      setCreatingMeeting(false)
     }
+  }
+
+  if (activeMeeting) {
+    return (
+      <div className="dairy-live-meeting">
+        <MeetingRoom
+          meeting={activeMeeting}
+          displayName={userName}
+          getCredentials={() => api.meetings.join(activeMeeting.id)}
+          startMeeting={() => api.meetings.start(activeMeeting.id)}
+          endMeeting={() => api.meetings.end(activeMeeting.id)}
+          removeParticipant={(identity) => api.meetings.removeParticipant(activeMeeting.id, identity)}
+          loadNotes={() => api.meetings.notes(activeMeeting.id)}
+          addNote={(body) => api.meetings.addNote(activeMeeting.id, body)}
+          onMeetingChange={(nextMeeting) => {
+            setActiveMeeting(nextMeeting)
+            setMeetings((current) => current.map((item) => item.id === nextMeeting.id ? nextMeeting : item))
+          }}
+          onLeave={() => {
+            setActiveMeeting(null)
+            void api.meetings.list().then(setMeetings).catch(() => undefined)
+          }}
+        />
+      </div>
+    )
   }
 
   return (
@@ -216,13 +271,13 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
       <header className="dairy-hero">
         <div>
           <span className="dairy-eyebrow">Your schedule, connected</span>
-          <h1>Dairy</h1>
-          <p>Plan work in Calendar and meet with clients through Zoom without leaving lancee.</p>
+          <h1>Diary</h1>
+          <p>Plan work in Calendar and host secure native meetings without leaving lancee.</p>
         </div>
         <div className="dairy-hero__mark"><CalendarGlyph /></div>
       </header>
 
-      <nav className="dairy-tabs" aria-label="Dairy sections">
+      <nav className="dairy-tabs" aria-label="Diary sections">
         <button type="button" aria-pressed={section === 'calendar'} className={section === 'calendar' ? 'is-active' : ''} onClick={() => setSection('calendar')}>
           <CalendarGlyph /> Calendar
         </button>
@@ -346,40 +401,76 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
         </div>
       ) : (
         <div className="dairy-meetings-layout">
-          <section className="dairy-side-card dairy-join-card">
-            <span className="dairy-card-label">Zoom Meeting SDK</span>
-            <h2>Join inside lancee</h2>
-            <p>Enter the details from your Zoom invitation. Your camera and microphone stay in the embedded meeting.</p>
-            <form onSubmit={joinZoomMeeting}>
-              <label>Meeting number<input required inputMode="numeric" value={meetingNumber} onChange={(event) => setMeetingNumber(event.target.value)} placeholder="123 456 7890" /></label>
-              <label>Passcode<input value={meetingPassword} onChange={(event) => setMeetingPassword(event.target.value)} placeholder="Meeting passcode" /></label>
-              {joinError && <div className="dairy-error" role="alert">{joinError}</div>}
-              <button className="dairy-primary dairy-primary--zoom" type="submit" disabled={joining}>{joining ? 'Opening Zoom…' : 'Join meeting'}</button>
-            </form>
-            <small className="dairy-security-note">Meeting credentials are signed securely by the lancee server.</small>
+          <section className="dairy-side-card dairy-native-meeting-card">
+            <span className="dairy-card-label">Native meetings</span>
+            <h2>Meet in lancee</h2>
+            <p>Secure workspace and client calls with project context, internal notes, and no third-party meeting interface.</p>
+            {!liveKitConfigured && <div className="dairy-error" role="alert">LiveKit is not configured on this server. Meetings can be scheduled, but rooms cannot start yet.</div>}
+            <button className="dairy-primary" type="button" onClick={() => { setMeetingFormOpen(true); setNewInvitations([]) }}>New meeting</button>
+            <small className="dairy-security-note">Room access is authorized and issued by the lancee server.</small>
           </section>
 
-          <section className="dairy-meeting-stage" aria-label="Embedded Zoom meeting">
-            <div ref={meetingRoot} className="dairy-zoom-root" />
-            <div className="dairy-stage-empty">
-              <span><VideoGlyph /></span>
-              <h2>Your meeting will open here</h2>
-              <p>Zoom’s component view keeps video, participants, chat, and meeting controls inside this workspace.</p>
-            </div>
+          <section className="dairy-meeting-stage dairy-meeting-stage--native" aria-label="Next native meeting">
+            {upcomingMeetings[0] ? (
+              <div className="dairy-next-meeting">
+                <span className={`dairy-meeting-status is-${upcomingMeetings[0].status}`}>{upcomingMeetings[0].status}</span>
+                <div className="dairy-next-meeting__icon"><VideoGlyph /></div>
+                <span className="dairy-card-label">{upcomingMeetings[0].meetingType === 'client' ? 'Client meeting' : 'Internal meeting'}</span>
+                <h2>{upcomingMeetings[0].title}</h2>
+                <p>{new Date(upcomingMeetings[0].scheduledStart).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}</p>
+                <div className="dairy-next-meeting__context">{[upcomingMeetings[0].clientName, upcomingMeetings[0].projectName].filter(Boolean).map((item) => <span key={item || ''}>{item}</span>)}</div>
+                <button className="dairy-primary" type="button" disabled={!liveKitConfigured} onClick={() => setActiveMeeting(upcomingMeetings[0])}>{upcomingMeetings[0].status === 'live' ? 'Join live meeting' : upcomingMeetings[0].isHost ? 'Open pre-join' : 'Open pre-join'}</button>
+              </div>
+            ) : (
+              <div className="dairy-stage-empty"><span><VideoGlyph /></span><h2>No meeting is waiting</h2><p>Schedule an internal or client meeting and it will appear here.</p></div>
+            )}
           </section>
 
           <section className="dairy-upcoming">
             <header><div><span className="dairy-card-label">Calendar</span><h2>Upcoming meetings</h2></div><button type="button" onClick={() => setSection('calendar')}>Open calendar</button></header>
             {upcomingMeetings.length ? upcomingMeetings.slice(0, 5).map((meeting) => (
-              <article key={meeting.id}>
-                <time dateTime={meeting.startAt}><strong>{new Date(meeting.startAt).toLocaleDateString(undefined, { day: '2-digit' })}</strong><span>{new Date(meeting.startAt).toLocaleDateString(undefined, { month: 'short' })}</span></time>
+              <article key={meeting.id} role="button" tabIndex={0} onClick={() => setActiveMeeting(meeting)} onKeyDown={(event) => { if (event.key === 'Enter') setActiveMeeting(meeting) }}>
+                <time dateTime={meeting.scheduledStart}><strong>{new Date(meeting.scheduledStart).toLocaleDateString(undefined, { day: '2-digit' })}</strong><span>{new Date(meeting.scheduledStart).toLocaleDateString(undefined, { month: 'short' })}</span></time>
                 <div data-project-id={meeting.projectId || undefined} data-client-id={meeting.clientId || undefined}>
                   <strong>{meeting.title}</strong>
-                  <span>{timeKey(new Date(meeting.startAt))} · {meeting.durationMinutes} min{meeting.projectName ? ` · ${meeting.projectName}` : ''}{meeting.clientName ? ` · ${meeting.clientName}` : ''}</span>
+                  <span>{timeKey(new Date(meeting.scheduledStart))} · {meeting.durationMinutes} min · {meeting.meetingType}{meeting.projectName ? ` · ${meeting.projectName}` : ''}{meeting.clientName ? ` · ${meeting.clientName}` : ''}</span>
                 </div>
+                <button type="button" onClick={(event) => { event.stopPropagation(); setActiveMeeting(meeting) }}>Open</button>
               </article>
-            )) : <div className="dairy-upcoming__empty">No upcoming meetings yet. Add one from Calendar.</div>}
+            )) : <div className="dairy-upcoming__empty">No upcoming meetings yet. Schedule one here or from Calendar.</div>}
           </section>
+
+          {meetingFormOpen && (
+            <div className="dairy-entry-dialog__backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setMeetingFormOpen(false) }}>
+              <article className="dairy-side-card dairy-entry-dialog dairy-meeting-dialog" role="dialog" aria-modal="true" aria-labelledby="dairy-meeting-dialog-title">
+                <header><div><span className="dairy-card-label">Native lancee meeting</span><h2 id="dairy-meeting-dialog-title">Schedule a meeting</h2></div><button type="button" aria-label="Close meeting form" onClick={() => setMeetingFormOpen(false)}>×</button></header>
+                {newInvitations.length ? (
+                  <div className="dairy-invitation-results">
+                    <h3>Guest links are ready</h3>
+                    <p>Send each secure link to its intended guest. Links expire automatically.</p>
+                    {newInvitations.map((invitation) => <label key={invitation.id}>{invitation.email || invitation.guestName || 'Guest'}<span><input readOnly value={invitation.guestUrl || ''} /><button type="button" onClick={() => void navigator.clipboard.writeText(invitation.guestUrl || '').then(() => onToast('Guest link copied'))}>Copy</button></span></label>)}
+                    <button className="dairy-primary" type="button" onClick={() => { setNewInvitations([]); setMeetingFormOpen(false) }}>Done</button>
+                  </div>
+                ) : (
+                  <form onSubmit={createMeeting}>
+                    <div className="dairy-meeting-type" role="group" aria-label="Meeting type">
+                      <button type="button" className={meetingType === 'internal' ? 'is-active' : ''} onClick={() => { setMeetingType('internal'); setEventClient('') }}><strong>Internal</strong><span>Workspace members only</span></button>
+                      <button type="button" className={meetingType === 'client' ? 'is-active' : ''} onClick={() => setMeetingType('client')}><strong>Client</strong><span>Secure external guests</span></button>
+                    </div>
+                    <label>Title<input autoFocus required value={eventTitle} onChange={(event) => setEventTitle(event.target.value)} placeholder="Weekly project check-in" /></label>
+                    <label>Description<textarea value={meetingDescription} onChange={(event) => setMeetingDescription(event.target.value)} placeholder="Agenda or context for workspace members" /></label>
+                    <div className="dairy-form-row"><label>Date<input required type="date" value={eventDate} onChange={(event) => setEventDate(event.target.value)} /></label><label>Starts<input required type="time" value={eventTime} onChange={(event) => setEventTime(event.target.value)} /></label></div>
+                    <label>Ends<input required type="time" min={eventTime} value={eventEndTime} onChange={(event) => setEventEndTime(event.target.value)} /></label>
+                    <label>Project<select value={eventProject} onChange={(event) => selectProject(event.target.value)}><option value="">No project</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+                    {meetingType === 'client' && <label>Client<select required value={eventClient} disabled={Boolean(eventProject && projects.find((project) => project.id === eventProject)?.clientId)} onChange={(event) => setEventClient(event.target.value)}><option value="">Select client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>}
+                    <fieldset className="dairy-participants"><legend>Workspace participants</legend>{teamMembers.filter((member) => member.status === 'active').map((member) => <label key={member.email}><input type="checkbox" checked={meetingParticipants.includes(member.userId || member.email)} onChange={(event) => setMeetingParticipants((current) => event.target.checked ? [...current, member.userId || member.email] : current.filter((item) => item !== (member.userId || member.email)))} /><span><strong>{member.name}</strong><small>{member.email}</small></span></label>)}</fieldset>
+                    {meetingType === 'client' && <label>External guest emails<textarea value={externalParticipants} onChange={(event) => setExternalParticipants(event.target.value)} placeholder={'client@example.com\nproducer@example.com'} /><small>One email per line. Secure guest links are generated after scheduling; they are not emailed automatically.</small></label>}
+                    <button className="dairy-primary" type="submit" disabled={creatingMeeting}>{creatingMeeting ? 'Scheduling…' : 'Schedule meeting'}</button>
+                  </form>
+                )}
+              </article>
+            </div>
+          )}
         </div>
       )}
     </div>

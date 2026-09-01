@@ -38,8 +38,8 @@ try {
     ['usr_openconnector_b', 'openconnector-b@example.test', 'OpenConnector B', 'salt', 'hash', timestamp, timestamp],
   )
   await database.query(
-    `INSERT INTO workspace_members (workspace_id, user_id, role, created_at) VALUES ($1, $2, 'owner', $3)`,
-    ['wsp_openconnector_b', 'usr_openconnector_b', timestamp],
+    `INSERT INTO workspace_members (id, workspace_id, user_id, role, status, created_at, updated_at) VALUES ($1, $2, $3, 'owner', 'active', $4, $4)`,
+    [`wsm_wsp_openconnector_b_usr_openconnector_b`, 'wsp_openconnector_b', 'usr_openconnector_b', timestamp],
   )
   const contextB = await database.getContextByIds('usr_openconnector_b', 'wsp_openconnector_b')
 

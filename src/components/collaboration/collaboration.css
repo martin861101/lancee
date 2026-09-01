@@ -1,0 +1,17 @@
+.mention-input, .assignee-picker { position: relative; display: block; }
+.mention-input > textarea { width: 100%; }
+.mention-menu, .assignee-picker__menu { position: absolute; z-index: 80; left: 0; right: 0; top: calc(100% + 6px); display: grid; max-height: min(260px, 42vh); overflow: auto; padding: 6px; border: 1px solid var(--line, rgba(120, 120, 140, .25)); border-radius: 12px; background: var(--surface, #fff); box-shadow: 0 18px 48px rgba(20, 24, 40, .18); }
+.mention-menu button, .assignee-picker__menu label { display: flex; min-width: 0; align-items: center; gap: 9px; padding: 8px; border: 0; border-radius: 8px; background: transparent; color: inherit; text-align: left; }
+.mention-menu button:hover, .mention-menu button.is-active, .assignee-picker__menu label:hover { background: var(--surface-soft, rgba(104, 84, 232, .09)); }
+:is(.mention-menu, .assignee-picker, .task-assignee-stack) .team-member-avatar { display: grid; width: 28px; height: 28px; place-items: center; flex: 0 0 28px; overflow: hidden; color: #fff; background: linear-gradient(135deg, #6854e8, #ee45aa); border-radius: 50%; font-size: 10px; font-weight: 700; object-fit: cover; }
+.mention-menu button > span:last-child { display: grid; min-width: 0; }
+.mention-menu strong, .mention-menu small, .assignee-picker__menu label > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-menu__empty { padding: 10px; color: var(--muted, #777); }
+.assignee-picker__trigger { width: 100%; min-height: 42px; padding: 0 12px; border: 1px solid var(--line, #ddd); border-radius: 9px; background: transparent; color: inherit; text-align: left; }
+.assignee-picker__menu { gap: 2px; }
+.assignee-picker__menu label { cursor: pointer; }
+.assignee-picker__menu label > span:last-child { flex: 1; }
+.assignee-picker__menu > button { justify-self: end; margin: 5px; border: 0; background: transparent; color: var(--accent, #6854e8); font-weight: 700; }
+@media (max-width: 640px) {
+  .mention-menu, .assignee-picker__menu { position: fixed; inset: auto 10px 10px; max-height: 45vh; }
+}

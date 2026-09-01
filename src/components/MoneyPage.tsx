@@ -145,7 +145,7 @@ const emptyForm: InvoiceForm = {
   amount: '',
   currency: 'ZAR',
   dueDate: '',
-  payEnabled: true,
+  payEnabled: false,
   paymentProvider: 'paystack',
   accountHolder: '',
   bankName: '',

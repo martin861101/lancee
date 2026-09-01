@@ -6,12 +6,12 @@ import {
   type PricingRegion,
   type Subscription,
 } from '../../lib/api'
+import { detectPricingRegion } from '../../lib/pricing'
 import './pricing-page.css'
 import BillingToggle from './BillingToggle'
 import PricingCard from './PricingCard'
 import AddOns from './AddOns'
 import PricingComparison from './PricingComparison'
-import { regions } from './pricing-data'
 
 export default function PricingPage({
   onToast,
@@ -26,27 +26,31 @@ export default function PricingPage({
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
 
-  const loadPricing = async (targetRegion: PricingRegion) => {
-    try {
-      const catalog = await api.pricing.get(targetRegion)
-      setPricing(catalog)
-      setRegion(targetRegion)
-      setError('')
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to load pricing.')
-    }
-  }
-
   useEffect(() => {
     let active = true
     setLoading(true)
-    Promise.all([api.subscription.get(), api.pricing.get()])
-      .then(([sub, catalog]) => {
+    Promise.all([api.subscription.get().catch(() => null), api.workspace.getContext().catch(() => null)])
+      .then(([subResult, context]) => {
         if (!active) return
-        setSubscription(sub.subscription)
-        setPricing(catalog)
-        setBillingPeriod(sub.subscription.billingPeriod || 'monthly')
-        setRegion(sub.subscription.region || 'ZA')
+        if (subResult) {
+          setSubscription(subResult.subscription)
+          setBillingPeriod(subResult.subscription.billingPeriod || 'monthly')
+          const tz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined
+          const resolvedRegion = subResult.subscription.isPersisted
+            ? subResult.subscription.region
+            : detectPricingRegion(context?.location?.country, typeof navigator !== 'undefined' ? navigator.language : undefined, tz)
+          setRegion(resolvedRegion)
+          return api.pricing.get(resolvedRegion).then((catalog) => {
+            if (active) setPricing(catalog)
+          })
+        } else {
+          const tz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined
+          const resolvedRegion = detectPricingRegion(context?.location?.country, typeof navigator !== 'undefined' ? navigator.language : undefined, tz)
+          setRegion(resolvedRegion)
+          return api.pricing.get(resolvedRegion).then((catalog) => {
+            if (active) setPricing(catalog)
+          })
+        }
       })
       .catch((caught) => {
         if (!active) return
@@ -58,7 +62,6 @@ export default function PricingPage({
     return () => {
       active = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const plans = useMemo(() => {
@@ -98,11 +101,6 @@ export default function PricingPage({
     }
   }
 
-  const changeRegion = (next: PricingRegion) => {
-    setRegion(next)
-    void loadPricing(next)
-  }
-
   if (loading) {
     return (
       <div className="page pricing-page pricing-page--loading">
@@ -126,22 +124,7 @@ export default function PricingPage({
 
       <div className="pricing-controls">
         <BillingToggle billingPeriod={billingPeriod} onChange={setBillingPeriod} />
-        <div className="pricing-region" role="group" aria-label="Billing region">
-          <label>Billing region</label>
-          <div className="pricing-region__options">
-            {regions.map((r) => (
-              <button
-                key={r.code}
-                type="button"
-                className={region === r.code ? 'is-active' : ''}
-                aria-pressed={region === r.code}
-                onClick={() => changeRegion(r.code)}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        {pricing && <span className="pricing-region-hint">{pricing.currency} · {region} pricing</span>}
       </div>
 
       {subscription?.isOnTrial && (

@@ -15,6 +15,47 @@ const MUTATING_TOOL_IDS = new Set(
   CORE_TOOL_CATALOG.filter((tool) => tool.mutating).map((tool) => tool.id),
 )
 
+function hasElevatedWorkspaceRole(context) {
+  return ['owner', 'admin'].includes(context?.membership?.role)
+}
+
+export function coreAutomationRequiresElevatedRole(automation = {}) {
+  if (automation.workflowDefinition?.version === 1) {
+    return automation.workflowDefinition.steps?.some((step) => MUTATING_TOOL_IDS.has(step?.tool)) || false
+  }
+  return Array.isArray(automation.tools)
+    && automation.tools.some((tool) => MUTATING_TOOL_IDS.has(tool))
+}
+
+export function assertCoreAutomationExecutionPermission(context, automation) {
+  if (coreAutomationRequiresElevatedRole(automation) && !hasElevatedWorkspaceRole(context)) {
+    throw new CoreAutomationError(
+      'CORE_AUTOMATION_MUTATION_FORBIDDEN',
+      'Workspace owner or admin permission is required to run an automation that can change workspace data.',
+      403,
+    )
+  }
+}
+
+export function createManualWorkflowInstruction({ automation, input = '', invocationId }) {
+  const suppliedInput = String(input || '').trim()
+  const fallbackInput = String(
+    automation?.instructionTemplate || automation?.description || automation?.name || 'Manual workflow run.',
+  ).trim()
+  const body = (suppliedInput || fallbackInput).slice(0, 8_000)
+  const messageId = `manual:${String(invocationId || automation?.id || 'workflow').replace(/[^A-Za-z0-9:_-]/g, '').slice(0, 280)}`
+  return JSON.stringify({
+    manual: true,
+    event: {
+      messageId,
+      subject: String(automation?.name || 'Manual workflow run').slice(0, 500),
+      body,
+      sender: { name: 'Manual workflow run', email: 'manual@lancee.local' },
+      recipients: [],
+    },
+  })
+}
+
 export class CoreAutomationError extends Error {
   constructor(code, message, status = 422) {
     super(message)
@@ -184,10 +225,37 @@ function legacyCapabilityInput(step, automation, run, index) {
   return { name: input.name, clientId: input.clientId, scope: input.scope, sourceKey: input.sourceKey || `legacy:${automation.id}:${run.id}:${index}` }
 }
 
+async function legacyProjectCapabilityInput(step, automation, run, index, database, workspaceId) {
+  const input = projectCreationInput(step.input)
+  if ((step.input?.due && input.due !== 'Set date') || (step.input?.status && input.status !== 'In progress')) {
+    throw new CoreAutomationError('CORE_LEGACY_CAPABILITY_UNMAPPABLE', 'This legacy project creation input cannot be safely mapped to projects.create.')
+  }
+  let clientId = input.clientId
+  if (!clientId && input.clientEmail) {
+    clientId = (await database.findWorkflowClientByEmail({
+      workspaceId,
+      email: input.clientEmail,
+    }))?.id || null
+  }
+  if (!clientId) {
+    throw new CoreAutomationError('CORE_CLIENT_REQUIRED', 'A known client id or client email is required to create a project.')
+  }
+  return {
+    name: input.name,
+    clientId,
+    scope: input.scope,
+    sourceKey: input.sourceKey || `legacy:${automation.id}:${run.id}:${index}`,
+  }
+}
+
 export async function executeCoreAutomation({ context, automation, run, database, log, extractProjectRequest = null, capabilityRegistry = null }) {
+  assertCoreAutomationExecutionPermission(context, automation)
   if (automation.workflowDefinition?.version === 1) {
     let instruction
     try { instruction = JSON.parse(run.instruction) } catch { throw new CoreAutomationError('WORKFLOW_EVENT_INVALID', 'The mail workflow event is invalid.') }
+    if (!instruction?.event || typeof instruction.event !== 'object') {
+      throw new CoreAutomationError('WORKFLOW_EVENT_INVALID', 'The workflow event is invalid.')
+    }
     const result = await executeWorkflowDefinition({
       database,
       context,
@@ -202,6 +270,7 @@ export async function executeCoreAutomation({ context, automation, run, database
       capabilityRegistry,
       log,
       workflowId: automation.id,
+      invocation: instruction.manual === true ? { manual: true } : {},
     })
     return { steps: automation.workflowDefinition.steps.length, results: result }
   }
@@ -241,11 +310,33 @@ export async function executeCoreAutomation({ context, automation, run, database
       output = await database.listClients(context.workspace.id)
     } else if (step.tool === 'invoices.list') {
       output = await database.listInvoices(context.workspace.id)
-    } else if (['projects.update_status', 'projects.create_draft_invoice'].includes(step.tool)) {
-      throw new CoreAutomationError('CORE_EXECUTION_UNAVAILABLE', `Core tool “${step.tool}” has no registered capability implementation.`)
+    } else if (step.tool === 'projects.update_status') {
+      const project = projectFromInput(
+        await database.listProjects(context.workspace.id),
+        step.input,
+      )
+      const status = projectStatus(step.input?.status)
+      if (!status) {
+        throw new CoreAutomationError('CORE_INVALID_STATUS', 'Use a supported project status.')
+      }
+      output = await database.updateProjectStatus(context.workspace.id, project.id, status)
+      if (!output) throw new CoreAutomationError('CORE_PROJECT_NOT_FOUND', 'The project was not found.')
+    } else if (step.tool === 'projects.create_draft_invoice') {
+      const project = projectFromInput(
+        await database.listProjects(context.workspace.id),
+        step.input,
+      )
+      output = await database.createDraftInvoiceForProject({
+        workspaceId: context.workspace.id,
+        projectId: project.id,
+      })
+      if (!output) throw new CoreAutomationError('CORE_PROJECT_NOT_FOUND', 'The project was not found.')
     } else if (['projects.create', 'tasks.create'].includes(step.tool)) {
       if (!capabilityRegistry?.has(step.tool)) throw new CoreAutomationError('CORE_EXECUTION_UNAVAILABLE', `Core tool “${step.tool}” has no registered capability implementation.`)
-      const envelope = await capabilityRegistry.invokeNormalized(step.tool, legacyCapabilityInput(step, automation, run, index), context, {
+      const input = step.tool === 'projects.create'
+        ? await legacyProjectCapabilityInput(step, automation, run, index, database, context.workspace.id)
+        : legacyCapabilityInput(step, automation, run, index)
+      const envelope = await capabilityRegistry.invokeNormalized(step.tool, input, context, {
         autonomous: true,
         origin: 'core-automation',
         runId: run.id,

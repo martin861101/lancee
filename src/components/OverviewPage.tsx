@@ -64,6 +64,29 @@ function weatherPresentation(weather: WorkspaceContext['weather']): {
   return { label: 'Current conditions', icon: 'cloud' }
 }
 
+function weatherBackgroundAsset(weather: WorkspaceContext['weather'] | null, mood: WorkspacePulseMood): string | null {
+  if (!weather) return null
+  const code = weather.weatherCode
+  const isDay = weather.isDay
+  if (!isDay) {
+    if (code === 0) return '/img/clear-night.png'
+    if (code === 3) return '/img/overcast-night.png'
+    if (code === 2 || code === 1) return '/img/cloudy-night.png'
+    if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code >= 95) return '/img/cloudy-night.png'
+    if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) return '/img/overcast-night.png'
+    return mood === 'clear-night' ? '/img/clear-night.png' : '/img/cloudy-night.png'
+  }
+  if (code === 0) return '/img/clear.png'
+  if (code === 3) return '/img/overcast.png'
+  if (mood === 'sunny') return '/img/sunny.png'
+  if (mood === 'cloudy') return '/img/cloudy.png'
+  if (mood === 'rainy' || mood === 'stormy') return '/img/rainy.png'
+  if (mood === 'snowy') return '/img/overcast.png'
+  if (code === 1) return '/img/sunny.png'
+  if (code === 2) return '/img/cloudy.png'
+  return '/img/clear.png'
+}
+
 function overviewLocationLabel(location: WorkspaceContext['location']) {
   if (!location) return 'Location unavailable'
   return [location.city, location.country].filter(Boolean).join(', ') || 'Local conditions'
@@ -267,9 +290,18 @@ export default function OverviewPage(props: OverviewPageProps) {
     }
   }, [user.workspaceId])
 
+  const weatherAsset = weatherBackgroundAsset(weather ?? null, pulse.mood)
+
   return (
-    <div className="page page--overview">
-      <div className="overview-scene" data-mood={pulse.mood}>
+    <div
+      className="page page--overview"
+      data-has-weather={weatherAsset ? 'true' : 'false'}
+      style={weatherAsset ? ({ '--overview-weather-image': `url(${weatherAsset})` } as React.CSSProperties) : undefined}
+    >
+      <div
+        className="overview-scene"
+        data-mood={pulse.mood}
+      >
         <section className="overview-welcome" aria-labelledby="workspace-pulse-title">
           <span className="overview-welcome__eyebrow">Welcome back</span>
           <h1 id="workspace-pulse-title">{firstName} <span aria-hidden="true">👋</span></h1>

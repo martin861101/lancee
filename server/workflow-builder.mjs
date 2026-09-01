@@ -558,11 +558,14 @@ export async function executeWorkflowDefinition({ database, context, definition:
   const safeEvent = { messageId: normalizeText(event?.messageId, 320), subject: normalizeText(event?.subject, 500), body: normalizeText(event?.body, 8_000), sender: { name: normalizeText(event?.sender?.name, 160), email: normalizeEmail(event?.sender?.email) }, recipients: Array.isArray(event?.recipients) ? event.recipients.map((email) => normalizeEmail(email)).slice(0, 30) : [] }
   const outputs = {}
   const dry = { trigger: 'matched', decision: 'would_create', confidence: null, client: null, project: null, tasks: null, warnings: [], missingInformation: [] }
-  if (!workflowTriggerMatches(definition, safeEvent)) {
+  const manualInvocation = invocation?.manual === true
+  if (!manualInvocation && !workflowTriggerMatches(definition, safeEvent)) {
     await log({ eventType: 'trigger.skipped', level: 'info', message: 'Mail event did not match workflow conditions.', output: { conditions: definition.trigger.conditions, matchMode: definition.trigger.matchMode } })
     return dryRun ? { ...dry, trigger: 'not_matched', decision: 'skipped' } : { decision: 'skipped', outputs }
   }
-  await log({ eventType: 'trigger.matched', message: 'Mail event matched workflow conditions.', output: { conditions: definition.trigger.conditions, matchMode: definition.trigger.matchMode } })
+  await log(manualInvocation
+    ? { eventType: 'trigger.manual', message: 'Workflow was explicitly started by a workspace user.', output: { trigger: definition.trigger.type } }
+    : { eventType: 'trigger.matched', message: 'Mail event matched workflow conditions.', output: { conditions: definition.trigger.conditions, matchMode: definition.trigger.matchMode } })
   for (const step of definition.steps) {
     const input = workflowScopedInput(step, resolveInput(step.input, outputs, safeEvent), workflowId)
     const capability = capabilityById.get(step.tool)

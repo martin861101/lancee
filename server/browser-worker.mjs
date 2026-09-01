@@ -428,7 +428,7 @@ function createLocalBrowserWorker({
           maximumBytes: Math.min(MAX_RESOURCE_BYTES, MAX_TOTAL_BYTES - totalBytes),
           timeoutMs,
           maximumRedirects: 3,
-          userAgent: 'LanceeBrowser/1.0 (+https://lancee.hookitupservices.com)',
+          userAgent: 'LanceeBrowser/1.0 (+https://lancee.work)',
         })
         totalBytes += response.body.byteLength
         if (totalBytes > MAX_TOTAL_BYTES) {

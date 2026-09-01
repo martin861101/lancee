@@ -1267,7 +1267,8 @@
   text-transform: uppercase;
 }
 
-.client-history__group > button {
+.client-history__group > button,
+.client-history__group > div {
   display: grid;
   gap: 3px;
   padding: 9px 10px;
@@ -1283,7 +1284,8 @@
   background: #1b2638;
 }
 
-.client-history__group > button span {
+.client-history__group > button span,
+.client-history__group > div span {
   overflow: hidden;
   font-size: 10px;
   text-overflow: ellipsis;
@@ -1291,6 +1293,7 @@
 }
 
 .client-history__group > button small,
+.client-history__group > div small,
 .client-history__empty {
   color: #7f899c;
   font-size: 9px;
@@ -1682,11 +1685,13 @@ html[data-theme='light'] .client-history__heading span,
 html[data-theme='light'] .client-history__heading em,
 html[data-theme='light'] .client-history__group > strong,
 html[data-theme='light'] .client-history__group > button small,
+html[data-theme='light'] .client-history__group > div small,
 html[data-theme='light'] .client-history__empty {
   color: var(--muted);
 }
 
-html[data-theme='light'] .client-history__group > button {
+html[data-theme='light'] .client-history__group > button,
+html[data-theme='light'] .client-history__group > div {
   color: var(--ink-soft);
   background: var(--surface-soft);
   border-color: var(--line);
@@ -3658,7 +3663,7 @@ html[data-theme='light'] .pdf-studio__result {
 
 @media (max-width: 640px) {
   .file-explorer__content {
-    padding: 25px 16px 44px;
+    padding: 25px 16px 84px;
   }
 
   .file-explorer__title-row {
@@ -3763,6 +3768,21 @@ html[data-theme='light'] .pdf-studio__result {
 
   .file-explorer__empty-card {
     min-height: 126px;
+  }
+
+  .file-explorer__file-table:has(.file-explorer__empty-row) {
+    min-width: 100%;
+  }
+
+  .file-explorer__file-table:has(.file-explorer__empty-row) thead {
+    display: none;
+  }
+
+  .file-explorer__empty-row {
+    height: auto;
+    padding: 18px 8px;
+    line-height: 1.5;
+    white-space: normal;
   }
 
   .file-explorer__folder-columns {

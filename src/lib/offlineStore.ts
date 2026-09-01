@@ -5,6 +5,21 @@ export type IdeaNote = {
   version: number
   createdAt: string
   updatedAt: string
+  createdBy?: string
+  taskLinks?: Array<{
+    noteId: string
+    taskId: string
+    projectId: string
+    taskTitle: string
+    createdBy: string
+    createdAt: string
+  }>
+  mentions?: Array<{
+    userId: string
+    name: string
+    avatarUrl: string
+    status: 'active' | 'invited' | 'disabled'
+  }>
 }
 
 export type NoteSyncState = 'synced' | 'queued' | 'conflict'
@@ -180,6 +195,9 @@ export async function listCachedIdeaNotes(
       syncState: record.syncState,
       conflictCurrent: record.conflictCurrent,
       syncError: record.syncError,
+      createdBy: record.createdBy,
+      taskLinks: record.taskLinks || [],
+      mentions: record.mentions || [],
     }))
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
 }

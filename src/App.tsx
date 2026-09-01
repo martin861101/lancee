@@ -52,6 +52,7 @@ import type { WorkflowTemplate } from './components/WorkflowsPage'
 import { BUSINESS_IDENTITY } from './lib/business'
 import Icon, { type IconName } from './components/AppIcon'
 import BrandMark from './components/BrandMark'
+import './components/marketing.css'
 
 const IdeasCanvasPage = lazy(() => import('./components/IdeasCanvasPage'))
 const OverviewPage = lazy(() => import('./components/OverviewPage'))
@@ -67,6 +68,7 @@ const WorkspaceChat = lazy(() => import('./components/dashboard/WorkspaceChat'))
 const WorkflowsPage = lazy(() => import('./components/WorkflowsPage'))
 const WorkspaceBuilder = lazy(() => import('./components/workspace-builder/WorkspaceBuilder'))
 const ReviewPage = lazy(() => import('./components/annotations/ReviewPage'))
+const GuestMeetingPage = lazy(() => import('./components/meetings/GuestMeetingPage'))
 const PricingPage = lazy(() => import('./components/pricing/PricingPage'))
 const PricingLanding = lazy(() => import('./components/pricing/PricingLanding'))
 const AdminPage = lazy(() => import('./components/admin/AdminPage'))
@@ -133,7 +135,6 @@ const pageIds = new Set<Page>([
 const legacyDashboardPageAliases: Partial<Record<Page, Page>> = {
   analytics: 'intelligence',
   workflows: 'automations',
-  runs: 'automations',
   services: 'integrations',
   storefront: 'overview',
 }
@@ -160,14 +161,11 @@ const navItems: { id: Page; label: string; icon: IconName; section: string; modu
   { id: 'ideas', label: 'Ideas', icon: 'lightbulb', section: 'Your work', modules: ['whiteboard', 'notes'] },
   { id: 'files', label: 'Files', icon: 'file', section: 'Your work', modules: ['files', 'annotations', 'knowledge-base'] },
   { id: 'messages', label: 'Messages', icon: 'messages', section: 'Your work', modules: ['clients', 'client-portal'] },
-  { id: 'dairy', label: 'Dairy', icon: 'calendar', section: 'Your work' },
+  { id: 'dairy', label: 'Diary', icon: 'calendar', section: 'Your work' },
   { id: 'automations', label: 'Automations & Workflows', icon: 'activity', section: 'Business', modules: ['workflows'] },
-  { id: 'integrations', label: 'Connected Apps', icon: 'plug', section: 'Business' },
   { id: 'money', label: 'Invoicing', icon: 'wallet', section: 'Business', modules: ['quotes', 'invoices', 'time-tracking'] },
   { id: 'intelligence', label: 'Intelligence', icon: 'sparkles', section: 'Business' },
   { id: 'team', label: 'Team', icon: 'user', section: 'Platform' },
-  { id: 'pricing', label: 'Pricing', icon: 'credit-card', section: 'Platform' },
-  { id: 'builder', label: 'Workspace builder', icon: 'sparkles', section: 'Platform' },
   { id: 'settings', label: 'Preferences', icon: 'settings', section: 'Platform' },
   { id: 'admin', label: 'Admin', icon: 'shield', section: 'Platform', adminOnly: true },
 ]
@@ -206,6 +204,7 @@ function LandingToolLogo({ name }: { name: LandingTool }) {
     </span>
   )
 }
+void LandingToolLogo
 
 type BrandName = 'gmail' | 'calendar' | 'drive' | 'docs' | 'sheets' | 'slack' | 'zoom' | 'stripe' | 'paypal' | 'paystack' | 'github' | 'outlook' | 'notion' | 'onedrive' | 'dropbox' | 'linear' | 'figma' | 'asana' | 'trello' | 'teams'
 
@@ -719,7 +718,7 @@ function AutomationsPage({
                 <button
                   className="automation-delete"
                   type="button"
-                  disabled={busyId === automation.id}
+                  disabled={busyId !== null}
                   onClick={() => onDelete(automation)}
                   title={`Delete ${automation.name}`}
                 >
@@ -760,7 +759,7 @@ function AutomationsPage({
               <button
                 className="button button--secondary button--small"
                 onClick={() => onToggle(automation)}
-                disabled={busyId === automation.id}
+                disabled={busyId !== null}
               >
                 {busyId === automation.id ? (
                   <span className="spinner spinner--dark" />
@@ -772,9 +771,11 @@ function AutomationsPage({
               <button
                 className="button button--dark button--small"
                 onClick={() => onRun(automation)}
+                disabled={busyId !== null}
+                aria-busy={busyId === automation.id}
               >
-                <Icon name="play" size={12} />
-                Run now
+                {busyId === automation.id ? <span className="spinner" /> : <Icon name="play" size={12} />}
+                {busyId === automation.id ? 'Running…' : 'Run now'}
               </button>
             </div>
           </article>
@@ -1067,360 +1068,437 @@ function IntegrationsPage({
   onRefreshExternal: () => void
   onToast: (message: string) => void
 }) {
-  const [query, setQuery] = useState('')
-  const [category, setCategory] = useState('All')
-  const [externalLimit, setExternalLimit] = useState(60)
-  const connectionCatalog: Integration[] = [
-    {
-      id: 'general-ai',
-      name: 'General AI',
-      description: 'One provider-neutral connection for OpenAI-compatible and other leading AI services.',
-      category: 'Automation',
-      connected: false,
-      icon: 'ai',
-      accent: 'violet',
-    },
-    ...integrations.filter(
-      (integration) => !['codex-ai', 'codex-runtime'].includes(integration.id),
-    ),
-    ...connectionRequests.map((request) => ({
-      id: `request:${request.id}`,
-      name: request.name,
-      description: request.details || 'Requested connector awaiting workspace setup.',
-      category: request.category,
-      connected: false,
-      icon: 'plug',
-      accent: '#786bff',
-    })),
-  ]
-  const categories = [
-    'All',
-    ...Array.from(new Set([
-      ...connectionCatalog.map((integration) => integration.category),
-      ...externalProviders.flatMap((provider) => provider.categories.length ? provider.categories : ['Other']),
-    ])).sort((left, right) => left.localeCompare(right)),
-  ]
-  const filtered = connectionCatalog.filter(
-    (integration) =>
-      (category === 'All' || integration.category === category) &&
-      `${integration.name} ${integration.description}`.toLowerCase().includes(query.toLowerCase()),
-  )
-  const externalFiltered = externalProviders.filter((provider) =>
-    (category === 'All' || (provider.categories.length ? provider.categories : ['Other']).includes(category))
-      && `${provider.displayName} ${provider.provider} ${provider.categories.join(' ')}`.toLowerCase().includes(query.toLowerCase()),
-  )
-  const visibleExternalProviders = externalFiltered.slice(0, externalLimit)
+  // Curated commercial families – Lancee directly integrates with the small set of services required to operate
+  // a modern business. Broader third-party connectivity is provided through n8n, webhooks and the Lancee API.
+  // Google Workspace + Microsoft 365 are workspace infrastructure. Payments is core business. Standard email
+  // and Dropbox provide practical alternatives. n8n provides breadth.
+  // Legacy generic catalog helpers remain for internal/hidden marketplace but are not customer-facing.
+  void IntegrationLogo; void OpenConnectorLogo;
+  void externalProviders; void gatewayStatus; void connectionRequests; void onConfigureMcp; void onConfigureCodex; void onConfigureCodexRuntime; void onConfigureWhatsApp; void onRequestConnection; void onConnectExternal; void onDisconnectExternal; void onRefreshExternal; void canManage; void onToggle;
+  const [byoConfig, setByoConfig] = useState<{ configured: boolean; provider: string | null; model: string | null; maskedKey: string | null; updatedAt: string | null } | null>(null)
+  const [showByoModal, setShowByoModal] = useState(false)
+
+  const driveIntegration = integrations.find(i => i.id === 'drive')
+  const dropboxIntegration = integrations.find(i => i.id === 'dropbox')
+  const mailIntegration = integrations.find(i => i.id === 'mail')
+  const paystackIntegration = integrations.find(i => i.id === 'paystack')
+  const n8nIntegration = integrations.find(i => i.id === 'n8n')
+
+  const googleConnected = Boolean(driveIntegration?.connected)
+  const mailConnected = Boolean(mailIntegration?.connected)
+  const dropboxConnected = Boolean(dropboxIntegration?.connected)
+  const paystackConnected = Boolean(paystackIntegration?.connected)
+  const n8nConnected = Boolean(n8nIntegration?.connected)
 
   useEffect(() => {
-    setExternalLimit(60)
-  }, [category, query])
+    let active = true
+    void api.customAi.getConfig().then((config) => {
+      if (active) setByoConfig(config)
+    }).catch(() => {
+      if (active) setByoConfig({ configured: false, provider: null, model: null, maskedKey: null, updatedAt: null })
+    })
+    return () => { active = false }
+  }, [])
+
+  const refreshByo = async () => {
+    try { setByoConfig(await api.customAi.getConfig()) } catch { /* keep previous */ }
+  }
 
   return (
-    <div className="page">
+    <div className="page connected-apps-page">
       <PageHeader
-        eyebrow="Your tools, together"
+        eyebrow="Connected Apps"
         title="Connected Apps"
-        description="Bring in the apps you already use. lancee keeps the work connected without replacing them."
-        action={
-          <button
-            className="button button--secondary"
-            onClick={onRequestConnection}
-          >
-            <Icon name="plus" size={16} /> Request a connection
-          </button>
-        }
+        description="Connect the services that power your business."
       />
 
-      <section className="integration-banner">
-        <div className="integration-banner__icon">
-          <Icon name="plug" size={24} />
-        </div>
-        <div>
-          <span className="micro-label">Connection health</span>
-          <h2>Your everyday tools, in one view.</h2>
-          <p>
-            {connectionCatalog.filter((item) => item.connected && item.id !== 'lancee-mcp').length}{' '}
-            tools are connected, plus the built-in Lancee MCP surface.
-          </p>
-        </div>
-        <div className="integration-banner__status">
-          <span className={gatewayStatus?.status === 'healthy' ? 'online-dot' : ''} />
-          Gateway {gatewayStatus?.status || 'loading'}
-        </div>
-      </section>
-
-      <p className="integration-boundary-note">
-        Lancee remains the orchestration and permission boundary. OpenConnector stores provider credentials and executes external actions behind the private gateway.
+      <p className="connected-apps-principle">
+        Lancee directly integrates with the small set of services required to operate a modern business.
+        Broader third-party connectivity is provided through <strong>n8n</strong>, webhooks and the Lancee API.
       </p>
 
-      <section className="connected-apps-diagram" aria-labelledby="connected-apps-diagram-title">
-        <div>
-          <span className="micro-label">How Lancee connects work</span>
-          <h2 id="connected-apps-diagram-title">One private path from research to workspace memory.</h2>
-          <p>External research and authorized workspace data meet in Lancee MCP. PostgreSQL remains the durable, workspace-scoped source of record.</p>
+      {/* WORKSPACE */}
+      <section className="connected-apps-section" aria-labelledby="workspace-heading">
+        <div className="connected-apps-section__heading">
+          <span className="micro-label">Workspace</span>
+          <h2 id="workspace-heading">Workspace</h2>
+          <p>Your core productivity suite. One account connects mail, files, calendar and contacts.</p>
         </div>
-        <ol aria-label="Lancee connection architecture">
-          <li>
-            <span>AI</span>
-            <strong>Orchestrator &amp; external tools</strong>
-            <small>Web search, crawling, and research</small>
-          </li>
-          <li>
-            <span>Lancee MCP</span>
-            <strong>The brain &amp; internal tools</strong>
-            <small>Read projects, client data, and approved workspace records</small>
-          </li>
-          <li>
-            <span>PostgreSQL</span>
-            <strong>The memory</strong>
-            <small>Stores workspace data and durable results</small>
-          </li>
-        </ol>
-      </section>
-
-      <div className="toolbar integrations-toolbar">
-        <label className="search-field">
-          <Icon name="search" size={17} />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search connections..."
-          />
-        </label>
-        <div className="category-select">
-          <select value={category} onChange={(event) => setCategory(event.target.value)}>
-            {categories.map((item) => (
-              <option key={item}>{item}</option>
-            ))}
-          </select>
-          <Icon name="chevron-down" size={14} />
-        </div>
-      </div>
-
-      {externalProviders.length > 0 && (
-        <section aria-labelledby="external-integrations-title">
-          <div className="section-heading-row">
-            <div>
-              <span className="micro-label">External integration gateway</span>
-              <h2 id="external-integrations-title">
-                OpenConnector catalog <small>{externalFiltered.length} providers</small>
-              </h2>
+        <div className="connected-family-grid">
+          <article className="connected-family-card connected-family-card--google">
+            <div className="connected-family-card__top">
+              <span className="connected-family-logo connected-family-logo--google">
+                <BrandIcon name="gmail" />
+                <BrandIcon name="drive" />
+                <BrandIcon name="calendar" />
+              </span>
+              <span className={googleConnected ? 'connected-label' : 'platform-label'}>
+                {googleConnected ? <><Icon name="check" size={12} /> Connected</> : 'Available'}
+              </span>
             </div>
-            <button className="button button--secondary" onClick={onRefreshExternal}>
-              Refresh status
-            </button>
-          </div>
-          <div className="integration-grid">
-            {visibleExternalProviders.map((provider) => {
-              const connection = provider.connection
-              const connected = connection?.status === 'connected'
-              const connecting = connection?.status === 'connecting'
-              const oauthReady = provider.authTypes.includes('oauth2')
-              return (
-                <article className="integration-card" key={`openconnector:${provider.provider}`}>
-                  <div className="integration-card__top">
-                    <OpenConnectorLogo provider={provider} />
-                    {connection && (
-                      <span className={connected ? 'connected-label' : 'platform-label'}>
-                        {connected ? <Icon name="check" size={12} /> : null}
-                        {connection.status}
-                      </span>
-                    )}
-                  </div>
-                  <span className="integration-category">{(provider.categories.length ? provider.categories : ['Other']).join(' · ')}</span>
-                  <h3>{provider.displayName}</h3>
-                  <p>{connected
-                    ? `${connection.displayName}${connection.scopes.length ? ` · ${connection.scopes.length} scopes` : ''}`
-                    : provider.description || 'Connect through the workspace-scoped OpenConnector gateway.'}</p>
-                  {connected && (
-                    <small>Connected {new Date(connection.createdAt).toLocaleDateString()}</small>
-                  )}
-                  {provider.homepageUrl && (
-                    <a className="provider-link" href={provider.homepageUrl} target="_blank" rel="noreferrer">
-                      Provider site <Icon name="arrow-up-right" size={11} />
-                    </a>
-                  )}
-                  <div className="protocol-badges">
-                    <span>OpenConnector</span>
-                    {provider.authTypes.map((type) => <span key={type}>{type}</span>)}
-                    {provider.authorizationUrl && provider.tokenUrl && <small title={`${provider.authorizationUrl}\n${provider.tokenUrl}`}>Auth URLs set</small>}
-                  </div>
-                  <button
-                    className={`button ${connected ? 'button--secondary' : 'button--dark'}`}
-                    disabled={!canManage || busyId === `openconnector:${provider.provider}` || connecting || !oauthReady}
-                    onClick={() => connected ? onDisconnectExternal(provider) : onConnectExternal(provider)}
-                  >
-                    {busyId === `openconnector:${provider.provider}`
-                      ? <span className="spinner" />
-                      : <Icon name={connected ? 'plug' : 'plus'} size={15} />}
-                    {connected
-                      ? 'Disconnect'
-                      : connecting
-                        ? 'Connecting…'
-                        : !oauthReady
-                          ? provider.authTypes.includes('no_auth') ? 'No authentication needed' : 'Configure in OpenConnector'
-                          : connection ? 'Reconnect' : 'Connect'}
-                  </button>
-                </article>
-              )
-            })}
-          </div>
-          {externalLimit < externalFiltered.length && (
-            <button className="button button--secondary connector-load-more" onClick={() => setExternalLimit((current) => current + 60)}>
-              Show more connectors ({externalFiltered.length - externalLimit} remaining)
-            </button>
-          )}
-        </section>
-      )}
-
-      <section className="integration-grid">
-        {filtered.map((integration) => (
-          <article className="integration-card" key={integration.id}>
-            <div className="integration-card__top">
-              <IntegrationLogo integration={integration} />
-              {integration.id === 'lancee-mcp' ? (
-                <span className="platform-label">
-                  <Icon name="shield" size={12} /> Included
-                </span>
-              ) : integration.id.startsWith('request:') ? (
-                <span className="platform-label">
-                  <Icon name="plus" size={12} /> Requested
-                </span>
-              ) : integration.connected ? (
-                <span className="connected-label">
-                  <Icon name="check" size={12} /> Connected
-                </span>
-              ) : null}
-            </div>
-            <span className="integration-category">{integration.category}</span>
-            <h3>{integration.name}</h3>
-            <p>{integration.description}</p>
-            {integration.id === 'n8n' && (
-              <div className="protocol-badges" aria-label="Supported HTTP methods">
-                <span>GET</span>
-                <span>POST</span>
-                <small>Bidirectional</small>
-              </div>
-            )}
-            {integration.id === 'lancee-mcp' && (
-              <div className="protocol-badges protocol-badges--mcp" aria-label="MCP features">
-                <span>MCP</span>
-                <span>Built in</span>
-                <small>Local tool registry</small>
-              </div>
-            )}
-            {integration.id === 'codex-ai' && (
-              <div className="protocol-badges" aria-label="Codex AI authorization">
-                <span>Device API</span>
-                <span>Scoped</span>
-                <small>Agent calls Lancee AI</small>
-              </div>
-            )}
-            {integration.id === 'codex-runtime' && (
-              <div className="protocol-badges" aria-label="Embedded Codex runtime">
-                <span>App Server</span>
-                <span>Device auth</span>
-                <small>Codex runs inside lancee</small>
-              </div>
-            )}
-            {integration.id === 'mail' && (
-              <div className="protocol-badges" aria-label="Mail protocols">
-                <span>IMAP</span>
-                <span>SMTP</span>
-                <small>Native message triggers</small>
-              </div>
-            )}
+            <h3>Google Workspace</h3>
+            <p>Mail • Drive • Calendar • Contacts • Docs • Sheets — one Google account for your business.</p>
+            <ul className="connected-capabilities">
+              <li><Icon name="check" size={11} /> Mail</li>
+              <li><Icon name="check" size={11} /> Drive</li>
+              <li><Icon name="check" size={11} /> Calendar</li>
+              <li><Icon name="check" size={11} /> Contacts</li>
+            </ul>
+            {googleConnected && <small className="connected-identity">Connected • Manage permissions in Google</small>}
             <button
-              className={`button ${
-                integration.id === 'lancee-mcp'
-                  ? 'button--dark'
-                  : integration.connected
-                    ? 'button--secondary'
-                    : 'button--dark'
-              }`}
-              onClick={() => {
-                if (integration.id === 'n8n') onConfigureN8n()
-                else if (integration.id === 'lancee-mcp') onConfigureMcp()
-                else if (integration.id === 'general-ai') {
-                  onToast('General AI is ready for provider configuration in the upcoming AI layer.')
-                }
-                else if (integration.id === 'codex-ai') onConfigureCodex()
-                else if (integration.id === 'codex-runtime') onConfigureCodexRuntime()
-                else if (integration.id === 'paystack') onConfigurePaystack()
-                else if (integration.id.startsWith('request:')) onToast(`${integration.name} is saved as a pending connection request.`)
-                else if (integration.id === 'mail') onConfigureMail()
-                else if (integration.id === 'whatsapp') onConfigureWhatsApp()
-                else if (integration.id === 'drive') onToggleGoogleDrive(integration)
-                else if (integration.id === 'dropbox' || integration.id === 'onedrive') onOpenStorageSetup(integration.id)
-                else if (integration.category === 'Payments') {
-                  onToast(`Configure ${integration.name} from the connections page`)
-                }
-                else onToggle(integration)
-              }}
-              disabled={busyId === integration.id}
+              className={`button ${googleConnected ? 'button--secondary' : 'button--dark'}`}
+              onClick={() => driveIntegration && onToggleGoogleDrive(driveIntegration)}
+              disabled={busyId === 'drive'}
             >
-              {busyId === integration.id ? (
-                <span className={`spinner${integration.connected ? ' spinner--dark' : ''}`} />
-              ) : (
-                <Icon
-                  name={
-                    integration.id === 'lancee-mcp'
-                      ? 'shield'
-                      : integration.id === 'codex-ai' ||
-                          integration.id === 'codex-runtime'
-                        ? 'command'
-                      : integration.connected
-                      ? integration.id === 'n8n' || integration.id === 'lancee-mcp'
-                        ? 'settings'
-                        : 'plug'
-                      : 'plus'
-                  }
-                  size={15}
-                />
-              )}
-              {integration.id === 'lancee-mcp'
-                ? 'View Lancee MCP'
-                : integration.id.startsWith('request:')
-                  ? 'Pending setup'
-                : integration.id === 'codex-ai'
-                  ? integration.connected
-                    ? 'Manage connection'
-                    : 'Connect Codex'
-                : integration.id === 'codex-runtime'
-                  ? integration.connected
-                    ? 'Open Codex'
-                    : 'Set up Codex'
-                : integration.id === 'n8n' && integration.connected
-                  ? 'Configure'
-                  : integration.id === 'mail'
-                    ? integration.connected
-                      ? 'Open Messages'
-                      : 'Set up mail'
-                  : integration.id === 'whatsapp'
-                    ? integration.connected
-                      ? 'Manage WhatsApp'
-                      : 'Scan WhatsApp QR'
-                  : integration.id === 'paystack'
-                    ? integration.connected
-                      ? 'Configure'
-                      : 'Connect'
-                  : integration.category === 'Payments'
-                    ? 'Preview setup'
-                  : integration.category === 'Storage'
-                    ? integration.connected
-                      ? integration.id === 'dropbox' || integration.id === 'onedrive'
-                        ? 'Manage storage point'
-                        : 'Disconnect'
-                      : integration.id === 'dropbox' || integration.id === 'onedrive'
-                        ? 'Set storage point'
-                        : 'Connect'
-                  : integration.connected
-                    ? 'Disconnect'
-                    : 'Connect'}
+              {busyId === 'drive' ? <span className="spinner spinner--dark" /> : <Icon name={googleConnected ? 'settings' : 'plus'} size={14} />}
+              {googleConnected ? 'Manage' : 'Connect'}
             </button>
           </article>
-        ))}
+
+          <article className="connected-family-card connected-family-card--microsoft">
+            <div className="connected-family-card__top">
+              <span className="connected-family-logo connected-family-logo--microsoft">
+                <BrandIcon name="outlook" />
+                <BrandIcon name="onedrive" />
+                <BrandIcon name="teams" />
+              </span>
+              <span className="platform-label">Available</span>
+            </div>
+            <h3>Microsoft 365</h3>
+            <p>Outlook • OneDrive • Calendar • Contacts — for teams on Microsoft.</p>
+            <ul className="connected-capabilities">
+              <li>Outlook Mail</li>
+              <li>OneDrive</li>
+              <li>Calendar</li>
+              <li>Contacts</li>
+            </ul>
+            <small className="connected-identity">SharePoint and Office documents where supported</small>
+            <button className="button button--secondary" onClick={() => onToast('Microsoft 365 uses your existing Outlook/OneDrive account. Contact support to enable Microsoft OAuth for this workspace.')}>
+              <Icon name="plus" size={14} /> Connect
+            </button>
+          </article>
+        </div>
       </section>
+
+      {/* COMMUNICATION & STORAGE */}
+      <section className="connected-apps-section" aria-labelledby="comm-storage-heading">
+        <div className="connected-apps-section__heading">
+          <span className="micro-label">Communication &amp; Storage</span>
+          <h2 id="comm-storage-heading">Communication &amp; Storage</h2>
+          <p>Bring your existing business mailbox and file storage.</p>
+        </div>
+        <div className="connected-family-grid">
+          <article className="connected-family-card">
+            <div className="connected-family-card__top">
+              <span className="connected-family-logo"><Icon name="messages" size={22} /></span>
+              <span className={mailConnected ? 'connected-label' : 'platform-label'}>
+                {mailConnected ? <><Icon name="check" size={12} /> Connected</> : 'Not connected'}
+              </span>
+            </div>
+            <h3>Other Email</h3>
+            <p>Connect your existing business mailbox using IMAP and SMTP.</p>
+            <ul className="connected-capabilities">
+              <li>IMAP inbox</li>
+              <li>SMTP sending</li>
+              <li>Automation triggers</li>
+            </ul>
+            {mailConnected && <small className="connected-identity">Mailbox is active</small>}
+            <button className={`button ${mailConnected ? 'button--secondary' : 'button--dark'}`} onClick={onConfigureMail} disabled={busyId === 'mail'}>
+              <Icon name={mailConnected ? 'settings' : 'plus'} size={14} /> {mailConnected ? 'Manage' : 'Connect'}
+            </button>
+          </article>
+
+          <article className="connected-family-card">
+            <div className="connected-family-card__top">
+              <span className="connected-family-logo connected-family-logo--dropbox"><BrandIcon name="dropbox" /></span>
+              <span className={dropboxConnected ? 'connected-label' : 'platform-label'}>
+                {dropboxConnected ? <><Icon name="check" size={12} /> Connected</> : 'Available'}
+              </span>
+            </div>
+            <h3>Dropbox</h3>
+            <p>Cloud file storage for your workspace documents.</p>
+            <ul className="connected-capabilities">
+              <li>Workspace files</li>
+              <li>Client delivery</li>
+              <li>Private storage point</li>
+            </ul>
+            <button className={`button ${dropboxConnected ? 'button--secondary' : 'button--dark'}`} onClick={() => onOpenStorageSetup('dropbox')} disabled={busyId === 'dropbox'}>
+              <Icon name={dropboxConnected ? 'settings' : 'plus'} size={14} /> {dropboxConnected ? 'Manage' : 'Connect'}
+            </button>
+          </article>
+        </div>
+      </section>
+
+      {/* BUSINESS */}
+      <section className="connected-apps-section" aria-labelledby="business-heading">
+        <div className="connected-apps-section__heading">
+          <span className="micro-label">Business</span>
+          <h2 id="business-heading">Business</h2>
+          <p>Payments are core business infrastructure — managed natively in Lancee.</p>
+        </div>
+        <div className="connected-family-grid">
+          <article className="connected-family-card connected-family-card--payments">
+            <div className="connected-family-card__top">
+              <span className="connected-family-logo connected-family-logo--payments">
+                <BrandIcon name="paystack" />
+                <BrandIcon name="stripe" />
+                <BrandIcon name="paypal" />
+              </span>
+              <span className={paystackConnected ? 'connected-label' : 'platform-label'}>
+                {paystackConnected ? <><Icon name="check" size={12} /> Connected</> : 'Set up payments'}
+              </span>
+            </div>
+            <h3>Payments</h3>
+            <p>Collect card and bank payments, links, status and reconciliation.</p>
+            <ul className="connected-capabilities">
+              <li>Invoice payment links</li>
+              <li>Payment status</li>
+              <li>Reconciliation</li>
+              <li>Transaction records</li>
+            </ul>
+            <small>Paystack available now • Stripe/PayPal where supported</small>
+            <button className={`button ${paystackConnected ? 'button--secondary' : 'button--dark'}`} onClick={onConfigurePaystack} disabled={busyId === 'paystack'}>
+              <Icon name={paystackConnected ? 'settings' : 'plus'} size={14} /> {paystackConnected ? 'Manage' : 'Connect Paystack'}
+            </button>
+          </article>
+        </div>
+      </section>
+
+      {/* AI */}
+      <section className="connected-apps-section" aria-labelledby="ai-heading">
+        <div className="connected-apps-section__heading">
+          <span className="micro-label">AI</span>
+          <h2 id="ai-heading">AI</h2>
+          <p>Lancee AI is workspace-aware. Bring Your Own AI is chat-only — no privileged tools.</p>
+        </div>
+        <div className="connected-family-grid">
+          <article className="connected-family-card connected-family-card--lancee-ai">
+            <div className="connected-family-card__top">
+              <span className="connected-family-logo connected-family-logo--ai"><Icon name="sparkles" size={22} /></span>
+              <span className="platform-label"><Icon name="shield" size={12} /> Built-in</span>
+            </div>
+            <h3>Lancee AI</h3>
+            <p>Workspace-aware assistant with Lancee tools, files, and automation.</p>
+            <ul className="connected-capabilities">
+              <li>Workspace intelligence</li>
+              <li>Lancee tools / MCP</li>
+              <li>Workflow assistance</li>
+              <li>Governed context</li>
+            </ul>
+            <small>Managed by Lancee • Permission-enforced</small>
+            <button className="button button--secondary" onClick={() => onToast('Lancee AI is active in this workspace. Use the chat assistant for workspace-aware help.')}>
+              <Icon name="sparkles" size={14} /> Active
+            </button>
+          </article>
+
+          <article className="connected-family-card connected-family-card--byo-ai">
+            <div className="connected-family-card__top">
+              <span className="connected-family-logo connected-family-logo--byo"><Icon name="command" size={22} /></span>
+              <span className={byoConfig?.configured ? 'connected-label' : 'platform-label'}>
+                {byoConfig?.configured ? <><Icon name="check" size={12} /> Connected</> : 'Not connected'}
+              </span>
+            </div>
+            <h3>Bring Your Own AI</h3>
+            <p>Use your own provider for general AI chat — writing, summarising, brainstorming.</p>
+            <ul className="connected-capabilities">
+              <li>Chat only</li>
+              <li>No privileged tools</li>
+              <li>No MCP / workspace data</li>
+              <li>Provider: {byoConfig?.provider || 'not set'}</li>
+            </ul>
+            {byoConfig?.configured && <small className="connected-identity">Model: {byoConfig.model} • Key: {byoConfig.maskedKey}</small>}
+            {!byoConfig?.configured && <small>Supports OpenAI, Anthropic, Gemini, OpenAI-compatible</small>}
+            <button
+              className={`button ${byoConfig?.configured ? 'button--secondary' : 'button--dark'}`}
+              onClick={() => setShowByoModal(true)}
+            >
+              <Icon name={byoConfig?.configured ? 'settings' : 'plus'} size={14} /> {byoConfig?.configured ? 'Manage' : 'Configure'}
+            </button>
+          </article>
+        </div>
+        {showByoModal && (
+          <BringYourOwnAiModal
+            config={byoConfig}
+            onClose={() => setShowByoModal(false)}
+            onSaved={async () => { await refreshByo(); setShowByoModal(false); onToast('Custom AI provider saved. Chat-only access enabled.') }}
+            onRemoved={async () => { await refreshByo(); setShowByoModal(false); onToast('Custom AI provider removed.') }}
+            onToast={onToast}
+          />
+        )}
+      </section>
+
+      {/* AUTOMATION & EXTENSIONS */}
+      <section className="connected-apps-section" aria-labelledby="automation-heading">
+        <div className="connected-apps-section__heading">
+          <span className="micro-label">Automation &amp; Extensions</span>
+          <h2 id="automation-heading">Automation &amp; Extensions</h2>
+          <p>Connect hundreds of other services through n8n, or build with the Lancee API.</p>
+        </div>
+        <div className="connected-family-grid">
+          <article className="connected-family-card connected-family-card--n8n">
+            <div className="connected-family-card__top">
+              <span className="connected-family-logo connected-family-logo--n8n"><span className="logo-n8n"><i /><i /><i /></span></span>
+              <span className={n8nConnected ? 'connected-label' : 'platform-label'}>
+                {n8nConnected ? <><Icon name="check" size={12} /> Connected</> : 'Available'}
+              </span>
+            </div>
+            <h3>n8n</h3>
+            <p>Connect Lancee to hundreds of other services — CRM, marketing, WhatsApp, GitHub, Slack and more.</p>
+            <ul className="connected-capabilities">
+              <li>CRM &amp; marketing</li>
+              <li>WhatsApp, Slack, GitHub</li>
+              <li>Industry SaaS</li>
+              <li>Bidirectional webhooks</li>
+            </ul>
+            <small>External integration gateway • Avoids maintaining hundreds of native connectors</small>
+            <button className={`button ${n8nConnected ? 'button--secondary' : 'button--dark'}`} onClick={onConfigureN8n}>
+              <Icon name={n8nConnected ? 'settings' : 'plus'} size={14} /> {n8nConnected ? 'Configure' : 'Connect n8n'}
+            </button>
+          </article>
+
+          <article className="connected-family-card connected-family-card--api">
+            <div className="connected-family-card__top">
+              <span className="connected-family-logo"><Icon name="code" size={22} /></span>
+              <span className="platform-label"><Icon name="shield" size={12} /> Developer</span>
+            </div>
+            <h3>API &amp; Webhooks</h3>
+            <p>Build custom integrations with webhooks and the Lancee API.</p>
+            <ul className="connected-capabilities">
+              <li>n8n-style webhooks</li>
+              <li>Webhook signing</li>
+              <li>API keys</li>
+              <li>Lancee API</li>
+            </ul>
+            <small>Technical setup appears after entering this section</small>
+            <button className="button button--secondary" onClick={() => onToast('API & Webhooks: manage n8n above, then use API keys in Preferences → Dev Tools.')}>
+              <Icon name="code" size={14} /> View docs
+            </button>
+          </article>
+        </div>
+      </section>
+
+      <section className="connected-apps-footnote">
+        <p>Lancee directly integrates with the small set of services required to operate a modern business. Broader third-party connectivity is provided through n8n, webhooks and the Lancee API.</p>
+        <p className="connected-apps-footnote__hidden">Legacy connectors remain executable for existing workflows but are hidden from customer discovery.</p>
+      </section>
+    </div>
+  )
+}
+
+function BringYourOwnAiModal({ config, onClose, onSaved, onRemoved, onToast }: {
+  config: { configured: boolean; provider: string | null; model: string | null; maskedKey: string | null } | null
+  onClose: () => void
+  onSaved: () => void
+  onRemoved: () => void
+  onToast: (m: string) => void
+}) {
+  const [provider, setProvider] = useState(config?.provider || 'openai')
+  const [model, setModel] = useState(config?.model || '')
+  const [apiKey, setApiKey] = useState('')
+  const [endpointUrl, setEndpointUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (config?.provider) setProvider(config.provider)
+    if (config?.model) setModel(config.model)
+  }, [config])
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      await api.customAi.save({ provider, model, apiKey, endpointUrl: endpointUrl || undefined })
+      await onSaved()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to save provider.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const test = async () => {
+    setTesting(true)
+    setError('')
+    try {
+      const res = await api.customAi.test()
+      onToast(`Test OK • ${res.provider}/${res.model} • ${res.latencyMs}ms`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Test failed.')
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const remove = async () => {
+    if (!window.confirm('Remove the custom AI provider and its stored key?')) return
+    setBusy(true)
+    try {
+      await api.customAi.remove()
+      await onRemoved()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to remove provider.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Bring Your Own AI">
+      <div className="modal-card modal-card--wide">
+        <div className="modal-card__heading">
+          <h3>Bring Your Own AI</h3>
+          <p>Configure a provider for general chat only. BYO AI never receives Lancee workspace tools, MCP credentials, or Connected Intelligence.</p>
+          {config?.configured && <small>Current: {config.provider} • {config.model} • Key: {config.maskedKey}</small>}
+        </div>
+        <form onSubmit={save} className="modal-form">
+          <label className="form-field">
+            <span>Provider</span>
+            <select value={provider} onChange={e => setProvider(e.target.value)}>
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="gemini">Google Gemini</option>
+              <option value="openai_compatible">OpenAI-compatible</option>
+            </select>
+            <small>Only supported providers are listed. lancee AI (Hermes) remains separate.</small>
+          </label>
+          <label className="form-field">
+            <span>Model</span>
+            <input value={model} onChange={e => setModel(e.target.value)} placeholder={provider === 'openai' ? 'gpt-4o-mini' : provider === 'anthropic' ? 'claude-3-5-haiku-latest' : provider === 'gemini' ? 'gemini-2.0-flash' : 'your-model-name'} required />
+          </label>
+          {(provider === 'openai_compatible' || provider === 'openai-compatible') && (
+            <label className="form-field">
+              <span>Endpoint URL</span>
+              <input value={endpointUrl} onChange={e => setEndpointUrl(e.target.value)} placeholder="https://your-provider.com/v1" required />
+            </label>
+          )}
+          {provider !== 'openai_compatible' && (
+            <label className="form-field">
+              <span>Endpoint URL <small>(optional override)</small></span>
+              <input value={endpointUrl} onChange={e => setEndpointUrl(e.target.value)} placeholder="Leave blank for default" />
+            </label>
+          )}
+          <label className="form-field">
+            <span>API key</span>
+            <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={config?.configured ? '•••••••• – enter new key to replace' : 'sk-...'} required={!config?.configured} autoComplete="new-password" />
+            <small>Stored encrypted at rest • Masked in UI • Never returned fully • Never logged • Replace or remove anytime</small>
+          </label>
+          {error && <p className="form-error">{error}</p>}
+          <div className="modal-form__footer">
+            <div>
+              {config?.configured && <button type="button" className="button button--danger button--small" onClick={remove} disabled={busy}>Remove</button>}
+              {config?.configured && <button type="button" className="button button--secondary button--small" onClick={test} disabled={testing}>{testing ? 'Testing…' : 'Test'}</button>}
+            </div>
+            <div>
+              <button type="button" className="button button--secondary" onClick={onClose}>Close</button>
+              <button type="submit" className="button button--primary" disabled={busy}>{busy ? 'Saving…' : config?.configured ? 'Replace key' : 'Save provider'}</button>
+            </div>
+          </div>
+            <p className="byo-boundary-note"><Icon name="shield" size={12} /> BYO AI is chat-only: no MCP tools, no workspace data, no workflow execution.</p>
+        </form>
+      </div>
     </div>
   )
 }
@@ -2326,7 +2404,7 @@ function ApiPage({
   onToast: (message: string) => void
   canManage: boolean
 }) {
-  const sampleCode = `curl https://lancee.hookitupservices.com/api/v1/workspace \\
+  const sampleCode = `curl ${window.location.origin}/api/v1/workspace \\
   -H "Authorization: Bearer $LANCEE_API_KEY"`
   const formatTimestamp = (value: string | null) =>
     value
@@ -2445,7 +2523,7 @@ function ApiPage({
           </div>
           <pre>
             <code>
-              <span>curl</span> https://lancee.hookitupservices.com/api/v1/workspace \<br />
+              <span>curl</span> {window.location.origin}/api/v1/workspace \<br />
               {'  '}-H <em>&quot;Authorization: Bearer $LANCEE_API_KEY&quot;</em>
             </code>
           </pre>
@@ -2472,15 +2550,19 @@ function SettingsPage({
 }) {
   const canEdit = user.role === 'owner'
   const [workspace, setWorkspace] = useState(user.workspace)
+  const [displayName, setDisplayName] = useState(user.name)
   const [email, setEmail] = useState(user.email)
   const [timezone, setTimezone] = useState('Africa/Johannesburg')
   const [travelMode, setTravelMode] = useState('none')
   const [travelLocation, setTravelLocation] = useState('')
+  const [workspaceLogoUrl, setWorkspaceLogoUrl] = useState('')
   const [saving, setSaving] = useState(false)
+  const [savingProfile, setSavingProfile] = useState(false)
   const [settingsLoading, setSettingsLoading] = useState(true)
   const [settingsError, setSettingsError] = useState('')
   const [avatarSaving, setAvatarSaving] = useState(false)
-  const [section, setSection] = useState(initialSection)
+  const [logoSaving, setLogoSaving] = useState(false)
+  const [section, setSection] = useState<'profile' | 'integrations' | 'plan' | 'builder' | 'help' | 'dev'>(initialSection === 'dev' ? 'dev' : 'profile')
   const [dbInfo, setDbInfo] = useState<{
     provider: string
     mode: string
@@ -2496,9 +2578,11 @@ function SettingsPage({
     isOnTrial: boolean
     trialDaysLeft: number
   } | null>(null)
+  const [integrations, setIntegrations] = useState<Integration[]>([])
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
 
   useEffect(() => {
-    setSection(initialSection)
+    setSection(initialSection === 'dev' ? 'dev' : 'profile')
   }, [initialSection])
 
   useEffect(() => {
@@ -2507,9 +2591,10 @@ function SettingsPage({
       .then((settings) => {
         if (settings.name) setWorkspace(settings.name)
         if (settings.email) setEmail(settings.email)
-        setTimezone(settings.timezone)
-        setTravelMode(settings.travelMode)
-        setTravelLocation(settings.travelLocation)
+        setTimezone(settings.timezone || 'Africa/Johannesburg')
+        setTravelMode(settings.travelMode || 'none')
+        setTravelLocation(settings.travelLocation || '')
+        setWorkspaceLogoUrl(settings.logoUrl || '')
       })
       .catch((caught) => {
         setSettingsError(
@@ -2533,9 +2618,11 @@ function SettingsPage({
         }),
       )
       .catch(() => undefined)
-  }, [])
+    api.integrations.list().then(setIntegrations).catch(() => undefined)
+    if (user.role === 'owner') api.apiKeys.list().then(setApiKeys).catch(() => undefined)
+  }, [user.role])
 
-  const save = async (event: FormEvent<HTMLFormElement>) => {
+  const saveWorkspace = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setSaving(true)
     setSettingsError('')
@@ -2563,6 +2650,23 @@ function SettingsPage({
       onToast(message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const saveDisplayName = async () => {
+    if (!displayName.trim() || displayName.trim() === user.name) return
+    setSavingProfile(true)
+    setSettingsError('')
+    try {
+      const updated = await api.auth.updateProfile({ name: displayName.trim() })
+      onUserUpdated(updated)
+      onToast('Display name updated')
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Unable to update display name.'
+      setSettingsError(message)
+      onToast(message)
+    } finally {
+      setSavingProfile(false)
     }
   }
 
@@ -2620,156 +2724,323 @@ function SettingsPage({
     }
   }
 
+  const changeWorkspaceLogo = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setSettingsError('Workspace logo must be JPEG, PNG, or WebP.')
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setSettingsError('Workspace logo must be under 2 MB.')
+      return
+    }
+    setLogoSaving(true)
+    setSettingsError('')
+    try {
+      const updated = await api.workspace.uploadLogo(file)
+      setWorkspaceLogoUrl(updated.logoUrl)
+      onSaved(updated)
+      onToast('Workspace logo updated')
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Unable to update workspace logo.'
+      setSettingsError(message)
+      onToast(message)
+    } finally {
+      setLogoSaving(false)
+    }
+  }
+
   return (
     <div className="page settings-page">
       <PageHeader
-        eyebrow="Your account and workspace"
-        title={section === 'dev' ? 'Dev Tools' : 'Preferences'}
-        description={
-          section === 'dev'
-            ? 'Technical diagnostics, API access, and activity records for workspace administrators.'
-            : 'Manage your account and workspace preferences in plain language.'
-        }
+        eyebrow="Workspace configuration"
+        title="Preferences"
+        description="Central configuration for your workspace, account, and connected services."
       />
       <div className="settings-layout">
-        <aside className="settings-nav">
-          <button type="button" className={section === 'general' ? 'is-active' : ''} onClick={() => setSection('general')}>
-            <Icon name="settings" size={16} /> Preferences
+        <aside className="settings-nav" aria-label="Preferences sections">
+          <span className="settings-nav__group-label">Account</span>
+          <button type="button" className={section === 'profile' ? 'is-active' : ''} onClick={() => setSection('profile')}>
+            <Icon name="user" size={16} /> Profile
           </button>
-          <button type="button" onClick={() => onNavigate('team')}>
-            <Icon name="user" size={16} /> Collaborators
+          <span className="settings-nav__group-label">Workspace</span>
+          <button type="button" className={section === 'integrations' ? 'is-active' : ''} onClick={() => setSection('integrations')}>
+            <Icon name="plug" size={16} /> Integrations
           </button>
-          <button type="button" onClick={() => onNavigate('pricing')}>
+          <button type="button" className={section === 'plan' ? 'is-active' : ''} onClick={() => setSection('plan')}>
             <Icon name="credit-card" size={16} /> Pricing &amp; plan
           </button>
-          <button type="button" className={section === 'dev' ? 'is-active' : ''} onClick={() => setSection('dev')}>
-            <Icon name="code" size={16} /> Dev Tools
+          <button type="button" className={section === 'builder' ? 'is-active' : ''} onClick={() => setSection('builder')}>
+            <Icon name="sparkles" size={16} /> Workspace builder
           </button>
+          <span className="settings-nav__group-label">Support</span>
+          <button type="button" className={section === 'help' ? 'is-active' : ''} onClick={() => setSection('help')}>
+            <Icon name="help" size={16} /> Help &amp; documentation
+          </button>
+          {user.isAdmin && (
+            <button type="button" className={section === 'dev' ? 'is-active' : ''} onClick={() => setSection('dev')}>
+              <Icon name="code" size={16} /> Dev Tools {user.isAdmin && <span className="settings-nav__badge">Admin</span>}
+            </button>
+          )}
+          {!user.isAdmin && (
+            <button type="button" className={section === 'dev' ? 'is-active' : ''} onClick={() => setSection('dev')}>
+              <Icon name="code" size={16} /> Dev Tools
+            </button>
+          )}
+          <div className="settings-nav__hint">
+            <Icon name="user" size={12} /> Team &amp; collaborators are managed on the <button type="button" className="text-button" onClick={() => onNavigate('team')}>Team page</button>
+          </div>
         </aside>
         <div className="settings-content">
-          {section !== 'dev' && (
-          <form className="settings-card" onSubmit={save}>
-            <div className="settings-card__heading">
-              <h3>Workspace profile</h3>
-              <p>Used on shared work, invoices, and client-facing pages.</p>
-            </div>
-            {settingsError && <p className="form-error">{settingsError}</p>}
-            <div className="workspace-logo-field">
-              <UserAvatar user={user} />
-              <div>
-                <strong>{user.name}</strong>
-                <small>{canEdit ? 'Workspace owner' : 'Workspace collaborator'}</small>
-                <div className="profile-image-actions">
-                  <label className="button button--secondary button--small">
-                    {avatarSaving ? 'Uploading…' : user.avatarUrl ? 'Change image' : 'Add image'}
+          {settingsError && <p className="form-error" role="alert">{settingsError}</p>}
+
+          {section === 'profile' && (
+            <>
+              <form className="settings-card" onSubmit={saveWorkspace}>
+                <div className="settings-card__heading">
+                  <h3>Profile</h3>
+                  <p>Your personal details and workspace identity.</p>
+                </div>
+                <div className="workspace-logo-field">
+                  <UserAvatar user={user} />
+                  <div>
+                    <strong>{user.name}</strong>
+                    <small>{canEdit ? 'Workspace owner' : 'Workspace collaborator'} · {user.email}</small>
+                    <div className="profile-image-actions">
+                      <label className="button button--secondary button--small">
+                        {avatarSaving ? 'Uploading…' : user.avatarUrl ? 'Change image' : 'Add image'}
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          onChange={(event) => void changeAvatar(event)}
+                          disabled={avatarSaving}
+                        />
+                      </label>
+                      {user.avatarUrl && (
+                        <button
+                          type="button"
+                          className="button button--ghost button--small"
+                          onClick={() => void removeAvatar()}
+                          disabled={avatarSaving}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <small className="profile-image-help">JPEG, PNG, or WebP · max 2 MB</small>
+                  </div>
+                </div>
+                <label className="form-field">
+                  <span>Display name</span>
+                  <div className="form-field__with-action">
+                    <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Your display name" />
+                    <button type="button" className="button button--secondary button--small" onClick={() => void saveDisplayName()} disabled={savingProfile || !displayName.trim() || displayName.trim() === user.name}>
+                      {savingProfile ? 'Saving…' : 'Update name'}
+                    </button>
+                  </div>
+                </label>
+                <label className="form-field">
+                  <span>Workspace / Business name</span>
+                  <input value={workspace} onChange={(event) => setWorkspace(event.target.value)} disabled={!canEdit} placeholder="Your workspace name" />
+                </label>
+                <label className="form-field">
+                  <span>Email</span>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    disabled={!canEdit}
+                  />
+                </label>
+                <div className="settings-card__split">
+                  <label className="form-field">
+                    <span>Timezone</span>
                     <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      onChange={(event) => void changeAvatar(event)}
-                      disabled={avatarSaving}
+                      value={timezone}
+                      onChange={(event) => setTimezone(event.target.value)}
+                      placeholder="Africa/Johannesburg"
+                      disabled={!canEdit}
                     />
                   </label>
-                  {user.avatarUrl && (
-                    <button
-                      type="button"
-                      className="button button--ghost button--small"
-                      onClick={() => void removeAvatar()}
-                      disabled={avatarSaving}
+                  <label className="form-field">
+                    <span>Travel mode</span>
+                    <select
+                      value={travelMode}
+                      onChange={(event) => setTravelMode(event.target.value)}
+                      disabled={!canEdit}
                     >
-                      Remove
+                      <option value="none">Off</option>
+                      <option value="traveling">Traveling</option>
+                    </select>
+                  </label>
+                </div>
+                {travelMode === 'traveling' && (
+                  <label className="form-field">
+                    <span>Current location</span>
+                    <input
+                      value={travelLocation}
+                      onChange={(event) => setTravelLocation(event.target.value)}
+                      placeholder="Cape Town, South Africa"
+                      disabled={!canEdit}
+                    />
+                  </label>
+                )}
+                <div className="workspace-logo-field workspace-logo-field--workspace">
+                  <span className="workspace-logo-preview">
+                    {workspaceLogoUrl ? <img src={workspaceLogoUrl} alt="Workspace logo" /> : <span>{workspace.slice(0,2).toUpperCase() || 'WS'}</span>}
+                  </span>
+                  <div>
+                    <strong>Workspace logo</strong>
+                    <small>Shown on invoices, client pages, and shared work.</small>
+                    <label className="button button--secondary button--small">
+                      {logoSaving ? 'Uploading…' : workspaceLogoUrl ? 'Change logo' : 'Add logo'}
+                      <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void changeWorkspaceLogo(event)} disabled={logoSaving || !canEdit} />
+                    </label>
+                  </div>
+                </div>
+                {planInfo && (
+                  <div className="setting-row">
+                    <span className="setting-row__icon"><Icon name="credit-card" size={18} /></span>
+                    <div>
+                      <strong>{planInfo.name} plan</strong>
+                      <p>{planInfo.isOnTrial ? `${planInfo.trialDaysLeft} days of trial remaining` : `${planInfo.billingPeriod} billing · ${planInfo.status}`}</p>
+                    </div>
+                    <button type="button" className="button button--secondary button--small" onClick={() => setSection('plan')}>Manage plan</button>
+                  </div>
+                )}
+                <div className="form-footer">
+                  {canEdit ? (
+                    <button
+                      className="button button--dark"
+                      type="submit"
+                      disabled={saving || settingsLoading}
+                    >
+                      {saving ? 'Saving…' : settingsLoading ? 'Loading…' : 'Save workspace changes'}
                     </button>
+                  ) : (
+                    <small>Only workspace owners can change these settings.</small>
                   )}
                 </div>
-                <small className="profile-image-help">JPEG, PNG, or WebP · max 2 MB</small>
-              </div>
-            </div>
-            <label className="form-field">
-              <span>Workspace name</span>
-              <input value={workspace} onChange={(event) => setWorkspace(event.target.value)} disabled={!canEdit} />
-            </label>
-            <label className="form-field">
-              <span>Owner email</span>
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                disabled={!canEdit}
-              />
-            </label>
-            <label className="form-field">
-              <span>Timezone</span>
-              <input
-                value={timezone}
-                onChange={(event) => setTimezone(event.target.value)}
-                placeholder="Africa/Johannesburg"
-                disabled={!canEdit}
-              />
-            </label>
-            <label className="form-field">
-              <span>Travel mode</span>
-              <select
-                value={travelMode}
-                onChange={(event) => setTravelMode(event.target.value)}
-                disabled={!canEdit}
-              >
-                <option value="none">Off</option>
-                <option value="traveling">Traveling</option>
-              </select>
-            </label>
-            {travelMode === 'traveling' && (
-              <label className="form-field">
-                <span>Current location</span>
-                <input
-                  value={travelLocation}
-                  onChange={(event) => setTravelLocation(event.target.value)}
-                  placeholder="Cape Town, South Africa"
-                  disabled={!canEdit}
-                />
-              </label>
-            )}
-            <div className="form-footer">
-              {canEdit ? (
-                <button
-                  className="button button--dark"
-                  type="submit"
-                  disabled={saving || settingsLoading}
-                >
-                  {saving ? 'Saving…' : settingsLoading ? 'Loading…' : 'Save changes'}
-                </button>
-              ) : (
-                <small>Only workspace owners can change these settings.</small>
-              )}
-            </div>
-          </form>
+              </form>
+            </>
           )}
 
-          <section className="settings-card">
-            <div className="settings-card__heading">
-              <h3>Workspace plan</h3>
-              <p>Your current plan, billing cycle, and trial availability.</p>
+          {section === 'integrations' && (
+            <div className="settings-stack">
+              <section className="settings-card">
+                <div className="settings-card__heading">
+                  <h3>Connected apps</h3>
+                  <p>Manage the services connected to this workspace. These previously lived on a separate page.</p>
+                </div>
+                <div className="settings-integrations-grid">
+                  {integrations.length === 0 ? <p className="empty-copy">Loading integrations…</p> : integrations.slice(0, 8).map((integration) => (
+                    <div key={integration.id} className="setting-row">
+                      <span className="setting-row__icon"><Icon name={integration.icon as IconName} size={16} /></span>
+                      <div>
+                        <strong>{integration.name}</strong>
+                        <p>{integration.description}</p>
+                      </div>
+                      <span className={integration.connected ? 'connected-label' : 'platform-label'}>{integration.connected ? 'Connected' : 'Not connected'}</span>
+                    </div>
+                  ))}
+                </div>
+                <button type="button" className="button button--secondary" onClick={() => onNavigate('integrations' as Page)}>Open full integrations</button>
+              </section>
+              <section className="settings-card">
+                <div className="settings-card__heading">
+                  <h3>API keys</h3>
+                  <p>Scoped keys for server integrations. Workspace owners only.</p>
+                </div>
+                {apiKeys.length === 0 ? <p className="empty-copy">{user.role === 'owner' ? 'No API keys yet.' : 'Only owners can manage keys.'}</p> : (
+                  <div className="settings-key-list">
+                    {apiKeys.map((k) => (
+                      <div key={k.id} className="setting-row">
+                        <span className="setting-row__icon"><Icon name="code" size={14} /></span>
+                        <div><strong>{k.name}</strong><p>{k.prefix} · {k.permissions.join(', ')}</p></div>
+                        <small>{new Date(k.createdAt).toLocaleDateString()}</small>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button type="button" className="button button--secondary button--small" onClick={() => onNavigate('api' as Page)}>Manage API keys</button>
+              </section>
             </div>
-            <div className="setting-row">
-              <span className="setting-row__icon">
-                <Icon name="credit-card" size={18} />
-              </span>
-              <div>
-                <strong>{planInfo ? `${planInfo.name} plan` : 'Loading plan…'}</strong>
-                <p>
-                  {planInfo?.isOnTrial
-                    ? `${planInfo.trialDaysLeft} days of your Solo trial remaining`
-                    : planInfo
-                      ? `${planInfo.billingPeriod} billing`
-                      : 'Checking your current plan'}
-                </p>
+          )}
+
+          {section === 'plan' && (
+            <section className="settings-card">
+              <div className="settings-card__heading">
+                <h3>Pricing &amp; plan</h3>
+                <p>Your current plan, billing cycle, and available upgrades. Region is detected automatically.</p>
               </div>
-              <button
-                className="button button--secondary button--small"
-                onClick={() => onNavigate('pricing')}
-              >
-                {planInfo?.isOnTrial ? 'Choose a plan' : 'Manage plan'}
-              </button>
-            </div>
-          </section>
+              <div className="setting-row">
+                <span className="setting-row__icon">
+                  <Icon name="credit-card" size={18} />
+                </span>
+                <div>
+                  <strong>{planInfo ? `${planInfo.name} plan` : 'Loading plan…'}</strong>
+                  <p>
+                    {planInfo?.isOnTrial
+                      ? `${planInfo.trialDaysLeft} days of your Solo trial remaining`
+                      : planInfo
+                        ? `${planInfo.billingPeriod} billing · ${planInfo.status}`
+                        : 'Checking your current plan'}
+                  </p>
+                </div>
+                <button
+                  className="button button--dark button--small"
+                  onClick={() => onNavigate('pricing' as Page)}
+                >
+                  {planInfo?.isOnTrial ? 'Choose a plan' : 'Manage plan'}
+                </button>
+              </div>
+              <p className="settings-help">Prefer a full comparison? The detailed pricing page is now accessed from here to keep navigation focused.</p>
+            </section>
+          )}
+
+          {section === 'builder' && (
+            <section className="settings-card">
+              <div className="settings-card__heading">
+                <h3>Workspace builder</h3>
+                <p>Review your workspace setup and refine modules, integrations, and automations.</p>
+              </div>
+              <div className="setting-row">
+                <span className="setting-row__icon"><Icon name="sparkles" size={18} /></span>
+                <div>
+                  <strong>Tailor your workspace</strong>
+                  <p>Adjustment stays in Preferences — the builder no longer clutters primary navigation.</p>
+                </div>
+                <button type="button" className="button button--dark button--small" onClick={() => onNavigate('builder' as Page)}>Open builder</button>
+              </div>
+            </section>
+          )}
+
+          {section === 'help' && (
+            <section className="settings-card">
+              <div className="settings-card__heading">
+                <h3>Help &amp; documentation</h3>
+                <p>Guidance for everyday work and workspace administration.</p>
+              </div>
+              <div className="settings-help-grid">
+                <a href="https://lancee.app/docs" target="_blank" rel="noreferrer" className="setting-row setting-row--link">
+                  <span className="setting-row__icon"><Icon name="help" size={18} /></span>
+                  <div><strong>Documentation</strong><p>How clients, projects, invoices, and automations fit together.</p></div>
+                  <Icon name="arrow-up-right" size={14} />
+                </a>
+                <a href="mailto:support@lancee.app" className="setting-row setting-row--link">
+                  <span className="setting-row__icon"><Icon name="messages" size={18} /></span>
+                  <div><strong>Contact support</strong><p>Reach the Lancee team — we keep billing and platform answers together.</p></div>
+                  <Icon name="arrow-up-right" size={14} />
+                </a>
+                <div className="setting-row">
+                  <span className="setting-row__icon"><Icon name="file" size={18} /></span>
+                  <div><strong>In-app guidance</strong><p>Look for the contextual hints across projects, files, and invoicing.</p></div>
+                </div>
+              </div>
+            </section>
+          )}
 
           {section === 'dev' && (
           <>
@@ -3001,6 +3272,11 @@ function LandingPage({
   const [navOpen, setNavOpen] = useState(false)
   const [signupNotice, setSignupNotice] = useState(false)
   const [registrationEnabled, setRegistrationEnabled] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatDraft, setChatDraft] = useState('')
+  const [chatMessages, setChatMessages] = useState<Array<{ role: 'assistant' | 'user'; body: string }>>([
+    { role: 'assistant' as const, body: 'Hi! I’m here to help you with anything you need.' },
+  ])
 
   useEffect(() => {
     let active = true
@@ -3026,6 +3302,17 @@ function LandingPage({
     onSignUp()
   }
 
+  const sendChatMessage = (message: string) => {
+    const body = message.trim()
+    if (!body) return
+    setChatMessages((current) => [
+      ...current,
+      { role: 'user' as const, body },
+      { role: 'assistant' as const, body: 'Thanks — this is a demo chat for now. A Lancee specialist will be able to help with that here soon.' },
+    ])
+    setChatDraft('')
+  }
+
   useEffect(() => {
     const landing = landingRef.current
     if (!landing || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -3034,12 +3321,13 @@ function LandingPage({
 
     const headings = Array.from(
       landing.querySelectorAll<HTMLElement>(
-        '.landing-section h2, .landing-section h3, .landing-workflow h2, .landing-intelligence h2, .landing-security h2, .landing-cta h2',
+        '.landing-section h2, .landing-section h3, .landing-workflow h2, .landing-connected h2, .landing-intelligence h2, .landing-pulse h2, .landing-security h2, .landing-cta h2',
       ),
     )
     const heroLines = Array.from(
       landing.querySelectorAll<HTMLElement>('.landing-hero__title-line'),
     )
+    const heroProduct = landing.querySelector<HTMLElement>('.landing-product')
 
     gsap.set(headings, {
       autoAlpha: 0,
@@ -3069,6 +3357,21 @@ function LandingPage({
         '-=0.28',
       )
 
+    if (heroProduct) {
+      heroTimeline.fromTo(
+        heroProduct,
+        { autoAlpha: 0, y: 34, scale: 0.975 },
+        {
+          autoAlpha: 1,
+          y: 0,
+          scale: 1,
+          duration: 1.15,
+          clearProps: 'opacity,visibility,transform',
+        },
+        '-=0.8',
+      )
+    }
+
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -3097,8 +3400,8 @@ function LandingPage({
     return () => {
       observer.disconnect()
       heroTimeline.kill()
-      gsap.killTweensOf([...headings, ...heroLines])
-      gsap.set([...headings, ...heroLines], { clearProps: 'all' })
+      gsap.killTweensOf([...headings, ...heroLines, ...(heroProduct ? [heroProduct] : [])])
+      gsap.set([...headings, ...heroLines, ...(heroProduct ? [heroProduct] : [])], { clearProps: 'all' })
     }
   }, [])
 
@@ -3130,6 +3433,7 @@ if (policyView !== 'landing') {
         <nav id="landing-navigation" className={navOpen ? 'is-open' : ''} aria-label="Public navigation">
           <a href="#platform" onClick={() => setNavOpen(false)}>What it does</a>
           <a href="#workflow" onClick={() => setNavOpen(false)}>How it works</a>
+          <a href="#connected-intelligence" onClick={() => setNavOpen(false)}>Intelligence</a>
           <a href="#integrations" onClick={() => setNavOpen(false)}>Connections</a>
           <a href="/pricing" onClick={(event) => { event.preventDefault(); setNavOpen(false); onPricing() }}>
             Pricing
@@ -3137,6 +3441,14 @@ if (policyView !== 'landing') {
           <button className="landing-nav-features" onClick={() => { setNavOpen(false); setFeaturesOpen(true) }}>
             Features
           </button>
+          <div className="landing-nav__mobile-actions">
+            <button className="landing-sign-in" onClick={() => { setNavOpen(false); onSignIn() }}>
+              Sign in
+            </button>
+            <button className="button button--primary btn-shine" onClick={() => { setNavOpen(false); handleSignUp() }}>
+              Sign Up
+            </button>
+          </div>
         </nav>
         <button
           className="landing-menu-toggle"
@@ -3174,8 +3486,10 @@ if (policyView !== 'landing') {
             </span>
           </h1>
           <p>
-            One calm place for client work, ideas, useful automations, connected tools,
-            invoices, and payments, wherever you happen to be working.
+            Lancee connects your projects, clients, conversations, meetings, files, ideas and money — then turns that everyday activity into useful business intelligence.
+          </p>
+          <p style={{ marginTop: '14px', color: '#9ba495', fontSize: '14px', lineHeight: 1.7 }}>
+            Instead of making you search through your business to understand what is happening, Lancee helps surface what matters, what changed, and what may need your attention.
           </p>
           <div className="landing-hero__actions">
             <button className="button button--primary btn-shine" onClick={handleSignUp}>
@@ -3188,6 +3502,9 @@ if (policyView !== 'landing') {
           <div className="landing-trust">
             <span>
               <Icon name="briefcase" size={14} /> Built for independent work
+            </span>
+            <span>
+              <Icon name="sparkles" size={14} /> Connected Intelligence
             </span>
             <span>
               <Icon name="wallet" size={14} /> From brief to paid
@@ -3208,31 +3525,9 @@ if (policyView !== 'landing') {
               <i /> 3 projects moving
             </span>
           </div>
-          <div className="landing-command-preview">
-            <div>
-              <Icon name="sparkles" size={17} />
-              <span>Turn the Ember Gin feedback into a clean revision checklist.</span>
-            </div>
-            <button aria-label="Open sign in" onClick={onSignIn}>
-              <Icon name="arrow-up-right" size={16} />
-            </button>
-          </div>
-          <div className="landing-run">
-            <div className="landing-run__automation">
-              <span className="automation-avatar automation-avatar--lime">
-                <Icon name="briefcase" size={17} />
-              </span>
-              <span>
-                <strong>Kalahari Ember Gin</strong>
-                <small>Client feedback ready to review</small>
-              </span>
-            </div>
-            <span className="landing-run__status">
-              <i /> Due today
-            </span>
-            <div className="landing-run__progress">
-              <span />
-            </div>
+          <div className="landing-intel-quote" aria-label="Connected insight">
+            <span className="landing-intel-quote__icon"><Icon name="sparkles" size={14} /></span>
+            <p>“Juniper & Tide has had two client meetings this week and three unresolved feedback items. Friday&apos;s delivery may need attention.”</p>
           </div>
           <div className="landing-mini-grid">
             <article>
@@ -3251,15 +3546,23 @@ if (policyView !== 'landing') {
               <small>All healthy</small>
             </article>
           </div>
-          <div className="landing-activity">
-            <span>Your projects view</span>
-            <div>
-              {[32, 45, 39, 58, 53, 72, 65, 84, 76, 92, 88, 100].map(
-                (height, index) => (
-                  <i key={`${height}-${index}`} style={{ height: `${height}%` }} />
-                ),
-              )}
+          <div className="landing-attention" role="group" aria-label="Worth your attention">
+            <div className="landing-attention__header">
+              <small>WORTH YOUR ATTENTION</small>
+              <span><i /> Attention</span>
             </div>
+            <div className="landing-attention__body">
+              <span className="automation-avatar automation-avatar--lime">
+                <Icon name="briefcase" size={17} />
+              </span>
+              <span>
+                <strong>Kalahari Ember Gin</strong>
+                <small>Client feedback received yesterday. No follow-up task has been created yet.</small>
+              </span>
+            </div>
+            <button className="landing-attention__cta" onClick={onSignIn} type="button">
+              Review feedback <Icon name="arrow-up-right" size={13} />
+            </button>
           </div>
         </div>
       </section>
@@ -3288,97 +3591,250 @@ if (policyView !== 'landing') {
 
       <section className="landing-section landing-platform" id="platform">
         <div className="landing-section__heading">
-          <span className="landing-eyebrow">The small-business operating space</span>
-          <h2>Everything around the work, finally in one place.</h2>
+          <span className="landing-eyebrow"><i /> Unified Workspace</span>
+          <h2>Your business, connected.</h2>
           <p>
-            lancee keeps projects, inspiration, admin, and money connected without
-            turning your business into a complicated system.
+            Lancee brings the activity around your business together so projects, clients, conversations, meetings, ideas and money no longer exist as isolated records.
+          </p>
+          <p style={{ marginTop: '12px', color: '#727a6f', fontSize: '14px', lineHeight: 1.75 }}>
+            As work happens, Lancee builds context around it — helping you understand what needs attention and what should happen next.
           </p>
           <button className="landing-section__cta" onClick={() => setFeaturesOpen(true)}>
             Check out all features <Icon name="arrow-up-right" size={14} />
           </button>
         </div>
-        <div className="landing-feature-grid">
+        <div className="landing-feature-grid landing-feature-grid--six">
           <article className="landing-feature landing-feature--command">
             <span className="landing-feature__icon">
               <Icon name="briefcase" size={20} />
             </span>
             <span className="landing-feature__number">01</span>
-            <h3>Keep client work together</h3>
+            <h3>Connected Projects</h3>
             <p>
-              Briefs, references, decisions, deadlines, files, and approvals stay with
-              the project they belong to.
+              Everything around the work stays connected. Briefs, files, client conversations, meetings, decisions, deadlines, approvals and invoices remain attached to the work they belong to.
             </p>
-            <div className="feature-prompt">
-              <span>Kalahari Ember Gin · In review</span>
-              <Icon name="arrow-up-right" size={14} />
+            <div className="landing-feature__visual">
+              <div className="feature-project-card">
+                <strong>Kalahari Ember Gin</strong>
+                <small>In Review</small>
+                <div className="feature-project-card__meta">
+                  <span><Icon name="messages" size={12} /> Client feedback · 2h ago</span>
+                  <span><Icon name="calendar" size={12} /> Meeting · Yesterday</span>
+                  <span><Icon name="wallet" size={12} /> Invoice · Draft</span>
+                </div>
+              </div>
+            </div>
+          </article>
+          <article className="landing-feature landing-feature--intelligence">
+            <span className="landing-feature__icon">
+              <Icon name="sparkles" size={20} />
+            </span>
+            <span className="landing-feature__number">02</span>
+            <h3>Connected Intelligence</h3>
+            <p>
+              Your work knows more than you think. Lancee looks across the activity already happening in your workspace and surfaces useful patterns, risks and opportunities.
+            </p>
+            <div className="landing-feature__visual">
+              <div className="feature-insight-card">
+                <small>CONNECTED INSIGHT</small>
+                <strong>Juniper & Tide may need attention</strong>
+                <ul>
+                  <li>3 meetings this week</li>
+                  <li>4 unresolved feedback items</li>
+                  <li>Delivery due Friday</li>
+                </ul>
+                <p>“Activity is increasing as the deadline approaches.”</p>
+                <span className="feature-insight-card__cta">View context <Icon name="arrow-up-right" size={12} /></span>
+              </div>
             </div>
           </article>
           <article className="landing-feature landing-feature--connect">
             <span className="landing-feature__icon">
               <Icon name="lightbulb" size={20} />
             </span>
-            <span className="landing-feature__number">02</span>
-            <h3>Catch ideas anywhere</h3>
+            <span className="landing-feature__number">03</span>
+            <h3>Ideas Connected to Work</h3>
             <p>
-              Save visual references, notes, colours, and loose thoughts on a flexible
-              canvas, then connect the strongest ideas to real work.
+              Capture an idea now. Make it useful later. Notes, images, palettes, references and files can be connected to clients and projects instead of becoming forgotten fragments.
             </p>
-            <div className="feature-connections">
-              <span>Notes</span>
-              <span>Images</span>
-              <span>Palettes</span>
-              <span>+ Files</span>
+            <div className="landing-feature__visual">
+              <div className="feature-connections">
+                <span>Notes</span>
+                <span>Images</span>
+                <span>Palettes</span>
+                <span>Files</span>
+                <span className="feature-connections__arrow"><Icon name="arrow-right" size={12} /></span>
+                <span className="feature-connections__target">Connected to Project</span>
+              </div>
+            </div>
+          </article>
+          <article className="landing-feature landing-feature--communication">
+            <span className="landing-feature__icon">
+              <Icon name="messages" size={20} />
+            </span>
+            <span className="landing-feature__number">04</span>
+            <h3>Communication Intelligence</h3>
+            <p>
+              Know what is happening around your clients. Lancee surfaces unanswered conversations, increasing activity, recent feedback and follow-ups that may have been missed.
+            </p>
+            <div className="landing-feature__visual">
+              <div className="feature-attention-card">
+                <small>CLIENT ATTENTION</small>
+                <strong>Kalahari Ember Gin</strong>
+                <div className="feature-attention-card__metrics">
+                  <span>Email <em>↑</em></span>
+                  <span>Meetings <em>↑</em></span>
+                  <span>Feedback <em>3</em></span>
+                </div>
+                <div className="feature-attention-card__bar">
+                  <span>Attention level</span>
+                  <strong>HIGH</strong>
+                  <i><span style={{ width: '78%' }} /></i>
+                </div>
+                <p>“Communication activity increased this week.”</p>
+              </div>
+            </div>
+          </article>
+          <article className="landing-feature landing-feature--meetings">
+            <span className="landing-feature__icon">
+              <Icon name="calendar" size={20} />
+            </span>
+            <span className="landing-feature__number">05</span>
+            <h3>Meetings That Become Context</h3>
+            <p>
+              Meetings shouldn&apos;t disappear when the call ends. Connect meetings to clients and projects so Lancee understands how much meeting activity surrounds the work.
+            </p>
+            <div className="landing-feature__visual">
+              <div className="feature-meetings-card">
+                <small>THIS WEEK</small>
+                <div className="feature-meetings-card__stats">
+                  <span><strong>4</strong> client meetings</span>
+                  <span><strong>2</strong> projects affected</span>
+                </div>
+                <div className="feature-meetings-card__rows">
+                  <div><strong>Juniper & Tide</strong><span>Meeting load <em>↑</em></span></div>
+                  <div><strong>Kalahari Ember Gin</strong><span>Normal</span></div>
+                </div>
+              </div>
             </div>
           </article>
           <article className="landing-feature landing-feature--observe">
             <span className="landing-feature__icon">
-              <Icon name="wallet" size={20} />
+              <Icon name="activity" size={20} />
             </span>
-            <span className="landing-feature__number">03</span>
-            <h3>Automated Workflows</h3>
-            <p>From client approvals, straight to secure payments, in one seamless workflow
+            <span className="landing-feature__number">06</span>
+            <h3>Automation with context.</h3>
+            <p>
+              Routine work can move automatically while important decisions remain yours. Automation works because Lancee understands the surrounding business context.
             </p>
-            <div className="feature-events">
-              <span>
-                <i /> Invoice sent
-              </span>
-              <span>
-                <i /> Payment received
-              </span>
+            <div className="landing-feature__visual">
+              <div className="feature-automation-flow">
+                <span>Client approval</span>
+                <i><Icon name="chevron-down" size={10} /></i>
+                <span>Project updated</span>
+                <i><Icon name="chevron-down" size={10} /></i>
+                <span>Invoice prepared</span>
+                <i><Icon name="chevron-down" size={10} /></i>
+                <span className="is-approval">You approve</span>
+                <i><Icon name="chevron-down" size={10} /></i>
+                <span>Client receives invoice</span>
+              </div>
             </div>
           </article>
         </div>
       </section>
 
+      <section className="landing-connected" id="connected-intelligence" aria-labelledby="connected-intelligence-title">
+        <div className="landing-connected__copy">
+          <span className="landing-eyebrow">Connected Intelligence</span>
+          <h2 id="connected-intelligence-title">Your work knows more than you think.</h2>
+          <p>
+            Every email, meeting, project update, payment, deadline and client interaction tells part of a story. Normally those signals live in different places.
+          </p>
+          <p>
+            Lancee connects them. As your workspace grows, Lancee can surface relationships and changes that are difficult to notice when looking at each tool individually.
+          </p>
+        </div>
+        <div className="landing-connected__visual" aria-hidden="true">
+          <div className="landing-context-map">
+            <svg viewBox="0 0 760 430" preserveAspectRatio="none">
+              <path d="M86 92 C220 92 278 166 360 215" />
+              <path d="M112 330 C220 324 286 262 360 215" />
+              <path d="M248 58 C290 116 322 168 360 215" />
+              <path d="M674 92 C542 92 482 166 400 215" />
+              <path d="M648 330 C540 324 474 262 400 215" />
+              <path d="M512 372 C474 310 436 260 400 215" />
+            </svg>
+            <span className="landing-context-map__node is-email"><Icon name="briefcase" size={14} /> Projects</span>
+            <span className="landing-context-map__node is-calendar"><Icon name="user" size={14} /> Clients</span>
+            <span className="landing-context-map__node is-client"><Icon name="lightbulb" size={14} /> Ideas</span>
+            <span className="landing-context-map__node is-task"><Icon name="calendar" size={14} /> Meetings</span>
+            <span className="landing-context-map__node is-payment"><Icon name="messages" size={14} /> Communication</span>
+            <span className="landing-context-map__node is-assistant"><Icon name="activity" size={14} /> Automations</span>
+            <div className="landing-context-map__core">
+              <BrandMark compact />
+              <span>CONNECTED</span>
+              <strong>Intelligence</strong>
+            </div>
+            <i className="landing-context-map__signal landing-context-map__signal--one" />
+            <i className="landing-context-map__signal landing-context-map__signal--two" />
+            <i className="landing-context-map__signal landing-context-map__signal--three" />
+          </div>
+          <div className="landing-connected__insights">
+            <article className="landing-connected__insight">
+              <strong>Client attention <em>↑</em></strong>
+              <span>Communication increased 38% this week</span>
+            </article>
+            <article className="landing-connected__insight">
+              <strong>Meeting load <em>↑</em></strong>
+              <span>Juniper & Tide has twice its normal meeting activity</span>
+            </article>
+            <article className="landing-connected__insight">
+              <strong>Payment</strong>
+              <span>Invoice #1042 due in 3 days</span>
+            </article>
+            <article className="landing-connected__insight">
+              <strong>Follow-up</strong>
+              <span>Feedback received but no task created</span>
+            </article>
+          </div>
+        </div>
+      </section>
+
       <section className="landing-workflow" id="workflow">
         <div className="landing-workflow__copy">
-          <span className="landing-eyebrow">From first idea to paid invoice</span>
-          <h2>A natural flow for the way independent work really happens.</h2>
+          <span className="landing-eyebrow"><i /> Connected Workflow</span>
+          <h2>From first idea to paid — without losing the context between.</h2>
           <p>
-            Do the creative work yourself. Let lancee carry the context, surface the next
-            step, and quietly handle only the repeatable parts you choose.
+            Do the creative work yourself. Let Lancee carry the context, surface the next step, and quietly handle only the repeatable parts you choose.
           </p>
-          <div className="workflow-steps">
+          <div className="workflow-steps workflow-steps--four">
             <div>
               <span>1</span>
               <div>
-                <strong>Capture the brief and ideas</strong>
-                <p>Keep inspiration and client constraints close from the start.</p>
+                <strong>Capture</strong>
+                <p>Briefs, ideas, references and client requirements.</p>
               </div>
             </div>
             <div>
               <span>2</span>
               <div>
-                <strong>Move the project forward</strong>
-                <p>Track feedback, files, approvals, and the next useful action.</p>
+                <strong>Work</strong>
+                <p>Projects, communication, meetings, files and feedback stay connected.</p>
               </div>
             </div>
             <div>
               <span>3</span>
               <div>
-                <strong>Deliver, invoice, and get paid</strong>
-                <p>Connect finished work directly to billing and payment status.</p>
+                <strong>Understand</strong>
+                <p>Lancee surfaces changes, risks and useful next actions from the surrounding activity.</p>
+              </div>
+            </div>
+            <div>
+              <span>4</span>
+              <div>
+                <strong>Deliver & Get Paid</strong>
+                <p>Approval, delivery, invoices and payments complete the same connected journey.</p>
               </div>
             </div>
           </div>
@@ -3425,59 +3881,6 @@ if (policyView !== 'landing') {
         </div>
       </section>
 
-      <section className="landing-section landing-integrations" id="integrations">
-        <div className="landing-section__heading">
-          <span className="landing-eyebrow">Keep the tools that already work</span>
-          <h2>Connect what you use. Ignore what you don't.</h2>
-          <p>
-            Storage, design, communication, automation, and payments all linked together. Where mobility meets productivity. Travel, work, earn.
-          </p>
-        </div>
-        <div className="landing-integration-row">
-          <article>
-            <span className="landing-integration-logos" aria-hidden="true">
-              <LandingToolLogo name="stripe" />
-              <LandingToolLogo name="paypal" />
-              <LandingToolLogo name="paystack" />
-            </span>
-            <div>
-              <small>GET PAID</small>
-              <h3>Stripe · PayPal · Paystack</h3>
-              <p>Give every client a practical way to pay.</p>
-            </div>
-            <Icon name="arrow-up-right" size={17} />
-          </article>
-          <article>
-            <span className="landing-process-logos" aria-hidden="true">
-              <span><Icon name="activity" size={17} /></span>
-              <span><Icon name="check-circle" size={17} /></span>
-              <span><Icon name="wallet" size={17} /></span>
-            </span>
-            <div>
-              <small>USEFUL AUTOMATION</small>
-              <h3>Workflows · Approvals · Invoices</h3>
-              <p>Move routine work forward while every important decision stays yours.</p>
-            </div>
-            <Icon name="arrow-up-right" size={17} />
-          </article>
-          <article>
-            <span className="landing-integration-logos" aria-hidden="true">
-              <LandingToolLogo name="gmail" />
-              <LandingToolLogo name="calendar" />
-              <LandingToolLogo name="drive" />
-              <LandingToolLogo name="slack" />
-              <LandingToolLogo name="zoom" />
-            </span>
-            <div>
-              <small>YOUR EVERYDAY TOOLS</small>
-              <h3>Gmail · Calendar · Drive · Slack · Zoom</h3>
-              <p>Bring communication, meetings, schedules, and files into the same flow.</p>
-            </div>
-            <Icon name="arrow-up-right" size={17} />
-          </article>
-        </div>
-      </section>
-
       <section
         className="landing-intelligence"
         id="decision-intelligence"
@@ -3491,9 +3894,7 @@ if (policyView !== 'landing') {
             Make the next call with the last one in view.
           </h2>
           <p>
-            lancee keeps the decision, why you made it, what happened, and the evidence
-            around it. When a similar choice comes up, it brings back the closest lessons
-            and shows where the context matches—or doesn&apos;t.
+            Lancee keeps the decision, why you made it, what happened, and the evidence around it. When a similar choice comes up, it brings back the closest lessons and shows where the context matches—or doesn&apos;t.
           </p>
           <div className="landing-intelligence__principles">
             <article>
@@ -3520,8 +3921,7 @@ if (policyView !== 'landing') {
           </div>
           <p className="landing-intelligence__boundary">
             <span aria-hidden="true"><Icon name="shield" size={15} /></span>
-            Measured outcomes stay authoritative. AI interprets context; it never rewrites
-            the facts.
+            Measured outcomes stay authoritative. AI interprets context; it never rewrites the facts.
           </p>
         </div>
 
@@ -3531,22 +3931,41 @@ if (policyView !== 'landing') {
           aria-label="Example decision comparison"
         >
           <div className="landing-intelligence__visual-header">
-            <small>EXAMPLE COMPARISON</small>
+            <small>EXAMPLE DECISION FLOW</small>
             <span><i /> Context checked</span>
           </div>
-          <article className="landing-decision-card">
-            <small>NEW DECISION</small>
-            <h3>Adjust the retainer offer</h3>
-            <p>Give the client more flexibility without changing the service mix.</p>
-          </article>
+          <div className="landing-decision-chain">
+            <div className="landing-decision-chain__step">
+              <small>DECISION</small>
+              <strong>Increase project scope</strong>
+            </div>
+            <div className="landing-decision-chain__arrow"><Icon name="chevron-down" size={12} /></div>
+            <div className="landing-decision-chain__step">
+              <small>WHY</small>
+              <strong>Client requested additional deliverables</strong>
+            </div>
+            <div className="landing-decision-chain__arrow"><Icon name="chevron-down" size={12} /></div>
+            <div className="landing-decision-chain__step">
+              <small>CONTEXT</small>
+              <strong>Deadline +14 days · Budget +R18,000</strong>
+            </div>
+            <div className="landing-decision-chain__arrow"><Icon name="chevron-down" size={12} /></div>
+            <div className="landing-decision-chain__step is-outcome">
+              <small>OUTCOME</small>
+              <strong>Delivered on time · Margin maintained</strong>
+            </div>
+          </div>
           <div className="landing-decision-path" aria-hidden="true">
             <span />
             <Icon name="chevron-down" size={14} />
             <span />
           </div>
           <article className="landing-decision-match">
-            <small>CLOSEST PAST DECISION</small>
+            <small>SIMILAR DECISION FOUND · “Juniper & Tide”</small>
             <h3>Revised a similar proposal</h3>
+            <div className="landing-decision-match__meta">
+              <span className="landing-decision-match__badge"><Icon name="target" size={12} /> Context match: High</span>
+            </div>
             <div className="landing-decision-factors">
               <div>
                 <strong><Icon name="check-circle" size={14} /> Shared context</strong>
@@ -3556,12 +3975,15 @@ if (policyView !== 'landing') {
                 </ul>
               </div>
               <div>
-                <strong><Icon name="layers" size={14} /> Material difference</strong>
+                <strong><Icon name="layers" size={14} /> Material differences</strong>
                 <ul>
-                  <li>Different contract length</li>
+                  <li>Shorter deadline</li>
+                  <li>Higher meeting load</li>
+                  <li>Existing unpaid invoice</li>
                 </ul>
               </div>
             </div>
+            <button className="landing-decision-match__cta" type="button">Review previous decision <Icon name="arrow-up-right" size={12} /></button>
           </article>
           <div className="landing-decision-status">
             <span><Icon name="target" size={15} /> Comparable, with context</span>
@@ -3570,37 +3992,92 @@ if (policyView !== 'landing') {
         </div>
       </section>
 
-      <section className="landing-security" id="security">
-        <div className="landing-security__mark">
-          <Icon name="briefcase" size={29} />
-        </div>
-        <div>
-          <span className="landing-eyebrow">Built around real business</span>
-          <h2>Your business. Your way.</h2>
+      <section className="landing-pulse" id="pulse" aria-labelledby="pulse-title">
+        <div className="landing-pulse__copy">
+          <span className="landing-eyebrow"><i /> Business Pulse</span>
+          <h2 id="pulse-title">A calm summary of what&apos;s happening.</h2>
           <p>
-            Set up the way you like to work, keep every client moving, and always know
-            what needs your attention next.
+            Lancee summarises the state of your workspace without turning it into an alarm-heavy dashboard. What&apos;s moving, what needs attention, and where opportunity is forming.
           </p>
         </div>
-        <div className="landing-security__points">
-          <span>
-            <Icon name="check" size={13} /> Your work stays organised
-          </span>
-          <span>
-            <Icon name="check" size={13} /> You choose what connects
-          </span>
-          <span>
-            <Icon name="check" size={13} /> Important steps need your say
-          </span>
-          <span>
-            <Icon name="check" size={13} /> Clear progress at a glance
-          </span>
+        <div className="landing-pulse__visual" role="group" aria-label="Business Pulse example">
+          <div className="landing-pulse__header">
+            <strong>BUSINESS PULSE</strong>
+            <span>Monday, 08:32</span>
+          </div>
+          <div className="landing-pulse__grid">
+            <article className="landing-pulse__card landing-pulse__card--ok">
+              <small>Moving well</small>
+              <strong>6 projects progressing normally</strong>
+            </article>
+            <article className="landing-pulse__card landing-pulse__card--attention">
+              <small>Needs attention</small>
+              <strong>2 client conversations waiting for follow-up</strong>
+            </article>
+            <article className="landing-pulse__card landing-pulse__card--money">
+              <small>Money</small>
+              <strong>R46,200 outstanding</strong>
+              <span>2 invoices · 1 due in 3 days</span>
+            </article>
+            <article className="landing-pulse__card landing-pulse__card--opportunity">
+              <small>Opportunity</small>
+              <strong>Client activity increased around Juniper & Tide</strong>
+            </article>
+            <article className="landing-pulse__card landing-pulse__card--today">
+              <small>Today</small>
+              <strong>3 useful actions suggested</strong>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section className="landing-section landing-integrations" id="integrations">
+        <div className="landing-section__heading">
+          <span className="landing-eyebrow"><i /> Connected Tools</span>
+          <h2>Lancee connects the work already happening around you.</h2>
+          <p>
+            Keep using the services your business relies on. Lancee brings the useful context back into your workspace.
+          </p>
+        </div>
+        <div className="landing-integration-grid">
+          <article>
+            <span className="landing-integration-badge"><Icon name="messages" size={16} /></span>
+            <div>
+              <small>WORKSPACE</small>
+              <h3>Mail · Calendar · Drive · Dropbox</h3>
+              <p>Communication, schedules and files connected to your work.</p>
+            </div>
+          </article>
+          <article>
+            <span className="landing-integration-badge landing-integration-badge--money"><Icon name="wallet" size={16} /></span>
+            <div>
+              <small>PAYMENTS</small>
+              <h3>Secure online payments</h3>
+              <p>Move naturally from completed work to invoicing and payment.</p>
+            </div>
+          </article>
+          <article>
+            <span className="landing-integration-badge landing-integration-badge--auto"><Icon name="activity" size={16} /></span>
+            <div>
+              <small>AUTOMATION</small>
+              <h3>Lancee Workflows · n8n</h3>
+              <p>Connect repeatable processes without turning Lancee into a generic integration marketplace.</p>
+            </div>
+          </article>
+          <article>
+            <span className="landing-integration-badge landing-integration-badge--ai"><Icon name="sparkles" size={16} /></span>
+            <div>
+              <small>AI</small>
+              <h3>Lancee Assistant · Optional external AI</h3>
+              <p>AI operates on workspace context where authorised rather than as a standalone chatbot.</p>
+            </div>
+          </article>
         </div>
       </section>
 
       <section className="landing-cta">
         <BrandMark />
-        <span className="landing-eyebrow">A lighter way to run your business</span>
+        <span className="landing-eyebrow"><i /> A lighter way to run your business</span>
         <h2>Carry the whole studio. Not the whole workload.</h2>
         <button className="button button--primary btn-shine" onClick={handleSignUp}>
           Sign Up <BrandMark compact />
@@ -3608,6 +4085,10 @@ if (policyView !== 'landing') {
       </section>
 
       <footer className="landing-footer">
+        <div className="landing-footer__brand" aria-label="lancee">
+          <BrandMark />
+          <span>lancee</span>
+        </div>
         <small>© {new Date().getFullYear()} {BUSINESS_IDENTITY.platformName} All Rights Reserved</small>
         <small>{BUSINESS_IDENTITY.platformLegalStyle}</small>
         <div className="landing-footer__links">
@@ -3623,6 +4104,50 @@ if (policyView !== 'landing') {
           </a>
         </small>
       </footer>
+
+      <aside className={`landing-chat ${chatOpen ? 'is-open' : ''}`} aria-label="Lancee chat">
+        {chatOpen && (
+          <section className="landing-chat__panel" aria-label="Chat with Lancee">
+            <header className="landing-chat__header">
+              <BrandMark compact />
+              <div>
+                <strong>Hi there! <span aria-hidden="true">👋</span></strong>
+                <p>How can we help you today?</p>
+              </div>
+              <button type="button" onClick={() => setChatOpen(false)} aria-label="Close chat">
+                <Icon name="close" size={18} />
+              </button>
+            </header>
+            <div className="landing-chat__body" aria-live="polite">
+              {chatMessages.map((message, index) => (
+                <div className={`landing-chat__message landing-chat__message--${message.role}`} key={`${message.role}-${index}`}>
+                  {message.role === 'assistant' && <BrandMark compact />}
+                  <p>{message.body}</p>
+                </div>
+              ))}
+              <small>Just now</small>
+              <div className="landing-chat__prompts" aria-label="Suggested questions">
+                {['Ask a question', 'See features', 'Contact us'].map((prompt) => (
+                  <button type="button" key={prompt} onClick={() => sendChatMessage(prompt)}>{prompt}</button>
+                ))}
+              </div>
+            </div>
+            <form className="landing-chat__composer" onSubmit={(event) => { event.preventDefault(); sendChatMessage(chatDraft) }}>
+              <input value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} placeholder="Type your message…" aria-label="Message Lancee" />
+              <button type="submit" aria-label="Send message"><Icon name="arrow-right" size={17} /></button>
+            </form>
+          </section>
+        )}
+        <button
+          className="landing-chat__launcher"
+          type="button"
+          aria-expanded={chatOpen}
+          aria-label={chatOpen ? 'Close Lancee chat' : 'Open Lancee chat'}
+          onClick={() => setChatOpen((current) => !current)}
+        >
+          <img src="/svg/animated_chat_orb_fixed.svg" alt="" />
+        </button>
+      </aside>
 
       {signupNotice && (
         <div className="signup-paused-toast" role="status">
@@ -3640,6 +4165,7 @@ if (policyView !== 'landing') {
       )}
     </main>
   )
+
 }
 
 function AuthStory({ onBack }: { onBack: () => void }) {
@@ -3681,15 +4207,31 @@ function AuthStory({ onBack }: { onBack: () => void }) {
         <div className="orbit orbit--two" />
         <div className="orbit-center">
           <BrandMark compact />
+          <small>Lancee</small>
         </div>
         <span className="orbit-node orbit-node--one">
           <Icon name="messages" size={17} />
+          <small>Email</small>
         </span>
         <span className="orbit-node orbit-node--two">
-          <Icon name="file" size={17} />
+          <Icon name="calendar" size={17} />
+          <small>Meeting</small>
         </span>
         <span className="orbit-node orbit-node--three">
           <Icon name="target" size={17} />
+          <small>Project</small>
+        </span>
+        <span className="orbit-node orbit-node--four">
+          <Icon name="wallet" size={17} />
+          <small>Invoice</small>
+        </span>
+        <span className="orbit-node orbit-node--five">
+          <Icon name="file" size={17} />
+          <small>Files</small>
+        </span>
+        <span className="orbit-node orbit-node--six">
+          <Icon name="sparkles" size={17} />
+          <small>Context</small>
         </span>
       </div>
       <p className="auth-quote">
@@ -5533,10 +6075,6 @@ function dashboardPath(page: Page) {
   return page === 'overview' ? '/dashboard' : `/dashboard/${page}`
 }
 
-function publicPricingPage() {
-  return window.location.pathname.replace(/\/+$/, '') === '/pricing'
-}
-
 function publicReviewRequest() {
   const match = window.location.pathname.match(/^\/review\/([^/]+)\/?$/)
   if (!match) return null
@@ -5544,7 +6082,21 @@ function publicReviewRequest() {
   return token ? { reviewId: decodeURIComponent(match[1]), token } : null
 }
 
+function guestMeetingToken() {
+  const match = window.location.pathname.match(/^\/meetings\/guest\/([^/]+)\/?$/)
+  if (!match) return ''
+  try { return decodeURIComponent(match[1]) } catch { return '' }
+}
+
 function App() {
+  const meetingToken = guestMeetingToken()
+  if (meetingToken) {
+    return (
+      <Suspense fallback={<main className="auth-boot"><span className="spinner spinner--dark" /></main>}>
+        <GuestMeetingPage token={meetingToken} />
+      </Suspense>
+    )
+  }
   const review = publicReviewRequest()
   if (review) {
     return (
@@ -5563,6 +6115,7 @@ function WorkspaceApp() {
   const [user, setUser] = useState<User | null>(null)
   const [sessionLoading, setSessionLoading] = useState(true)
   const [authView, setAuthView] = useState<AuthView>(authViewFromLocation)
+  const [locationPath, setLocationPath] = useState(() => window.location.pathname)
   const [activePage, setActivePage] = useState<Page>(
     () => dashboardPageFromLocation() ?? 'overview',
   )
@@ -5662,15 +6215,17 @@ function WorkspaceApp() {
     navigatePage('messages')
   }
 
+  const isPricingPath = (path: string) => path.replace(/\/+$/, '') === '/pricing'
+
   useEffect(() => {
     if (sessionLoading) return
-    if (!user && (authView === 'landing' || publicPricingPage())) {
+    if (!user && (authView === 'landing' || isPricingPath(locationPath))) {
       document.documentElement.setAttribute('data-theme', 'dark')
       document.documentElement.removeAttribute('data-theme-variant')
       return
     }
     applyTheme(theme)
-  }, [authView, sessionLoading, theme, user])
+  }, [authView, sessionLoading, theme, user, locationPath])
 
   useEffect(() => {
     try {
@@ -5708,11 +6263,13 @@ function WorkspaceApp() {
   useEffect(() => {
     const handlePopState = () => {
       setAuthView(authViewFromLocation())
+      setLocationPath(window.location.pathname)
       const requestedPage = dashboardPageFromLocation()
       if (requestedPage) {
         setActivePage(requestedPage)
         if (window.location.pathname !== dashboardPath(requestedPage)) {
           window.history.replaceState({ page: requestedPage }, '', dashboardPath(requestedPage))
+          setLocationPath(dashboardPath(requestedPage))
         }
       }
       setMobileOpen(false)
@@ -6066,8 +6623,10 @@ function WorkspaceApp() {
 
   const navigateAuth = (view: AuthView, replace = false) => {
     setAuthView(view)
+    const nextPath = authPath(view)
     const method = replace ? 'replaceState' : 'pushState'
-    window.history[method]({}, '', authPath(view))
+    window.history[method]({}, '', nextPath)
+    setLocationPath(nextPath)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -6224,9 +6783,35 @@ function WorkspaceApp() {
     }
   }
 
-  const runAutomation = () => {
-    navigatePage('overview')
-    setToast('Task prepared — review it, then start')
+  const runAutomation = async (automation: Automation) => {
+    if (busyId) return
+    setBusyId(automation.id)
+    try {
+      const instruction = automation.instructionTemplate || automation.description || automation.name
+      const run = await api.runs.dispatch(automation.id, instruction)
+      setRuns((current) => [run, ...current])
+      setAutomations((current) => current.map((item) => item.id === automation.id ? { ...item, runs: item.runs + 1, lastRun: 'Just now' } : item))
+      let completedRun = run
+      for (let attempt = 0; attempt < 45 && !['completed', 'failed'].includes(completedRun.status); attempt += 1) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 1_000))
+        completedRun = await api.runs.get(run.id)
+        setRuns((current) => current.map((item) => item.id === completedRun.id ? completedRun : item))
+      }
+      const [nextAutomations, nextRuns] = await Promise.all([api.automations.list(), api.runs.list()])
+      setAutomations(nextAutomations)
+      setRuns(nextRuns)
+      if (completedRun.status === 'completed') {
+        setToast(`${automation.name} completed successfully`)
+      } else if (completedRun.status === 'failed') {
+        setToast(completedRun.errorCode || `${automation.name} did not complete`)
+      } else {
+        setToast(`${automation.name} is still running. View its history for progress.`)
+      }
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Unable to run this automation.')
+    } finally {
+      setBusyId(null)
+    }
   }
 
   const toggleIntegration = async (integration: Integration) => {
@@ -6468,7 +7053,7 @@ function WorkspaceApp() {
   }
 
   if (!user) {
-    if (publicPricingPage()) {
+    if (isPricingPath(locationPath)) {
       return (
         <Suspense fallback={<main className="auth-boot"><span className="spinner spinner--dark" /></main>}>
           <PricingLanding
@@ -6486,7 +7071,8 @@ function WorkspaceApp() {
           onSignUp={() => navigateAuth('register')}
           onPricing={() => {
             window.history.pushState({}, '', '/pricing')
-            setAuthView(authViewFromLocation())
+            setLocationPath('/pricing')
+            window.scrollTo({ top: 0, behavior: 'smooth' })
           }}
         />
       )
@@ -6891,6 +7477,7 @@ function WorkspaceApp() {
                   {visibleNotifications.slice(0, 20).map((notification) => (
                     <button
                       key={notification.id}
+                      className={notification.readAt ? 'is-read' : 'is-unread'}
                       onClick={() => {
                         void api.notifications.markRead(notification.id).catch(() => undefined)
                         setWorkspaceNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, readAt: item.readAt || new Date().toISOString() } : item))

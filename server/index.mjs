@@ -64,6 +64,8 @@ import {
   ConnectedIntelligenceError,
   createConnectedIntelligenceService,
 } from './connected-intelligence.mjs'
+import { createLiveKitService, LiveKitError } from './livekit.mjs'
+import { createMeetingService, MeetingError } from './meetings.mjs'
 import { createHermesDecisionAssessor } from './decision-semantic-assessor.mjs'
 import {
   automationById,
@@ -76,6 +78,8 @@ import {
 import {
   coreToolCatalog,
   automationPlan,
+  assertCoreAutomationExecutionPermission,
+  createManualWorkflowInstruction,
   executeCoreAutomation,
   CoreAutomationError,
 } from './core.mjs'
@@ -162,6 +166,16 @@ import {
   updateGoogleDriveFileContent,
   uploadGoogleDriveFile,
 } from './google-drive.mjs'
+import {
+  BYO_PROVIDER_OPTIONS,
+  completeCustomAiChat,
+  decryptAiSecret,
+  encryptAiSecret,
+  fingerprintSecret,
+  sanitizeConfigForResponse,
+  validateProviderConfig,
+  WorkspaceAiError,
+} from './workspace-ai.mjs'
 
 function nowIso() {
   return new Date().toISOString()
@@ -188,8 +202,18 @@ const production =
   process.env.APP_ENV === 'production' || process.env.NODE_ENV === 'production'
 const registrationEnabledByDefault =
   process.env.ALLOW_REGISTRATION !== 'false'
-const publicOrigin = process.env.PUBLIC_ORIGIN || 'https://lancee.hookitupservices.com'
+const publicOrigin = process.env.PUBLIC_ORIGIN || 'https://lancee.work'
 const publicHostname = new URL(publicOrigin).hostname
+const livekitCspSources = (() => {
+  try {
+    const url = new URL(String(process.env.LIVEKIT_URL || '').trim())
+    if (!['ws:', 'wss:'].includes(url.protocol)) return []
+    const httpProtocol = url.protocol === 'wss:' ? 'https:' : 'http:'
+    return [`${url.protocol}//${url.host}`, `${httpProtocol}//${url.host}`]
+  } catch {
+    return []
+  }
+})()
 const platformAdminEmail = 'martin@hookitupservices.com'
 const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase()
 const adminName = (process.env.ADMIN_NAME || 'Workspace Admin').trim()
@@ -310,6 +334,8 @@ const workspacePulse = createWorkspacePulseService({
   complete: completeChat,
 })
 const connectedIntelligence = createConnectedIntelligenceService({ database })
+const livekit = createLiveKitService()
+const meetings = createMeetingService({ database, connectedIntelligence, livekit })
 const openConnectorAdapter = createOpenConnectorAdapter()
 const integrationGateway = createIntegrationGateway({
   database,
@@ -2078,7 +2104,7 @@ app.use((_request, response, next) => {
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Permissions-Policy': 'camera=(self), microphone=(self), display-capture=(self), geolocation=()',
     'Content-Security-Policy':
-      "default-src 'self'; script-src 'self' 'unsafe-eval' blob: https://apis.google.com https://zoom.us https://*.zoom.us https://dmogdx0jrul3u.cloudfront.net; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https://zoom.us https://*.zoom.us wss://*.zoom.us https://zoom.com https://*.zoom.com wss://*.zoom.com https://zoom.com.cn https://*.zoom.com.cn wss://*.zoom.com.cn; frame-src 'self' blob: https://apis.google.com https://docs.google.com https://drive.google.com https://accounts.google.com; object-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+      `default-src 'self'; script-src 'self' 'unsafe-eval' blob: https://apis.google.com https://zoom.us https://*.zoom.us https://dmogdx0jrul3u.cloudfront.net; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' ${livekitCspSources.join(' ')} https://zoom.us https://*.zoom.us wss://*.zoom.us https://zoom.com https://*.zoom.com wss://*.zoom.com https://zoom.com.cn https://*.zoom.com.cn wss://*.zoom.com.cn; frame-src 'self' blob: https://apis.google.com https://docs.google.com https://drive.google.com https://accounts.google.com; object-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
   })
   next()
 })
@@ -2666,6 +2692,33 @@ app.delete(
   },
 )
 
+app.patch(
+  '/api/account/profile',
+  secureMutations,
+  requireAuth,
+  express.json(),
+  async (request, response) => {
+    const name = String(request.body?.name || '').replace(/\s+/g, ' ').trim()
+    if (!name || name.length < 2 || name.length > 120) {
+      throw new HttpError(400, 'Display name must be 2–120 characters.')
+    }
+    const result = await executeIdempotentMutation({
+      request,
+      route: 'PATCH /api/account/profile',
+      input: { name },
+      operation: async () => {
+        await database.updateUserProfile(request.auth.context.user.id, { name })
+        const context = await database.getContextByIds(
+          request.auth.context.user.id,
+          request.auth.context.workspace.id,
+        )
+        return { status: 200, response: { user: userResponse(context) } }
+      },
+    })
+    sendMutationResponse(response, result)
+  },
+)
+
 app.get(
   '/api/codex/connection',
   requireAuth,
@@ -2984,7 +3037,7 @@ app.post('/api/auth/logout', secureMutations, (_request, response) => {
   response.status(204).end()
 })
 
-app.get('/api/ideas/notes', requireAuth, async (request, response) => {
+app.get('/api/ideas/notes', requireAuth, requireWorkspaceMember, async (request, response) => {
   const boardId = validateIdeaBoardId(request.query.boardId)
   response.json({
     notes: await database.listIdeaNotes(
@@ -2998,6 +3051,7 @@ app.post(
   '/api/ideas/notes',
   secureMutations,
   requireAuth,
+  requireWorkspaceMember,
   async (request, response) => {
     const input = {
       id: validateIdeaNoteId(request.body?.id),
@@ -3020,15 +3074,38 @@ app.post(
             },
           }
         }
+        const note = await database.createIdeaNote({
+          ...input,
+          selectedWorkspaceId,
+          createdBy: request.auth.context.user.id,
+        })
+        const mentionSync = await database.syncMentions({
+          workspaceId: selectedWorkspaceId,
+          sourceType: 'note',
+          sourceId: note.id,
+          mentionedBy: request.auth.context.user.id,
+          content: note.content,
+        })
+        if (mentionSync.added.length) {
+          await recordWorkspaceEvent({
+            database,
+            context: request.auth.context,
+            eventType: 'member.mentioned',
+            entityType: 'note',
+            entityId: note.id,
+            participantRefs: mentionSync.added,
+            payload: {
+              event: 'member.mentioned',
+              resource: { type: 'note', id: note.id },
+              recipients: mentionSync.added,
+              metadata: {},
+            },
+            importance: 55,
+          })
+        }
         return {
           status: 201,
-          response: {
-            note: await database.createIdeaNote({
-              ...input,
-              selectedWorkspaceId,
-              createdBy: request.auth.context.user.id,
-            }),
-          },
+          response: { note: await database.getIdeaNote(selectedWorkspaceId, note.id) },
         }
       },
     })
@@ -3040,6 +3117,7 @@ app.patch(
   '/api/ideas/notes/:noteId',
   secureMutations,
   requireAuth,
+  requireWorkspaceMember,
   async (request, response) => {
     const id = validateIdeaNoteId(request.params.noteId)
     const content = validateIdeaNoteContent(request.body?.content)
@@ -3076,15 +3154,167 @@ app.patch(
             },
           }
         }
+        const mentionSync = await database.syncMentions({
+          workspaceId: selectedWorkspaceId,
+          sourceType: 'note',
+          sourceId: id,
+          mentionedBy: request.auth.context.user.id,
+          content,
+        })
+        if (mentionSync.added.length) {
+          await recordWorkspaceEvent({
+            database,
+            context: request.auth.context,
+            eventType: 'member.mentioned',
+            entityType: 'note',
+            entityId: id,
+            participantRefs: mentionSync.added,
+            payload: {
+              event: 'member.mentioned',
+              resource: { type: 'note', id },
+              recipients: mentionSync.added,
+              metadata: {},
+            },
+            importance: 55,
+          })
+        }
         return {
           status: 200,
-          response: { note: update.note },
+          response: { note: await database.getIdeaNote(selectedWorkspaceId, id) },
         }
       },
     })
     sendMutationResponse(response, result)
   },
 )
+
+app.get('/api/ideas/notes/:noteId/tasks', requireAuth, requireWorkspaceMember, async (request, response) => {
+  const noteId = validateIdeaNoteId(request.params.noteId)
+  const note = await database.getIdeaNote(request.auth.context.workspace.id, noteId)
+  if (!note) throw new HttpError(404, 'Idea note not found.')
+  response.json({ links: await database.listNoteTaskLinks(request.auth.context.workspace.id, noteId) })
+})
+
+app.post('/api/ideas/notes/:noteId/tasks/:taskId', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
+  const noteId = validateIdeaNoteId(request.params.noteId)
+  const taskId = projectTaskId(request.params.taskId)
+  const workspaceId = request.auth.context.workspace.id
+  const link = await database.linkNoteTask({
+    workspaceId,
+    noteId,
+    taskId,
+    createdBy: request.auth.context.user.id,
+  })
+  if (!link) throw new HttpError(404, 'The note or task was not found in this workspace.')
+  await recordWorkspaceEvent({
+    database,
+    context: request.auth.context,
+    eventType: 'note.task_linked',
+    entityType: 'note',
+    entityId: noteId,
+    projectId: link.projectId,
+    payload: { taskId, resource: { type: 'note', id: noteId } },
+    importance: 45,
+  })
+  response.status(201).json({ link })
+})
+
+app.delete('/api/ideas/notes/:noteId/tasks/:taskId', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
+  const noteId = validateIdeaNoteId(request.params.noteId)
+  const taskId = projectTaskId(request.params.taskId)
+  const workspaceId = request.auth.context.workspace.id
+  const link = (await database.listNoteTaskLinks(workspaceId, noteId))
+    .find((candidate) => candidate.taskId === taskId)
+  if (!link) throw new HttpError(404, 'Note task link not found.')
+  await database.unlinkNoteTask(workspaceId, noteId, taskId)
+  await recordWorkspaceEvent({
+    database,
+    context: request.auth.context,
+    eventType: 'note.task_unlinked',
+    entityType: 'note',
+    entityId: noteId,
+    projectId: link.projectId,
+    payload: { taskId },
+    importance: 35,
+  })
+  response.status(204).end()
+})
+
+function deterministicTaskTitle(content) {
+  const plain = String(content || '')
+    .replace(/@\[([^\]]+)\]\(user:[^)]+\)/g, '@$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const sentence = plain.split(/(?<=[.!?])\s/)[0] || plain
+  return sentence.slice(0, 157).replace(/[.!?]+$/, '') || 'Follow up on idea note'
+}
+
+app.post('/api/ideas/notes/:noteId/tasks', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
+  const noteId = validateIdeaNoteId(request.params.noteId)
+  const workspaceId = request.auth.context.workspace.id
+  const note = await database.getIdeaNote(workspaceId, noteId)
+  if (!note) throw new HttpError(404, 'Idea note not found.')
+  const projectId = String(request.body?.projectId || '').trim()
+  if (!/^prj_[a-z0-9_-]{6,80}$/i.test(projectId)) throw new HttpError(400, 'Choose a valid project.')
+  const title = projectTaskTitle(request.body?.title || deterministicTaskTitle(note.content))
+  const notes = projectTaskNotes(Object.hasOwn(request.body || {}, 'notes') ? request.body.notes : note.content)
+  const bucketId = projectTaskBucketId(request.body?.bucketId || 'backlog')
+  const assigneeIds = projectTaskAssigneeIds(request.body?.assigneeIds)
+  const result = await executeIdempotentMutation({
+    request,
+    route: `POST /api/ideas/notes/${noteId}/tasks`,
+    input: { noteId, projectId, title, notes, bucketId, assigneeIds },
+    operation: async () => {
+      const task = await database.createProjectTask({ workspaceId, projectId, bucketId, title, notes })
+      if (!task) throw new HttpError(404, 'Project not found.')
+      const assignment = await database.replaceTaskAssignees({
+        workspaceId,
+        taskId: task.id,
+        userIds: assigneeIds,
+        actorId: request.auth.context.user.id,
+      })
+      const link = await database.linkNoteTask({
+        workspaceId,
+        noteId,
+        taskId: task.id,
+        createdBy: request.auth.context.user.id,
+      })
+      await recordWorkspaceEvent({
+        database,
+        context: request.auth.context,
+        eventType: 'task.created',
+        entityType: 'task',
+        entityId: task.id,
+        projectId,
+        payload: { source: { type: 'note', id: noteId }, title },
+        importance: 60,
+      })
+      await recordWorkspaceEvent({
+        database,
+        context: request.auth.context,
+        eventType: 'note.task_linked',
+        entityType: 'note',
+        entityId: noteId,
+        projectId,
+        payload: { taskId: task.id },
+        importance: 45,
+      })
+      if (assignment.added.length) await recordWorkspaceEvent({
+        database,
+        context: request.auth.context,
+        eventType: 'task.assigned',
+        entityType: 'task',
+        entityId: task.id,
+        projectId,
+        participantRefs: assignment.added,
+        payload: { recipients: assignment.added },
+        importance: 55,
+      })
+      return { status: 201, response: { task: assignment.task, link } }
+    },
+  })
+  sendMutationResponse(response, result)
+})
 
 function validateBoardLabel(value) {
   const label = String(value || '').trim()
@@ -4780,6 +5010,114 @@ app.post('/api/ai/actions', secureMutations, requireAuth, async (request, respon
   response.json({ table, rows: (await readers[table]()).slice(0, 100) })
 })
 
+// === BYO AI: workspace-scoped custom provider (chat-only, no MCP/tools) ===
+// Product principle: "Lancee directly integrates with the small set of services required to operate
+// a modern business. Broader third-party connectivity is provided through n8n, webhooks and the Lancee API."
+// BYO AI is conversational only – it never receives Lancee MCP credentials, workspace snapshot, or Connected Intelligence.
+app.get('/api/ai/custom-provider', requireAuth, async (request, response) => {
+  const config = await database.getWorkspaceAiConfig(request.auth.context.workspace.id)
+  const sanitized = sanitizeConfigForResponse(config, sessionSecret)
+  // Never return full secret – only masked
+  response.json({
+    ...sanitized,
+    providerOptions: BYO_PROVIDER_OPTIONS,
+    lanceeAi: {
+      available: true,
+      description: 'Built-in · Workspace aware · Lancee tools (Hermes + MCP)',
+    },
+  })
+})
+
+app.put('/api/ai/custom-provider', secureMutations, requireAuth, requireOwner, async (request, response) => {
+  const input = validateProviderConfig({
+    provider: request.body?.provider,
+    apiKey: request.body?.apiKey || request.body?.api_key,
+    model: request.body?.model,
+    endpointUrl: request.body?.endpointUrl || request.body?.endpoint_url,
+  })
+  // Never log API keys
+  const encrypted = encryptAiSecret(input.apiKey, sessionSecret)
+  const fingerprint = fingerprintSecret(input.apiKey)
+  const saved = await database.saveWorkspaceAiConfig({
+    workspaceId: request.auth.context.workspace.id,
+    provider: input.provider,
+    model: input.model,
+    endpointUrl: input.endpointUrl,
+    encryptedApiKey: encrypted,
+    apiKeyFingerprint: fingerprint,
+  })
+  const sanitized = sanitizeConfigForResponse(saved, sessionSecret)
+  response.json({ ...sanitized, providerOptions: BYO_PROVIDER_OPTIONS })
+})
+
+app.delete('/api/ai/custom-provider', secureMutations, requireAuth, requireOwner, async (request, response) => {
+  const deleted = await database.deleteWorkspaceAiConfig(request.auth.context.workspace.id)
+  if (!deleted) throw new HttpError(404, 'No custom AI provider is configured for this workspace.')
+  response.status(204).end()
+})
+
+app.post('/api/ai/custom-provider/test', secureMutations, requireAuth, async (request, response) => {
+  const config = await database.getWorkspaceAiConfig(request.auth.context.workspace.id)
+  if (!config) throw new HttpError(404, 'No custom AI provider is configured. Save a provider first.')
+  let secret
+  try { secret = decryptAiSecret(config.encryptedApiKey, sessionSecret) } catch { throw new HttpError(500, 'Stored AI credential could not be opened.') }
+  // Provider validation/test should not expose the secret – do a bounded test call
+  const startedAt = performance.now()
+  const result = await completeCustomAiChat({
+    provider: config.provider,
+    apiKey: secret,
+    model: config.model,
+    endpointUrl: config.endpointUrl,
+    messages: [{ role: 'user', content: 'Respond with exactly: Lancee BYO AI test OK' }],
+  })
+  const latencyMs = Math.max(0, Math.round(performance.now() - startedAt))
+  // Never return secret in response
+  response.json({ ok: true, provider: config.provider, model: result.model, latencyMs, preview: result.content.slice(0, 200) })
+})
+
+app.post('/api/ai/custom-chat', secureMutations, requireAuth, async (request, response) => {
+  const message = String(request.body?.message || '').trim()
+  const history = Array.isArray(request.body?.history) ? request.body.history : []
+  if (!message || message.length > 4000) throw new HttpError(400, 'A message between 1 and 4000 characters is required.')
+  if (history.length > 20) throw new HttpError(400, 'History is too long.')
+  const config = await database.getWorkspaceAiConfig(request.auth.context.workspace.id)
+  if (!config) throw new HttpError(404, 'No custom AI provider is configured for this workspace.')
+  let secret
+  try { secret = decryptAiSecret(config.encryptedApiKey, sessionSecret) } catch { throw new HttpError(500, 'Stored AI credential could not be opened.') }
+  // BYO AI MUST NOT receive: Lancee MCP credentials, workspace snapshot, Connected Intelligence, secrets, workflow execution
+  // Explicitly do NOT call workspaceAiSnapshot, aiMcpToolManifest, or any MCP tool.
+  const normalizedHistory = history.slice(-12).map(item => ({
+    role: item?.role === 'assistant' ? 'assistant' : 'user',
+    content: String(item?.content || '').slice(0, 4000),
+  })).filter(item => item.content)
+  const messages = [...normalizedHistory, { role: 'user', content: message }]
+  try {
+    const result = await completeCustomAiChat({
+      provider: config.provider,
+      apiKey: secret,
+      model: config.model,
+      endpointUrl: config.endpointUrl,
+      messages,
+    })
+    // Persist conversation as lightweight AI conversation (without workspace snapshot)
+    await database.saveAiConversation({
+      workspaceId: request.auth.context.workspace.id,
+      userId: request.auth.context.user.id,
+      title: message.slice(0, 120),
+      model: result.model,
+      messages: [...normalizedHistory, { role: 'user', content: message }, { role: 'assistant', content: result.content }],
+      tokensUsed: result.usage.totalTokens,
+    }).catch(() => undefined)
+    response.json({ content: result.content, model: result.model, usage: result.usage, provider: config.provider })
+  } catch (error) {
+    if (error instanceof WorkspaceAiError) {
+      response.status(error.status).json({ error: error.message, code: error.code })
+      return
+    }
+    response.status(502).json({ error: 'Custom AI chat failed.' })
+  }
+})
+
 app.get(
   '/api/codex/ai/status',
   requireCodexScope(codexAiScope),
@@ -4956,16 +5294,22 @@ app.get('/api/integrations', requireAuth, async (request, response) => {
     database.listIntegrations(selectedWorkspaceId),
     database.getGoogleDriveToken(selectedWorkspaceId),
   ])
-  response.json({
-    integrations: integrations.map((integration) =>
-      integration.id === 'drive'
-        ? {
-            ...integration,
-            connected: tokenHasDriveFileScope(driveToken),
-          }
-        : integration,
-    ),
-  })
+  // Product principle: curated commercial families – hide generic marketplace from customer discovery.
+  // Internal/hidden connectors remain stored and executable for legacy workflows, but do not appear in default listing.
+  const includeHidden = String(request.query.includeHidden || '').toLowerCase() === 'true' || String(request.query.visibility || '').toLowerCase() === 'internal'
+  const HIDDEN_FROM_CUSTOMER = new Set(['onedrive', 'whatsapp', 'lancee-mcp', 'codex-ai', 'codex-runtime'])
+  // visibility metadata for registry consumers
+  const withVisibility = integrations.map((integration) =>
+    integration.id === 'drive'
+      ? { ...integration, connected: tokenHasDriveFileScope(driveToken) }
+      : integration,
+  ).map((integration) => ({
+    ...integration,
+    visibility: HIDDEN_FROM_CUSTOMER.has(integration.id) ? 'hidden' : 'native',
+    status: HIDDEN_FROM_CUSTOMER.has(integration.id) ? 'deprecated' : 'active',
+  }))
+  const filtered = includeHidden ? withVisibility : withVisibility.filter(i => i.visibility !== 'hidden')
+  response.json({ integrations: filtered })
 })
 
 app.get('/api/openconnector/status', requireAuth, async (_request, response) => {
@@ -4973,6 +5317,14 @@ app.get('/api/openconnector/status', requireAuth, async (_request, response) => 
 })
 
 app.get('/api/openconnector/providers', requireAuth, async (request, response) => {
+  const visibility = String(request.query.visibility || '').toLowerCase()
+  const includeHidden = visibility === 'internal' || String(request.query.includeHidden || '').toLowerCase() === 'true'
+  // Customer-facing discovery hides the generic marketplace; breadth is via n8n.
+  // Internal workflows and tenant-isolated executions continue to work via execute/connection APIs.
+  if (!includeHidden) {
+    response.json({ enabled: integrationGateway.enabled, providers: [], hidden: true, reason: 'External provider catalog is available via n8n automation gateway for customer-facing discovery.' })
+    return
+  }
   const limit = Number.parseInt(String(request.query.limit || '2000'), 10)
   const providers = await integrationGateway.providers(request.auth.context, {
     query: String(request.query.q || ''),
@@ -5650,20 +6002,47 @@ app.patch(
 
 app.get('/api/pricing', async (request, response) => {
   let region = 'ZA'
+  let hasSubscriptionRegion = false
   try {
     const session = await readSession(request)
     if (session?.context?.workspace?.id) {
       const subscription = await database.getSubscriptionRecord(
         session.context.workspace.id,
       )
-      if (subscription?.region) region = subscription.region
+      if (subscription?.region) {
+        region = subscription.region
+        hasSubscriptionRegion = true
+      }
     }
   } catch {
-    // Anonymous visitors fall back to the default region below.
+    // Anonymous visitors fall back to auto-detection below.
   }
   const requestedRegion = String(request.query.region || '').toUpperCase()
-  if (['ZA', 'US', 'UK', 'OTHER'].includes(requestedRegion)) {
+  const hasRequestedRegion = ['ZA', 'US', 'UK', 'OTHER'].includes(requestedRegion)
+  if (hasRequestedRegion) {
     region = requestedRegion
+  } else if (!hasSubscriptionRegion) {
+    // For anonymous/non-persisted visitors without an explicit region, use IP geolocation and Accept-Language for currency auto-detection
+    // (e.g. South Africa viewers automatically see ZAR without relying solely on navigator.language)
+    try {
+      const ctx = await loadWorkspaceContext(request)
+      const country = String(ctx.location?.country || '').trim().toLowerCase()
+      if (country) {
+        if (['south africa', 'za', 'south-africa'].includes(country)) region = 'ZA'
+        else if (['united states', 'usa', 'us', 'united-states', 'united states of america'].includes(country)) region = 'US'
+        else if (['united kingdom', 'uk', 'gb', 'britain', 'england'].includes(country)) region = 'UK'
+        else region = 'OTHER'
+      } else {
+        const acceptLang = String(request.headers['accept-language'] || '').split(',')[0].trim().toLowerCase()
+        const suffix = acceptLang.split('-')[1]?.toLowerCase()
+        if (suffix === 'za' || acceptLang.includes('en-za')) region = 'ZA'
+        else if (suffix === 'gb' || suffix === 'uk' || acceptLang.includes('en-gb') || acceptLang.includes('en-uk')) region = 'UK'
+        else if (suffix === 'us' || acceptLang.includes('en-us')) region = 'US'
+        // else keep default ZA for SA-centric fallback
+      }
+    } catch {
+      // keep default ZA
+    }
   }
   const plans = await database.getPlans(region)
   response.json({
@@ -5739,6 +6118,17 @@ app.get('/api/database/info', requireAuth, async (request, response) => {
 app.get('/api/workspace/team', requireAuth, requireWorkspaceMember, async (request, response) => {
   response.json({
     members: await database.listTeamMembers(request.auth.context.workspace.id),
+  })
+})
+
+app.get('/api/workspace/members/search', requireAuth, requireWorkspaceMember, async (request, response) => {
+  const query = String(request.query.q || '').trim()
+  if (query.length > 80) throw new HttpError(400, 'Member search is too long.')
+  response.json({
+    members: await database.searchActiveWorkspaceMembers(
+      request.auth.context.workspace.id,
+      query,
+    ),
   })
 })
 
@@ -6005,6 +6395,127 @@ app.post('/api/calendar/events', secureMutations, requireAuth, async (request, r
   sendMutationResponse(response, result)
 })
 
+function meetingInvitationResponse(invitation) {
+  const { token, ...safeInvitation } = invitation
+  return {
+    ...safeInvitation,
+    guestUrl: new URL(
+      `/meetings/guest/${encodeURIComponent(token)}`,
+      publicOrigin,
+    ).toString(),
+  }
+}
+
+app.get('/api/meetings/status', requireAuth, (_request, response) => {
+  response.json({ configured: livekit.configured })
+})
+
+app.get('/api/meetings', requireAuth, requireWorkspaceMember, async (request, response) => {
+  response.json({
+    meetings: await meetings.list(request.auth.context, {
+      projectId: request.query.projectId || null,
+      clientId: request.query.clientId || null,
+    }),
+  })
+})
+
+app.post('/api/meetings', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
+  const result = await executeIdempotentMutation({
+    request,
+    route: 'POST /api/meetings',
+    input: request.body || {},
+    operation: async () => {
+      const created = await meetings.create(request.auth.context, request.body || {})
+      return {
+        status: 201,
+        response: {
+          meeting: created.meeting,
+          invitations: created.invitations.map(meetingInvitationResponse),
+        },
+      }
+    },
+  })
+  sendMutationResponse(response, result)
+})
+
+app.get('/api/meetings/:meetingId', requireAuth, requireWorkspaceMember, async (request, response) => {
+  response.json({ meeting: await meetings.get(request.auth.context, request.params.meetingId) })
+})
+
+app.post('/api/meetings/:meetingId/start', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
+  response.json({ meeting: await meetings.start(request.auth.context, request.params.meetingId) })
+})
+
+app.post('/api/meetings/:meetingId/join-token', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
+  response.set('Cache-Control', 'no-store').json(
+    await meetings.join(request.auth.context, request.params.meetingId),
+  )
+})
+
+app.post('/api/meetings/:meetingId/end', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
+  response.json({ meeting: await meetings.end(request.auth.context, request.params.meetingId) })
+})
+
+app.post('/api/meetings/:meetingId/cancel', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
+  response.json({ meeting: await meetings.cancel(request.auth.context, request.params.meetingId) })
+})
+
+app.post('/api/meetings/:meetingId/participants/remove', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
+  await meetings.removeParticipant(
+    request.auth.context,
+    request.params.meetingId,
+    request.body?.identity,
+  )
+  response.status(204).end()
+})
+
+app.get('/api/meetings/:meetingId/notes', requireAuth, requireWorkspaceMember, async (request, response) => {
+  response.json({ notes: await meetings.listNotes(request.auth.context, request.params.meetingId) })
+})
+
+app.post('/api/meetings/:meetingId/notes', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
+  response.status(201).json({
+    note: await meetings.addNote(request.auth.context, request.params.meetingId, request.body || {}),
+  })
+})
+
+app.get('/api/meetings/:meetingId/invitations', requireAuth, requireWorkspaceMember, async (request, response) => {
+  response.json({
+    invitations: await meetings.listInvitations(request.auth.context, request.params.meetingId),
+  })
+})
+
+app.post('/api/meetings/:meetingId/invitations', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
+  const invitation = await meetings.createInvitation(
+    request.auth.context,
+    request.params.meetingId,
+    request.body || {},
+  )
+  response.status(201).json({ invitation: meetingInvitationResponse(invitation) })
+})
+
+app.delete('/api/meetings/:meetingId/invitations/:invitationId', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
+  response.json({
+    invitation: await meetings.revokeInvitation(
+      request.auth.context,
+      request.params.meetingId,
+      request.params.invitationId,
+    ),
+  })
+})
+
+app.get('/api/meeting-guests/:token', async (request, response) => {
+  response.set('Cache-Control', 'no-store').json({
+    meeting: await meetings.guestMetadata(request.params.token),
+  })
+})
+
+app.post('/api/meeting-guests/:token/join', secureMutations, async (request, response) => {
+  response.set('Cache-Control', 'no-store').json(
+    await meetings.guestJoin(request.params.token, request.body || {}),
+  )
+})
+
 app.get('/api/connected-intelligence/meeting-features', requireAuth, async (request, response) => {
   response.json(await connectedIntelligence.getMeetingFeatures(request.auth.context))
 })
@@ -6090,6 +6601,7 @@ app.get('/api/clients/:id/history', requireAuth, async (request, response) => {
       project.client.toLowerCase() === client.name.toLowerCase()
     ),
   )
+  const clientMeetings = await meetings.list(request.auth.context, { clientId: client.id })
   const domain = emailDomain(client.email)
   let messages = []
   let mailConnected = false
@@ -6123,7 +6635,7 @@ app.get('/api/clients/:id/history', requireAuth, async (request, response) => {
       messages = []
     }
   }
-  response.json({ projects, messages, domain: domain || null, mailConnected })
+  response.json({ projects, meetings: clientMeetings, messages, domain: domain || null, mailConnected })
 })
 
 app.get('/api/storefront/settings', requireAuth, async (request, response) => {
@@ -6643,6 +7155,57 @@ app.get('/api/projects/:id/approvals', requireAuth, async (request, response) =>
   })
 })
 
+app.get('/api/projects/:id/comments', requireAuth, requireWorkspaceMember, async (request, response) => {
+  const projectId = String(request.params.id || '')
+  if (!/^prj_[a-z0-9_-]{6,80}$/i.test(projectId)) throw new HttpError(400, 'A valid project id is required.')
+  response.json({ comments: await database.listProjectComments(request.auth.context.workspace.id, projectId) })
+})
+
+app.post('/api/projects/:id/comments', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
+  const projectId = String(request.params.id || '')
+  if (!/^prj_[a-z0-9_-]{6,80}$/i.test(projectId)) throw new HttpError(400, 'A valid project id is required.')
+  const body = String(request.body?.body || '').trim()
+  if (!body || body.length > 2_000) throw new HttpError(400, 'Comments must be between 1 and 2,000 characters.')
+  const taskId = request.body?.taskId ? projectTaskId(request.body.taskId) : null
+  const sourceType = taskId ? 'task_comment' : 'project_comment'
+  const result = await database.transaction(async () => {
+    const comment = await database.createProjectComment({
+      workspaceId: request.auth.context.workspace.id,
+      projectId,
+      taskId,
+      createdBy: request.auth.context.user.id,
+      authorName: request.auth.context.user.name,
+      body,
+    })
+    if (!comment) throw new HttpError(404, 'The project or task was not found in this workspace.')
+    const mentionSync = await database.syncMentions({
+      workspaceId: request.auth.context.workspace.id,
+      sourceType,
+      sourceId: comment.id,
+      mentionedBy: request.auth.context.user.id,
+      content: body,
+    })
+    if (mentionSync.added.length) await recordWorkspaceEvent({
+      database,
+      context: request.auth.context,
+      eventType: 'member.mentioned',
+      entityType: sourceType,
+      entityId: comment.id,
+      projectId,
+      participantRefs: mentionSync.added,
+      payload: {
+        event: 'member.mentioned',
+        resource: { type: sourceType, id: comment.id },
+        recipients: mentionSync.added,
+        metadata: { taskId },
+      },
+      importance: 55,
+    })
+    return { comment, mentions: mentionSync.mentions }
+  })
+  response.status(201).json({ comment: { ...result.comment, mentions: result.mentions } })
+})
+
 app.get('/api/projects/:id/reviews', requireAuth, async (request, response) => {
   const projectId = String(request.params.id || '')
   const review = await database.getLatestReviewForProject(request.auth.context.workspace.id, projectId)
@@ -7103,10 +7666,22 @@ app.patch('/api/projects/:id', secureMutations, requireAuth, async (request, res
 
 function projectTaskId(value) {
   const id = String(value || '').trim()
-  if (!/^tsk_[a-f0-9-]{36}$/i.test(id)) {
+  if (!/^tsk_[a-z0-9-]{12,80}$/i.test(id)) {
     throw new HttpError(400, 'A valid task id is required.')
   }
   return id
+}
+
+function projectTaskAssigneeIds(value) {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > 50) {
+    throw new HttpError(400, 'Choose up to 50 task assignees.')
+  }
+  const ids = [...new Set(value.map((item) => String(item || '').trim()))]
+  if (ids.some((id) => !/^[a-z0-9_-]{3,160}$/i.test(id))) {
+    throw new HttpError(400, 'One or more task assignees are invalid.')
+  }
+  return ids
 }
 
 function projectTaskBucketId(value) {
@@ -7115,6 +7690,59 @@ function projectTaskBucketId(value) {
     throw new HttpError(400, 'A valid task bucket is required.')
   }
   return bucketId
+}
+
+function projectBoardSettingsInput(value) {
+  const input = value && typeof value === 'object' ? value : {}
+  if (!Array.isArray(input.customBuckets) || !Array.isArray(input.bucketOrder) || !input.bucketAssignees || typeof input.bucketAssignees !== 'object' || Array.isArray(input.bucketAssignees)) {
+    throw new HttpError(400, 'Provide valid project board settings.')
+  }
+  if (input.customBuckets.length > 50 || input.bucketOrder.length > 55 || Object.keys(input.bucketAssignees).length > 55) {
+    throw new HttpError(400, 'Project board settings exceed the supported limit.')
+  }
+  const customBuckets = input.customBuckets.map((bucket) => {
+    const id = String(bucket?.id || '').trim().toLowerCase()
+    const label = String(bucket?.label || '').trim()
+    if (!/^custom-[a-z0-9-]{6,80}$/.test(id) || !label || label.length > 60) {
+      throw new HttpError(400, 'A custom bucket has invalid details.')
+    }
+    return { id, label }
+  })
+  if (new Set(customBuckets.map((bucket) => bucket.id)).size !== customBuckets.length) {
+    throw new HttpError(400, 'Custom bucket ids must be unique.')
+  }
+  const baseBucketIds = ['backlog', 'in-progress', 'waiting', 'review', 'completed']
+  const validBucketIds = new Set([...baseBucketIds, ...customBuckets.map((bucket) => bucket.id)])
+  const bucketOrder = [...new Set(input.bucketOrder.map((id) => String(id || '').trim().toLowerCase()))]
+  if (bucketOrder.some((id) => !validBucketIds.has(id))) {
+    throw new HttpError(400, 'The bucket order contains an unknown bucket.')
+  }
+  const bucketAssignees = {}
+  for (const [bucketId, memberId] of Object.entries(input.bucketAssignees)) {
+    const normalizedBucketId = String(bucketId || '').trim().toLowerCase()
+    const normalizedMemberId = String(memberId || '').trim()
+    if (!validBucketIds.has(normalizedBucketId) || !/^[a-z0-9_-]{3,160}$/i.test(normalizedMemberId)) {
+      throw new HttpError(400, 'A bucket assignment is invalid.')
+    }
+    bucketAssignees[normalizedBucketId] = normalizedMemberId
+  }
+  return { customBuckets, bucketOrder, bucketAssignees }
+}
+
+async function requireProjectBoardBucket(workspaceId, projectId, bucketId) {
+  const settings = await database.getProjectBoardSettings(workspaceId, projectId)
+  if (!settings) throw new HttpError(404, 'Project not found.')
+  const validBucketIds = new Set([
+    'backlog',
+    'in-progress',
+    'waiting',
+    'review',
+    'completed',
+    ...settings.customBuckets.map((bucket) => bucket.id),
+  ])
+  if (!validBucketIds.has(bucketId)) {
+    throw new HttpError(400, 'Select a valid project board bucket.')
+  }
 }
 
 function projectTaskTitle(value) {
@@ -7133,17 +7761,64 @@ function projectTaskNotes(value) {
   return notes
 }
 
-app.get('/api/projects/:id/tasks', requireAuth, async (request, response) => {
+app.get('/api/projects/:id/board-settings', requireAuth, requireWorkspaceMember, async (request, response) => {
   const projectId = String(request.params.id || '')
   if (!/^prj_[a-z0-9_-]{6,80}$/i.test(projectId)) {
     throw new HttpError(400, 'A valid project id is required.')
   }
+  const settings = await database.getProjectBoardSettings(request.auth.context.workspace.id, projectId)
+  if (!settings) throw new HttpError(404, 'Project not found.')
+  response.json({ settings })
+})
+
+app.patch('/api/projects/:id/board-settings', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
+  const projectId = String(request.params.id || '')
+  if (!/^prj_[a-z0-9_-]{6,80}$/i.test(projectId)) {
+    throw new HttpError(400, 'A valid project id is required.')
+  }
+  const input = projectBoardSettingsInput(request.body)
+  const assignedMemberIds = Object.values(input.bucketAssignees)
+  const activeMemberIds = await database.activeWorkspaceMemberIds(
+    request.auth.context.workspace.id,
+    assignedMemberIds,
+  )
+  if (activeMemberIds.length !== new Set(assignedMemberIds).size) {
+    throw new HttpError(400, 'Buckets may only be assigned to active workspace members.')
+  }
+  const result = await executeIdempotentMutation({
+    request,
+    route: `PATCH /api/projects/${projectId}/board-settings`,
+    input: { projectId, ...input },
+    operation: async () => {
+      const settings = await database.updateProjectBoardSettings({
+        workspaceId: request.auth.context.workspace.id,
+        projectId,
+        ...input,
+      })
+      if (!settings) throw new HttpError(404, 'Project not found.')
+      return { status: 200, response: { settings } }
+    },
+  })
+  sendMutationResponse(response, result)
+})
+
+app.get('/api/projects/:id/tasks', requireAuth, requireWorkspaceMember, async (request, response) => {
+  const projectId = String(request.params.id || '')
+  if (!/^prj_[a-z0-9_-]{6,80}$/i.test(projectId)) {
+    throw new HttpError(400, 'A valid project id is required.')
+  }
+  const assignedTo = String(request.query.assignedTo || '').trim()
+  if (assignedTo && assignedTo !== 'me') throw new HttpError(400, 'The task assignee filter is invalid.')
   response.json({
-    tasks: await database.listProjectTasks(request.auth.context.workspace.id, projectId),
+    tasks: await database.listProjectTasks(
+      request.auth.context.workspace.id,
+      projectId,
+      { assignedTo: assignedTo === 'me' ? request.auth.context.user.id : null },
+    ),
   })
 })
 
-app.post('/api/projects/:id/tasks', secureMutations, requireAuth, async (request, response) => {
+app.post('/api/projects/:id/tasks', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
   const projectId = String(request.params.id || '')
   if (!/^prj_[a-z0-9_-]{6,80}$/i.test(projectId)) {
     throw new HttpError(400, 'A valid project id is required.')
@@ -7151,10 +7826,12 @@ app.post('/api/projects/:id/tasks', secureMutations, requireAuth, async (request
   const title = projectTaskTitle(request.body?.title)
   const notes = projectTaskNotes(request.body?.notes)
   const bucketId = projectTaskBucketId(request.body?.bucketId || 'backlog')
+  const assigneeIds = projectTaskAssigneeIds(request.body?.assigneeIds)
+  await requireProjectBoardBucket(request.auth.context.workspace.id, projectId, bucketId)
   const result = await executeIdempotentMutation({
     request,
     route: `POST /api/projects/${projectId}/tasks`,
-    input: { projectId, title, notes, bucketId },
+    input: { projectId, title, notes, bucketId, assigneeIds },
     operation: async () => {
       const task = await database.createProjectTask({
         workspaceId: request.auth.context.workspace.id,
@@ -7164,13 +7841,40 @@ app.post('/api/projects/:id/tasks', secureMutations, requireAuth, async (request
         notes,
       })
       if (!task) throw new HttpError(404, 'Project not found.')
-      return { status: 201, response: { task } }
+      const assignment = await database.replaceTaskAssignees({
+        workspaceId: request.auth.context.workspace.id,
+        taskId: task.id,
+        userIds: assigneeIds,
+        actorId: request.auth.context.user.id,
+      })
+      await recordWorkspaceEvent({
+        database,
+        context: request.auth.context,
+        eventType: 'task.created',
+        entityType: 'task',
+        entityId: task.id,
+        projectId,
+        payload: { title, source: 'project' },
+        importance: 60,
+      })
+      if (assignment.added.length) await recordWorkspaceEvent({
+        database,
+        context: request.auth.context,
+        eventType: 'task.assigned',
+        entityType: 'task',
+        entityId: task.id,
+        projectId,
+        participantRefs: assignment.added,
+        payload: { recipients: assignment.added },
+        importance: 55,
+      })
+      return { status: 201, response: { task: assignment.task } }
     },
   })
   sendMutationResponse(response, result)
 })
 
-app.patch('/api/projects/:id/tasks/:taskId', secureMutations, requireAuth, async (request, response) => {
+app.patch('/api/projects/:id/tasks/:taskId', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
   const projectId = String(request.params.id || '')
   if (!/^prj_[a-z0-9_-]{6,80}$/i.test(projectId)) {
     throw new HttpError(400, 'A valid project id is required.')
@@ -7181,25 +7885,110 @@ app.patch('/api/projects/:id/tasks/:taskId', secureMutations, requireAuth, async
   if (Object.hasOwn(request.body || {}, 'notes')) fields.notes = projectTaskNotes(request.body.notes)
   if (Object.hasOwn(request.body || {}, 'bucketId')) fields.bucketId = projectTaskBucketId(request.body.bucketId)
   if (Object.hasOwn(request.body || {}, 'completed')) fields.completedAt = request.body.completed ? nowIso() : null
-  if (!Object.keys(fields).length) throw new HttpError(400, 'Provide at least one task field to update.')
+  const hasAssigneeUpdate = Object.hasOwn(request.body || {}, 'assigneeIds')
+  const assigneeIds = hasAssigneeUpdate ? projectTaskAssigneeIds(request.body.assigneeIds) : null
+  if (!Object.keys(fields).length && !hasAssigneeUpdate) throw new HttpError(400, 'Provide at least one task field to update.')
   const existingTask = (await database.listProjectTasks(request.auth.context.workspace.id, projectId))
     .find((item) => item.id === taskId)
   if (!existingTask) throw new HttpError(404, 'Task not found.')
+  if (fields.bucketId) {
+    await requireProjectBoardBucket(request.auth.context.workspace.id, projectId, fields.bucketId)
+  }
   const result = await executeIdempotentMutation({
     request,
     route: `PATCH /api/projects/${projectId}/tasks/${taskId}`,
-    input: { projectId, taskId, ...fields },
+    input: { projectId, taskId, ...fields, ...(hasAssigneeUpdate ? { assigneeIds } : {}) },
     operation: async () => {
-      const task = await database.updateProjectTask(
+      let task = await database.updateProjectTask(
         request.auth.context.workspace.id,
         taskId,
         fields,
       )
       if (!task || task.projectId !== existingTask.projectId) throw new HttpError(404, 'Task not found.')
+      if (hasAssigneeUpdate) {
+        const assignment = await database.replaceTaskAssignees({
+          workspaceId: request.auth.context.workspace.id,
+          taskId,
+          userIds: assigneeIds,
+          actorId: request.auth.context.user.id,
+        })
+        task = assignment.task
+        for (const [eventType, recipients] of [
+          ['task.assigned', assignment.added],
+          ['task.unassigned', assignment.removed],
+        ]) {
+          if (recipients.length) await recordWorkspaceEvent({
+            database,
+            context: request.auth.context,
+            eventType,
+            entityType: 'task',
+            entityId: taskId,
+            projectId,
+            participantRefs: recipients,
+            payload: { recipients },
+            importance: 50,
+          })
+        }
+      }
       return { status: 200, response: { task } }
     },
   })
   sendMutationResponse(response, result)
+})
+
+app.post('/api/projects/:id/tasks/:taskId/assignees', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
+  const projectId = String(request.params.id || '')
+  const taskId = projectTaskId(request.params.taskId)
+  const userId = projectTaskAssigneeIds([request.body?.userId])[0]
+  const current = (await database.listProjectTasks(request.auth.context.workspace.id, projectId))
+    .find((task) => task.id === taskId)
+  if (!current) throw new HttpError(404, 'Task not found.')
+  const userIds = [...current.assignees.map((assignee) => assignee.userId), userId]
+  const assignment = await database.replaceTaskAssignees({
+    workspaceId: request.auth.context.workspace.id,
+    taskId,
+    userIds,
+    actorId: request.auth.context.user.id,
+  })
+  if (assignment.added.length) await recordWorkspaceEvent({
+    database,
+    context: request.auth.context,
+    eventType: 'task.assigned',
+    entityType: 'task',
+    entityId: taskId,
+    projectId,
+    participantRefs: assignment.added,
+    payload: { recipients: assignment.added },
+    importance: 55,
+  })
+  response.status(201).json({ task: assignment.task })
+})
+
+app.delete('/api/projects/:id/tasks/:taskId/assignees/:userId', secureMutations, requireAuth, requireWorkspaceMember, async (request, response) => {
+  const projectId = String(request.params.id || '')
+  const taskId = projectTaskId(request.params.taskId)
+  const userId = projectTaskAssigneeIds([request.params.userId])[0]
+  const current = (await database.listProjectTasks(request.auth.context.workspace.id, projectId))
+    .find((task) => task.id === taskId)
+  if (!current) throw new HttpError(404, 'Task not found.')
+  const assignment = await database.replaceTaskAssignees({
+    workspaceId: request.auth.context.workspace.id,
+    taskId,
+    userIds: current.assignees.map((assignee) => assignee.userId).filter((id) => id !== userId),
+    actorId: request.auth.context.user.id,
+  })
+  if (assignment.removed.length) await recordWorkspaceEvent({
+    database,
+    context: request.auth.context,
+    eventType: 'task.unassigned',
+    entityType: 'task',
+    entityId: taskId,
+    projectId,
+    participantRefs: assignment.removed,
+    payload: { recipients: assignment.removed },
+    importance: 45,
+  })
+  response.json({ task: assignment.task })
 })
 
 app.delete('/api/projects/:id/tasks/:taskId', secureMutations, requireAuth, async (request, response) => {
@@ -9457,12 +10246,12 @@ app.post(
   requireAuth,
   async (request, response) => {
     const automationId = String(request.body?.automationId || '').trim()
-    const instruction = String(request.body?.instruction || '').trim()
+    const requestedInstruction = String(request.body?.instruction || '').trim()
     const provider = String(request.body?.provider || '').trim() || null
-    if (!automationId || !instruction) {
-      throw new HttpError(400, 'Automation ID and instruction are required.')
+    if (!automationId) {
+      throw new HttpError(400, 'An automation ID is required.')
     }
-    if (instruction.length > 5_000) {
+    if (requestedInstruction.length > 5_000) {
       throw new HttpError(400, 'Automation instruction must be 5,000 characters or fewer.')
     }
     if (provider && !/^[a-z0-9][a-z0-9._-]{1,49}$/i.test(provider)) {
@@ -9475,6 +10264,14 @@ app.post(
     if (!automation) throw new HttpError(404, 'Automation not found.')
     if (automation.status !== 'active') {
       throw new HttpError(409, 'Activate this automation before running it.')
+    }
+    const storedWorkflow = automation.execution === 'core'
+      && automation.workflowDefinition?.version === 1
+    if (!storedWorkflow && !requestedInstruction) {
+      throw new HttpError(400, 'An instruction is required to run this legacy automation.')
+    }
+    if (automation.execution === 'core') {
+      assertCoreAutomationExecutionPermission(request.auth.context, automation)
     }
     if (automation.execution === 'edge') {
       const n8nConnection = await database.getN8nConnection(
@@ -9491,8 +10288,15 @@ app.post(
     const result = await executeIdempotentMutation({
       request,
       route: 'POST /api/automations/runs',
-      input: { automationId, instruction, provider },
+      input: { automationId, instruction: requestedInstruction, provider, mode: storedWorkflow ? 'manual-workflow' : 'legacy' },
       operation: async () => {
+        const instruction = storedWorkflow
+          ? createManualWorkflowInstruction({
+              automation,
+              input: requestedInstruction,
+              invocationId: randomUUID(),
+            })
+          : requestedInstruction
         const run = await database.createAutomationRun({
           workspaceId: request.auth.context.workspace.id,
           automationId,
@@ -9560,6 +10364,21 @@ app.use((_request, response) => {
 app.use((error, _request, response, _next) => {
   if (error instanceof HttpError) {
     response.status(error.status).json({ error: error.message })
+    return
+  }
+  if (error instanceof MeetingError || error instanceof LiveKitError) {
+    response.status(error.status || 400).json({
+      error: error.message,
+      code: error.code,
+    })
+    return
+  }
+  if (['TASK_ASSIGNEE_INVALID', 'MENTION_TARGET_INVALID'].includes(error?.code)) {
+    response.status(403).json({ error: error.message, code: error.code })
+    return
+  }
+  if (['TASK_ASSIGNEES_LIMIT', 'MENTION_SOURCE_INVALID'].includes(error?.code)) {
+    response.status(400).json({ error: error.message, code: error.code })
     return
   }
   if (error instanceof PaystackError) {
@@ -9655,6 +10474,13 @@ app.use((error, _request, response, _next) => {
   }
   if (error instanceof WhatsAppError) {
     response.status(error.status || 502).json({
+      error: error.message,
+      code: error.code,
+    })
+    return
+  }
+  if (error instanceof WorkspaceAiError) {
+    response.status(error.status || 400).json({
       error: error.message,
       code: error.code,
     })

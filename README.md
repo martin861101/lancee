@@ -1,13 +1,13 @@
 # lancee
 
 <p align="center">
-  <a href="https://lancee.hookitupservices.com">
+  <a href="https://lancee.work">
     <img src="docs/assets/lancee-readme-header.svg" alt="lancee — a calm operating workspace for client work" width="1200">
   </a>
 </p>
 
 <p align="center">
-  <a href="https://lancee.hookitupservices.com"><img src="https://img.shields.io/website?url=https%3A%2F%2Flancee.hookitupservices.com&style=flat-square&label=live%20platform" alt="Live platform status"></a>
+  <a href="https://lancee.work"><img src="https://img.shields.io/website?url=https%3A%2F%2Flancee.work&style=flat-square&label=live%20platform" alt="Live platform status"></a>
   <a href="https://github.com/martin861101/lancee"><img src="https://img.shields.io/github/stars/martin861101/lancee?style=flat-square&logo=github&label=stars" alt="GitHub stars"></a>
   <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=101828" alt="React 19">
   <img src="https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript 6">
@@ -117,11 +117,12 @@ The repository audit quarantine is documented in [`junk/README.md`](junk/README.
   opens a focused entry form while the persistent form remains available in the
   Calendar layout. Calendar displays project deadlines, persists entries on the
   server, validates project/client links inside the authenticated workspace, and
-  derives meeting duration from start/end timestamps. Meetings link back to
-  Calendar, Projects, Clients, and Files and load Zoom's embedded Meeting SDK
-  only when a user joins. Configure `ZOOM_MEETING_SDK_KEY` and
-  `ZOOM_MEETING_SDK_SECRET` on the server; see
-  [`docs/DAIRY.md`](docs/DAIRY.md) and
+  derives meeting duration from start/end timestamps. Native Meetings link back
+  to Calendar, Projects, and Clients, provide camera/microphone preview, screen
+  sharing, secure client guest links, and internal notes, while LiveKit supplies
+  realtime media only. Configure `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and
+  `LIVEKIT_API_SECRET` on the server; see
+  [`docs/LIVEKIT_MEETINGS.md`](docs/LIVEKIT_MEETINGS.md) and
   [`docs/CONNECTED_INTELLIGENCE.md`](docs/CONNECTED_INTELLIGENCE.md).
 - **Automations & Workflows** — plain-language routines, schedules, connected
   tools, confirmed deletion, and ready-to-use workflow recipes in one place.
@@ -305,7 +306,7 @@ model and SMTP setup. The administrator password is never stored in source or
 documentation.
 
 Initial workspace-owner access starts at
-[https://lancee.hookitupservices.com](https://lancee.hookitupservices.com) using the
+[https://lancee.work](https://lancee.work) using the
 configured `ADMIN_EMAIL` and its corresponding password.
 
 The platform admin dashboard provides global user and workspace directories,
@@ -412,7 +413,7 @@ gaps are recorded in
 [`docs/LANCEE_MCP_CONTRACT_AUDIT.json`](docs/LANCEE_MCP_CONTRACT_AUDIT.json).
 The focused verification command is `npm run verify:mcp-contracts`.
 
-Connect an MCP client to `https://lancee.hookitupservices.com/mcp` with
+Connect an MCP client to `https://lancee.work/mcp` with
 `Authorization: Bearer <lancee-device-token>`. The token must have the
 `mcp:invoke` scope and supplies the user/workspace context. The route is served
 by the app on port `5177` behind the existing HTTPS reverse proxy. Lancee no
@@ -1010,7 +1011,7 @@ pnpm install --frozen-lockfile --ignore-scripts
 pnpm dev
 ```
 
-Vite uses port `5177` and accepts `lancee.hookitupservices.com`. This is a
+Vite uses port `5177` and accepts `lancee.work`. This is a
 frontend-only workflow; use the
 [complete local workflow](docs/GETTING_STARTED.md#3-run-the-complete-platform-locally)
 when testing authentication or backend actions.
@@ -1073,7 +1074,7 @@ curl --fail http://127.0.0.1:5177/api/health
 
 The Compose `app` service is the authoritative production runtime and serves
 the compiled app and API on `0.0.0.0:5177`. Nginx Proxy Manager terminates TLS
-for `lancee.hookitupservices.com` and forwards to that listener. Do not run the PM2
+for `lancee.work` and forwards to that listener. Do not run the PM2
 entry and the Compose app simultaneously on the same port; use
 `ecosystem.config.cjs` only for a deliberate non-Docker deployment.
 

@@ -17,7 +17,18 @@ import type {
 } from '@excalidraw/excalidraw/types'
 import '@excalidraw/excalidraw/index.css'
 import { api } from '../lib/api'
+import type { Project, ProjectTask } from '../lib/api'
+import {
+  createIdeaNote,
+  IDEA_SYNC_EVENT,
+  loadIdeaBoard,
+  updateIdeaNote,
+} from '../lib/ideasRepository'
+import type { LocalIdeaNote } from '../lib/offlineStore'
 import type { Theme } from '../lib/theme'
+import { AssigneePicker } from './collaboration/AssigneePicker'
+import { MentionTextarea } from './collaboration/MentionTextarea'
+import type { WorkspaceMember } from './workspace/WorkspaceMember'
 import './ideas-canvas.css'
 
 type Board = {
@@ -199,6 +210,18 @@ function cacheLibrary(workspaceId: string, items: LibraryItems) {
   } catch {
     // A library remains usable for the current session if browser storage is full.
   }
+}
+
+function taskTitleFromNote(content: string) {
+  const plain = content
+    .replace(/@\[([^\]]+)\]\(user:[^)]+\)/g, '@$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return (plain.split(/(?<=[.!?])\s/)[0] || plain).replace(/[.!?]+$/, '').slice(0, 157) || 'Follow up on idea note'
+}
+
+function displayNoteContent(content: string) {
+  return content.replace(/@\[([^\]]+)\]\(user:[^)]+\)/g, '@$1')
 }
 
 async function loadScene(
@@ -429,6 +452,21 @@ export default function IdeasCanvasPage({
   const [saving, setSaving] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [libraryOpen, setLibraryOpen] = useState(false)
+  const [notesOpen, setNotesOpen] = useState(false)
+  const [notes, setNotes] = useState<LocalIdeaNote[]>([])
+  const [noteDraft, setNoteDraft] = useState('')
+  const [editingNote, setEditingNote] = useState<LocalIdeaNote | null>(null)
+  const [noteSaving, setNoteSaving] = useState(false)
+  const [taskFlow, setTaskFlow] = useState<{ mode: 'attach' | 'create'; note: LocalIdeaNote } | null>(null)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [targetProjectId, setTargetProjectId] = useState('')
+  const [availableTasks, setAvailableTasks] = useState<ProjectTask[]>([])
+  const [selectedTaskId, setSelectedTaskId] = useState('')
+  const [taskTitle, setTaskTitle] = useState('')
+  const [taskDescription, setTaskDescription] = useState('')
+  const [taskAssigneeIds, setTaskAssigneeIds] = useState<string[]>([])
+  const [members, setMembers] = useState<WorkspaceMember[]>([])
+  const [taskFlowSaving, setTaskFlowSaving] = useState(false)
   const [libraryGroups, setLibraryGroups] = useState<LibraryGroup[] | null>(null)
   const latestScene = useRef<ExcalidrawInitialDataState | null>(null)
   const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null)
@@ -485,6 +523,35 @@ export default function IdeasCanvasPage({
   }, [cachedBoards, workspaceId])
 
   useEffect(() => {
+    let cancelled = false
+    const refreshNotes = async () => {
+      const result = activeBoardId
+        ? await loadIdeaBoard(workspaceId, activeBoardId)
+        : { notes: [] as LocalIdeaNote[] }
+      if (!cancelled) setNotes(result.notes)
+    }
+    void refreshNotes()
+    const handleSync = () => void refreshNotes()
+    window.addEventListener(IDEA_SYNC_EVENT, handleSync)
+    return () => {
+      cancelled = true
+      window.removeEventListener(IDEA_SYNC_EVENT, handleSync)
+    }
+  }, [activeBoardId, workspaceId])
+
+  useEffect(() => {
+    if (!taskFlow || !targetProjectId) return
+    let cancelled = false
+    void api.projects.tasks.list(targetProjectId).then((items) => {
+      if (!cancelled) {
+        setAvailableTasks(items)
+        setSelectedTaskId((current) => items.some((task) => task.id === current) ? current : items[0]?.id || '')
+      }
+    }).catch(() => { if (!cancelled) setAvailableTasks([]) })
+    return () => { cancelled = true }
+  }, [targetProjectId, taskFlow])
+
+  useEffect(() => {
     const handleOnline = () => setOnline(true)
     const handleOffline = () => setOnline(false)
     window.addEventListener('online', handleOnline)
@@ -514,6 +581,79 @@ export default function IdeasCanvasPage({
       setError(reason instanceof Error ? reason.message : 'Unable to create the board.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function saveNote(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!activeBoardId || !noteDraft.trim() || noteSaving) return
+    setNoteSaving(true)
+    try {
+      const saved = editingNote
+        ? await updateIdeaNote(workspaceId, editingNote, noteDraft.trim())
+        : await createIdeaNote(workspaceId, activeBoardId, noteDraft.trim())
+      setNotes((current) => editingNote
+        ? current.map((note) => note.id === saved.id ? saved : note)
+        : [...current, saved])
+      setNoteDraft('')
+      setEditingNote(null)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to save this note.')
+    } finally {
+      setNoteSaving(false)
+    }
+  }
+
+  async function openTaskFlow(note: LocalIdeaNote, mode: 'attach' | 'create') {
+    setTaskFlow({ note, mode })
+    setTaskTitle(taskTitleFromNote(note.content))
+    setTaskDescription(note.content)
+    setTaskAssigneeIds([])
+    setSelectedTaskId('')
+    try {
+      const [projectList, memberList] = await Promise.all([api.projects.list(), api.team.search('')])
+      setProjects(projectList)
+      setMembers(memberList as WorkspaceMember[])
+      const inherited = projectList.find((project) => project.boardId === note.boardId)
+      setTargetProjectId(inherited?.id || projectList[0]?.id || '')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to prepare the task action.')
+    }
+  }
+
+  async function submitTaskFlow(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!taskFlow || !targetProjectId || taskFlowSaving) return
+    setTaskFlowSaving(true)
+    try {
+      const link = taskFlow.mode === 'attach'
+        ? await api.ideas.linkNoteTask(taskFlow.note.id, selectedTaskId)
+        : (await api.ideas.createTaskFromNote(taskFlow.note.id, {
+            projectId: targetProjectId,
+            bucketId: 'backlog',
+            title: taskTitle.trim(),
+            notes: taskDescription.trim(),
+            assigneeIds: taskAssigneeIds,
+          })).link
+      setNotes((current) => current.map((note) => note.id === taskFlow.note.id
+        ? { ...note, taskLinks: [...(note.taskLinks || []).filter((item) => item.taskId !== link.taskId), link] }
+        : note))
+      setTaskFlow(null)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to link this note and task.')
+    } finally {
+      setTaskFlowSaving(false)
+    }
+  }
+
+  async function unlinkTask(note: LocalIdeaNote, taskId: string) {
+    try {
+      await api.ideas.unlinkNoteTask(note.id, taskId)
+      setNotes((current) => current.map((item) => item.id === note.id
+        ? { ...item, taskLinks: (item.taskLinks || []).filter((link) => link.taskId !== taskId) }
+        : item))
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to unlink this task.')
     }
   }
 
@@ -651,9 +791,23 @@ export default function IdeasCanvasPage({
             className={`ideas-library-toggle ${libraryOpen ? 'is-active' : ''}`}
             type="button"
             aria-pressed={libraryOpen}
-            onClick={() => setLibraryOpen((open) => !open)}
+            onClick={() => {
+              setLibraryOpen((open) => !open)
+              setNotesOpen(false)
+            }}
           >
             {libraryOpen ? 'Close library' : 'Libraries'}
+          </button>
+          <button
+            className={`ideas-library-toggle ${notesOpen ? 'is-active' : ''}`}
+            type="button"
+            aria-pressed={notesOpen}
+            onClick={() => {
+              setNotesOpen((open) => !open)
+              setLibraryOpen(false)
+            }}
+          >
+            {notesOpen ? 'Close notes' : `Notes${notes.length ? ` (${notes.length})` : ''}`}
           </button>
           <button className="ideas-new-board" onClick={() => setShowNewBoard(true)}>
             <span aria-hidden="true">+</span> New board
@@ -773,6 +927,46 @@ export default function IdeasCanvasPage({
             )}
           </aside>
         )}
+        {notesOpen && (
+          <aside className="ideas-notes-panel" aria-label="Board notes">
+            <header className="ideas-library-panel__header">
+              <strong>Notes</strong>
+              <button type="button" aria-label="Close notes" onClick={() => setNotesOpen(false)}>×</button>
+            </header>
+            <form className="ideas-note-composer" onSubmit={(event) => void saveNote(event)}>
+              <MentionTextarea
+                value={noteDraft}
+                onChange={setNoteDraft}
+                placeholder="Capture a thought or @mention a teammate…"
+                rows={4}
+                maxLength={500}
+              />
+              <div>
+                {editingNote && <button type="button" onClick={() => { setEditingNote(null); setNoteDraft('') }}>Cancel</button>}
+                <button type="submit" disabled={noteSaving || !noteDraft.trim()}>{noteSaving ? 'Saving…' : editingNote ? 'Save note' : 'Add note'}</button>
+              </div>
+            </form>
+            <div className="ideas-note-list">
+              {notes.map((note) => (
+                <article key={note.id}>
+                  <p>{displayNoteContent(note.content)}</p>
+                  {(note.taskLinks || []).map((link) => (
+                    <span className="ideas-note-task" key={link.taskId} title={link.taskTitle}>
+                      <b>Task</b> {link.taskTitle}
+                      <button type="button" aria-label={`Unlink ${link.taskTitle}`} onClick={() => void unlinkTask(note, link.taskId)}>×</button>
+                    </span>
+                  ))}
+                  <footer>
+                    <button type="button" onClick={() => { setEditingNote(note); setNoteDraft(note.content) }}>Edit</button>
+                    <button type="button" onClick={() => void openTaskFlow(note, 'attach')}>Attach to task</button>
+                    <button type="button" onClick={() => void openTaskFlow(note, 'create')}>Create task</button>
+                  </footer>
+                </article>
+              ))}
+              {!notes.length && <div className="ideas-note-list__empty">No notes on this board yet.</div>}
+            </div>
+          </aside>
+        )}
       </div>
 
       {showNewBoard && (
@@ -801,6 +995,40 @@ export default function IdeasCanvasPage({
               </button>
               <button className="ideas-new-board" disabled={!newBoardLabel.trim() || saving}>
                 {saving ? 'Creating…' : 'Create board'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+      {taskFlow && (
+        <div className="ideas-dialog-backdrop" role="presentation" onMouseDown={() => !taskFlowSaving && setTaskFlow(null)}>
+          <form className="ideas-dialog ideas-task-dialog" onSubmit={(event) => void submitTaskFlow(event)} onMouseDown={(event) => event.stopPropagation()}>
+            <span className="ideas-eyebrow">{taskFlow.mode === 'create' ? 'Create task from note' : 'Attach note to task'}</span>
+            <h2>{taskFlow.mode === 'create' ? 'Review the task before creating it' : 'Choose an existing task'}</h2>
+            <label>
+              Project
+              <select value={targetProjectId} onChange={(event) => setTargetProjectId(event.target.value)} required>
+                {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+              </select>
+            </label>
+            {taskFlow.mode === 'attach' ? (
+              <label>
+                Task
+                <select value={selectedTaskId} onChange={(event) => setSelectedTaskId(event.target.value)} required>
+                  {availableTasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}
+                </select>
+              </label>
+            ) : (
+              <>
+                <label>Title<input value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} maxLength={160} required /></label>
+                <label>Description<textarea value={taskDescription} onChange={(event) => setTaskDescription(event.target.value)} maxLength={2_000} rows={5} /></label>
+                <label>Assignees<AssigneePicker members={members} selected={taskAssigneeIds} onChange={setTaskAssigneeIds} /></label>
+              </>
+            )}
+            <div>
+              <button className="ideas-dialog__cancel" type="button" disabled={taskFlowSaving} onClick={() => setTaskFlow(null)}>Cancel</button>
+              <button className="ideas-new-board" disabled={taskFlowSaving || !targetProjectId || (taskFlow.mode === 'attach' ? !selectedTaskId : !taskTitle.trim())}>
+                {taskFlowSaving ? 'Saving…' : taskFlow.mode === 'create' ? 'Create task' : 'Attach task'}
               </button>
             </div>
           </form>

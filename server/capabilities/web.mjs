@@ -119,7 +119,7 @@ export function createWebCapabilities({
     timeoutMs: 15_000,
     maximumRedirects,
     signal,
-    userAgent: 'LanceeResearch/1.0 (+https://lancee.hookitupservices.com)',
+    userAgent: 'LanceeResearch/1.0 (+https://lancee.work)',
   })
 
   const accessPage = async (url, { signal, maximumTextLength = MAX_PAGE_TEXT_LENGTH } = {}) => {
@@ -178,7 +178,7 @@ export function createWebCapabilities({
           timeoutMs: 15_000,
           maximumRedirects: 0,
           signal,
-          userAgent: 'LanceeResearch/1.0 (+https://lancee.hookitupservices.com)',
+          userAgent: 'LanceeResearch/1.0 (+https://lancee.work)',
         })
         if (response.status < 200 || response.status >= 300) {
           throw new LanceeCapabilityError('SEARCH_FAILED', `The web search provider returned HTTP ${response.status}.`, 502)

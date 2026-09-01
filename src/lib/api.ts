@@ -477,6 +477,7 @@ export type MailMessageSummary = {
 
 export type ClientHistory = {
   projects: Project[]
+  meetings: Meeting[]
   messages: MailMessageSummary[]
   domain: string | null
   mailConnected: boolean
@@ -647,6 +648,8 @@ export type Subscription = {
   isOnTrial: boolean
   subscribedAt: string | null
   updatedAt: string
+  /** Whether this subscription was explicitly saved for the workspace. */
+  isPersisted: boolean
 }
 
 export type SubscriptionState = {
@@ -852,6 +855,81 @@ export type CalendarEventInput = {
   participants?: string[]
 }
 
+export type Meeting = {
+  id: string
+  workspaceId: string
+  title: string
+  description: string
+  meetingType: 'internal' | 'client'
+  status: 'scheduled' | 'live' | 'completed' | 'cancelled'
+  projectId: string | null
+  projectName: string | null
+  clientId: string | null
+  clientName: string | null
+  createdBy: string
+  creatorName: string | null
+  scheduledStart: string
+  scheduledEnd: string
+  startedAt: string | null
+  endedAt: string | null
+  durationMinutes: number
+  guestAccessEnabled: boolean
+  participants: string[]
+  isHost: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export type MeetingInvitation = {
+  id: string
+  meetingId: string
+  email: string | null
+  guestName: string | null
+  expiresAt: string
+  revokedAt?: string | null
+  createdAt?: string
+  guestUrl?: string
+}
+
+export type MeetingNote = {
+  id: string
+  meetingId: string
+  authorId: string
+  authorName: string
+  body: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type MeetingCredentials = {
+  serverUrl: string
+  token: string
+  expiresIn: number
+}
+
+export type CreateMeetingInput = {
+  title: string
+  description?: string
+  meetingType: Meeting['meetingType']
+  scheduledStart: string
+  scheduledEnd: string
+  projectId?: string | null
+  clientId?: string | null
+  participants?: string[]
+  externalParticipants?: Array<{ email?: string; name?: string }>
+  guestAccessEnabled?: boolean
+}
+
+export type GuestMeeting = {
+  title: string
+  status: Meeting['status']
+  scheduledStart: string
+  scheduledEnd: string
+  guestName: string | null
+  hostName: string | null
+  companyName: string
+}
+
 export type MeetingFeatures = {
   meetings: Array<{
     meetingId: string
@@ -1003,6 +1081,33 @@ export type ProjectTask = {
   completedAt: string | null
   createdAt: string
   updatedAt: string
+  assignees: TaskAssignee[]
+}
+
+export type ProjectBoardSettings = {
+  customBuckets: Array<{ id: string; label: string }>
+  bucketOrder: string[]
+  bucketAssignees: Record<string, string>
+  configured: boolean
+}
+
+export type TaskAssignee = {
+  userId: string
+  name: string
+  email: string
+  avatarUrl: string
+  status: 'active' | 'invited' | 'disabled'
+  assignedBy: string
+  assignedAt: string
+}
+
+export type NoteTaskLink = {
+  noteId: string
+  taskId: string
+  projectId: string
+  taskTitle: string
+  createdBy: string
+  createdAt: string
 }
 
 export type ProjectInput = {
@@ -1043,6 +1148,7 @@ export type ProjectComment = {
   taskId: string | null
   authorType: 'workspace' | 'client'
   authorName: string
+  createdBy?: string | null
   body: string
   createdAt: string
 }
@@ -1455,6 +1561,20 @@ export const api = {
       void cacheSession(payload.user).catch(() => undefined)
       return payload.user
     },
+    async updateProfile(input: { name: string }) {
+      const response = await fetch('/api/account/profile', {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify(input),
+      })
+      const payload = (await response.json()) as { user?: User; error?: string }
+      if (!response.ok || !payload.user) {
+        throw new Error(payload.error || 'Unable to update your profile.')
+      }
+      void cacheSession(payload.user).catch(() => undefined)
+      return payload.user
+    },
   },
   codexDevice: {
     async getConnection() {
@@ -1862,6 +1982,131 @@ export const api = {
       if (!response.ok || !payload.id) {
         throw new Error(payload.error || 'Unable to create the calendar event.')
       }
+      return payload
+    },
+  },
+  meetings: {
+    async status(): Promise<{ configured: boolean }> {
+      const response = await fetch('/api/meetings/status', { credentials: 'same-origin' })
+      const payload = (await response.json()) as { configured?: boolean; error?: string }
+      if (!response.ok) throw new Error(payload.error || 'Unable to check native meeting availability.')
+      return { configured: Boolean(payload.configured) }
+    },
+    async list(filters: { projectId?: string; clientId?: string } = {}): Promise<Meeting[]> {
+      const query = new URLSearchParams()
+      if (filters.projectId) query.set('projectId', filters.projectId)
+      if (filters.clientId) query.set('clientId', filters.clientId)
+      const response = await fetch(`/api/meetings${query.size ? `?${query}` : ''}`, { credentials: 'same-origin' })
+      const payload = (await response.json()) as { meetings?: Meeting[]; error?: string }
+      if (!response.ok || !payload.meetings) throw new Error(payload.error || 'Unable to load meetings.')
+      return payload.meetings
+    },
+    async get(meetingId: string): Promise<Meeting> {
+      const response = await fetch(`/api/meetings/${encodeURIComponent(meetingId)}`, { credentials: 'same-origin' })
+      const payload = (await response.json()) as { meeting?: Meeting; error?: string }
+      if (!response.ok || !payload.meeting) throw new Error(payload.error || 'Unable to load the meeting.')
+      return payload.meeting
+    },
+    async create(input: CreateMeetingInput): Promise<{ meeting: Meeting; invitations: MeetingInvitation[] }> {
+      const response = await fetch('/api/meetings', {
+        method: 'POST', credentials: 'same-origin', headers: mutationHeaders(true), body: JSON.stringify(input),
+      })
+      const payload = (await response.json()) as { meeting?: Meeting; invitations?: MeetingInvitation[]; error?: string }
+      if (!response.ok || !payload.meeting) throw new Error(payload.error || 'Unable to create the meeting.')
+      return { meeting: payload.meeting, invitations: payload.invitations || [] }
+    },
+    async start(meetingId: string): Promise<Meeting> {
+      const response = await fetch(`/api/meetings/${encodeURIComponent(meetingId)}/start`, {
+        method: 'POST', credentials: 'same-origin', headers: mutationHeaders(true), body: '{}',
+      })
+      const payload = (await response.json()) as { meeting?: Meeting; error?: string }
+      if (!response.ok || !payload.meeting) throw new Error(payload.error || 'Unable to start the meeting.')
+      return payload.meeting
+    },
+    async join(meetingId: string): Promise<MeetingCredentials> {
+      const response = await fetch(`/api/meetings/${encodeURIComponent(meetingId)}/join-token`, {
+        method: 'POST', credentials: 'same-origin', headers: mutationHeaders(true), body: '{}',
+      })
+      const payload = (await response.json()) as MeetingCredentials & { error?: string }
+      if (!response.ok || !payload.token || !payload.serverUrl) throw new Error(payload.error || 'Unable to join the meeting.')
+      return payload
+    },
+    async end(meetingId: string): Promise<Meeting> {
+      const response = await fetch(`/api/meetings/${encodeURIComponent(meetingId)}/end`, {
+        method: 'POST', credentials: 'same-origin', headers: mutationHeaders(true), body: '{}',
+      })
+      const payload = (await response.json()) as { meeting?: Meeting; error?: string }
+      if (!response.ok || !payload.meeting) throw new Error(payload.error || 'Unable to end the meeting.')
+      return payload.meeting
+    },
+    async cancel(meetingId: string): Promise<Meeting> {
+      const response = await fetch(`/api/meetings/${encodeURIComponent(meetingId)}/cancel`, {
+        method: 'POST', credentials: 'same-origin', headers: mutationHeaders(true), body: '{}',
+      })
+      const payload = (await response.json()) as { meeting?: Meeting; error?: string }
+      if (!response.ok || !payload.meeting) throw new Error(payload.error || 'Unable to cancel the meeting.')
+      return payload.meeting
+    },
+    async removeParticipant(meetingId: string, identity: string): Promise<void> {
+      const response = await fetch(`/api/meetings/${encodeURIComponent(meetingId)}/participants/remove`, {
+        method: 'POST', credentials: 'same-origin', headers: mutationHeaders(true), body: JSON.stringify({ identity }),
+      })
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string }
+        throw new Error(payload.error || 'Unable to remove the participant.')
+      }
+    },
+    async notes(meetingId: string): Promise<MeetingNote[]> {
+      const response = await fetch(`/api/meetings/${encodeURIComponent(meetingId)}/notes`, { credentials: 'same-origin' })
+      const payload = (await response.json()) as { notes?: MeetingNote[]; error?: string }
+      if (!response.ok || !payload.notes) throw new Error(payload.error || 'Unable to load meeting notes.')
+      return payload.notes
+    },
+    async addNote(meetingId: string, body: string): Promise<MeetingNote> {
+      const response = await fetch(`/api/meetings/${encodeURIComponent(meetingId)}/notes`, {
+        method: 'POST', credentials: 'same-origin', headers: mutationHeaders(true), body: JSON.stringify({ body }),
+      })
+      const payload = (await response.json()) as { note?: MeetingNote; error?: string }
+      if (!response.ok || !payload.note) throw new Error(payload.error || 'Unable to save the meeting note.')
+      return payload.note
+    },
+    async invitations(meetingId: string): Promise<MeetingInvitation[]> {
+      const response = await fetch(`/api/meetings/${encodeURIComponent(meetingId)}/invitations`, { credentials: 'same-origin' })
+      const payload = (await response.json()) as { invitations?: MeetingInvitation[]; error?: string }
+      if (!response.ok || !payload.invitations) throw new Error(payload.error || 'Unable to load guest invitations.')
+      return payload.invitations
+    },
+    async invite(meetingId: string, input: { email?: string; guestName?: string; expiresAt?: string }): Promise<MeetingInvitation> {
+      const response = await fetch(`/api/meetings/${encodeURIComponent(meetingId)}/invitations`, {
+        method: 'POST', credentials: 'same-origin', headers: mutationHeaders(true), body: JSON.stringify(input),
+      })
+      const payload = (await response.json()) as { invitation?: MeetingInvitation; error?: string }
+      if (!response.ok || !payload.invitation) throw new Error(payload.error || 'Unable to create the guest invitation.')
+      return payload.invitation
+    },
+    async revokeInvitation(meetingId: string, invitationId: string): Promise<void> {
+      const response = await fetch(`/api/meetings/${encodeURIComponent(meetingId)}/invitations/${encodeURIComponent(invitationId)}`, {
+        method: 'DELETE', credentials: 'same-origin', headers: mutationHeaders(),
+      })
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string }
+        throw new Error(payload.error || 'Unable to revoke the guest invitation.')
+      }
+    },
+  },
+  meetingGuests: {
+    async get(token: string): Promise<GuestMeeting> {
+      const response = await fetch(`/api/meeting-guests/${encodeURIComponent(token)}`)
+      const payload = (await response.json()) as { meeting?: GuestMeeting; error?: string }
+      if (!response.ok || !payload.meeting) throw new Error(payload.error || 'This meeting invitation is unavailable.')
+      return payload.meeting
+    },
+    async join(token: string, displayName: string): Promise<MeetingCredentials> {
+      const response = await fetch(`/api/meeting-guests/${encodeURIComponent(token)}/join`, {
+        method: 'POST', headers: mutationHeaders(true), body: JSON.stringify({ displayName }),
+      })
+      const payload = (await response.json()) as MeetingCredentials & { error?: string }
+      if (!response.ok || !payload.token || !payload.serverUrl) throw new Error(payload.error || 'Unable to join this meeting.')
       return payload
     },
   },
@@ -2704,6 +2949,49 @@ export const api = {
       return payload as { content: string; model: string; usage: { promptTokens: number; completionTokens: number; totalTokens: number } }
     },
   },
+  customAi: {
+    async getConfig() {
+      const response = await fetch('/api/ai/custom-provider', { credentials: 'same-origin', cache: 'no-store' })
+      const payload = (await response.json()) as { configured?: boolean; provider?: string | null; model?: string | null; maskedKey?: string | null; updatedAt?: string | null; error?: string }
+      if (!response.ok) throw new Error(payload.error || 'Unable to load custom AI provider.')
+      return payload as { configured: boolean; provider: string | null; model: string | null; maskedKey: string | null; updatedAt: string | null; providerOptions?: unknown; lanceeAi?: unknown }
+    },
+    async save(input: { provider: string; model: string; apiKey: string; endpointUrl?: string }) {
+      const response = await fetch('/api/ai/custom-provider', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify(input),
+      })
+      const payload = (await response.json()) as { configured?: boolean; provider?: string; model?: string; maskedKey?: string; error?: string; code?: string }
+      if (!response.ok || payload.configured !== true) throw new Error(payload.error || 'Unable to save custom AI provider.')
+      return payload
+    },
+    async remove() {
+      const response = await fetch('/api/ai/custom-provider', { method: 'DELETE', credentials: 'same-origin', headers: mutationHeaders() })
+      if (!response.ok && response.status !== 204) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string }
+        throw new Error(payload.error || 'Unable to remove custom AI provider.')
+      }
+    },
+    async test() {
+      const response = await fetch('/api/ai/custom-provider/test', { method: 'POST', credentials: 'same-origin', headers: mutationHeaders() })
+      const payload = (await response.json()) as { ok?: boolean; provider?: string; model?: string; latencyMs?: number; preview?: string; error?: string }
+      if (!response.ok || !payload.ok) throw new Error(payload.error || 'Custom AI test failed.')
+      return payload as { ok: true; provider: string; model: string; latencyMs: number; preview: string }
+    },
+    async chat(input: { message: string; history?: Array<{ role: string; content: string }> }) {
+      const response = await fetch('/api/ai/custom-chat', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: mutationHeaders(true),
+        body: JSON.stringify(input),
+      })
+      const payload = (await response.json()) as { content?: string; model?: string; provider?: string; usage?: unknown; error?: string }
+      if (!response.ok || typeof payload.content !== 'string') throw new Error(payload.error || 'Custom AI chat failed.')
+      return payload as { content: string; model: string; provider: string; usage: unknown }
+    },
+  },
   workspace: {
     async getPulse() {
       const response = await fetch('/api/workspace/pulse', {
@@ -2937,6 +3225,23 @@ export const api = {
         createdAt: string
         expiresAt?: string
       }>
+    },
+    async search(query = '') {
+      const response = await fetch(`/api/workspace/members/search?q=${encodeURIComponent(query)}`, { credentials: 'same-origin' })
+      const payload = (await response.json()) as { members?: Array<{
+        id: string
+        userId: string
+        name: string
+        email: string
+        avatarUrl: string
+        role: 'owner' | 'admin' | 'member'
+        status: 'active'
+        invitedAt: string | null
+        joinedAt: string | null
+        createdAt: string
+      }>; error?: string }
+      if (!response.ok || !payload.members) throw new Error(payload.error || 'Unable to search workspace members.')
+      return payload.members
     },
     async update(id: string, input: { name?: string; role: 'admin' | 'member' }) {
       const response = await fetch(`/api/workspace/team/${encodeURIComponent(id)}`, {
@@ -3645,7 +3950,7 @@ export const api = {
         cache: 'no-store',
       })
       const payload = (await response.json()) as ClientHistory & { error?: string }
-      if (!response.ok || !payload.projects || !payload.messages) {
+      if (!response.ok || !payload.projects || !payload.meetings || !payload.messages) {
         throw new Error(payload.error || 'Unable to load client history.')
       }
       return payload
@@ -3847,9 +4152,35 @@ export const api = {
       }
       return payload as Project
     },
+    board: {
+      async get(projectId: string): Promise<ProjectBoardSettings> {
+        const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/board-settings`, {
+          credentials: 'same-origin',
+        })
+        const payload = (await response.json()) as { settings?: ProjectBoardSettings; error?: string }
+        if (!response.ok || !payload.settings) {
+          throw new Error(payload.error || 'Unable to load project board settings.')
+        }
+        return payload.settings
+      },
+      async update(projectId: string, settings: Omit<ProjectBoardSettings, 'configured'>): Promise<ProjectBoardSettings> {
+        const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/board-settings`, {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: mutationHeaders(true),
+          body: JSON.stringify(settings),
+        })
+        const payload = (await response.json()) as { settings?: ProjectBoardSettings; error?: string }
+        if (!response.ok || !payload.settings) {
+          throw new Error(payload.error || 'Unable to save project board settings.')
+        }
+        return payload.settings
+      },
+    },
     tasks: {
-      async list(projectId: string): Promise<ProjectTask[]> {
-        const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tasks`, {
+      async list(projectId: string, options: { assignedToMe?: boolean } = {}): Promise<ProjectTask[]> {
+        const suffix = options.assignedToMe ? '?assignedTo=me' : ''
+        const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tasks${suffix}`, {
           credentials: 'same-origin',
         })
         const payload = (await response.json()) as { tasks?: ProjectTask[]; error?: string }
@@ -3858,7 +4189,7 @@ export const api = {
         }
         return payload.tasks
       },
-      async create(projectId: string, input: { bucketId: string; title: string; notes: string }): Promise<ProjectTask> {
+      async create(projectId: string, input: { bucketId: string; title: string; notes: string; assigneeIds?: string[] }): Promise<ProjectTask> {
         const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tasks`, {
           method: 'POST',
           credentials: 'same-origin',
@@ -3871,7 +4202,7 @@ export const api = {
         }
         return payload.task
       },
-      async update(projectId: string, taskId: string, fields: Partial<Pick<ProjectTask, 'bucketId' | 'title' | 'notes' | 'completed'>>): Promise<ProjectTask> {
+      async update(projectId: string, taskId: string, fields: Partial<Pick<ProjectTask, 'bucketId' | 'title' | 'notes' | 'completed'>> & { assigneeIds?: string[] }): Promise<ProjectTask> {
         const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`, {
           method: 'PATCH',
           credentials: 'same-origin',
@@ -3884,6 +4215,14 @@ export const api = {
         }
         return payload.task
       },
+      async comment(projectId: string, taskId: string, body: string): Promise<ProjectComment> {
+        const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/comments`, {
+          method: 'POST', credentials: 'same-origin', headers: mutationHeaders(true), body: JSON.stringify({ taskId, body }),
+        })
+        const payload = (await response.json()) as { comment?: ProjectComment; error?: string }
+        if (!response.ok || !payload.comment) throw new Error(payload.error || 'Unable to add task comment.')
+        return payload.comment
+      },
       async remove(projectId: string, taskId: string): Promise<void> {
         const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`, {
           method: 'DELETE',
@@ -3894,6 +4233,16 @@ export const api = {
           const payload = (await response.json().catch(() => ({}))) as { error?: string }
           throw new Error(payload.error || 'Unable to delete project task.')
         }
+      },
+    },
+    comments: {
+      async create(projectId: string, body: string): Promise<ProjectComment> {
+        const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/comments`, {
+          method: 'POST', credentials: 'same-origin', headers: mutationHeaders(true), body: JSON.stringify({ body }),
+        })
+        const payload = (await response.json()) as { comment?: ProjectComment; error?: string }
+        if (!response.ok || !payload.comment) throw new Error(payload.error || 'Unable to add project comment.')
+        return payload.comment
       },
     },
     async remove(id: string) {
@@ -3968,6 +4317,34 @@ export const api = {
     },
   },
   ideas: {
+    async listNoteTaskLinks(noteId: string): Promise<NoteTaskLink[]> {
+      const response = await fetch(`/api/ideas/notes/${encodeURIComponent(noteId)}/tasks`, { credentials: 'same-origin' })
+      const payload = (await response.json()) as { links?: NoteTaskLink[]; error?: string }
+      if (!response.ok || !payload.links) throw new Error(payload.error || 'Unable to load linked tasks.')
+      return payload.links
+    },
+    async linkNoteTask(noteId: string, taskId: string): Promise<NoteTaskLink> {
+      const response = await fetch(`/api/ideas/notes/${encodeURIComponent(noteId)}/tasks/${encodeURIComponent(taskId)}`, {
+        method: 'POST', credentials: 'same-origin', headers: mutationHeaders(true), body: '{}',
+      })
+      const payload = (await response.json()) as { link?: NoteTaskLink; error?: string }
+      if (!response.ok || !payload.link) throw new Error(payload.error || 'Unable to attach the note to this task.')
+      return payload.link
+    },
+    async unlinkNoteTask(noteId: string, taskId: string): Promise<void> {
+      const response = await fetch(`/api/ideas/notes/${encodeURIComponent(noteId)}/tasks/${encodeURIComponent(taskId)}`, {
+        method: 'DELETE', credentials: 'same-origin', headers: mutationHeaders(),
+      })
+      if (!response.ok) throw new Error('Unable to unlink this task.')
+    },
+    async createTaskFromNote(noteId: string, input: { projectId: string; bucketId: string; title: string; notes: string; assigneeIds?: string[] }): Promise<{ task: ProjectTask; link: NoteTaskLink }> {
+      const response = await fetch(`/api/ideas/notes/${encodeURIComponent(noteId)}/tasks`, {
+        method: 'POST', credentials: 'same-origin', headers: mutationHeaders(true), body: JSON.stringify(input),
+      })
+      const payload = (await response.json()) as { task?: ProjectTask; link?: NoteTaskLink; error?: string }
+      if (!response.ok || !payload.task || !payload.link) throw new Error(payload.error || 'Unable to create a task from this note.')
+      return { task: payload.task, link: payload.link }
+    },
     async listBoards(): Promise<Array<{ id: string; label: string }>> {
       const response = await fetch('/api/ideas/boards', { credentials: 'same-origin' })
       const payload = (await response.json()) as { boards?: Array<{ id: string; label: string }>; error?: string }

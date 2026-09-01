@@ -1192,7 +1192,9 @@
 
 /* Full project workspace */
 .project-workspace {
+  max-width: 100%;
   min-width: 0;
+  overflow-x: clip;
 }
 
 .project-workspace__breadcrumb {
@@ -1471,14 +1473,26 @@
 }
 
 .project-kanban-scroll {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding-bottom: 20px;
   overflow-x: auto;
+  overflow-y: hidden;
+  contain: inline-size layout paint;
+  overscroll-behavior-inline: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
 }
 
 .project-kanban {
   display: grid;
-  min-width: 1240px;
-  grid-template-columns: repeat(5, minmax(230px, 1fr));
+  width: max-content;
+  min-width: 100%;
+  grid-auto-columns: 250px;
+  grid-auto-flow: column;
+  grid-template-columns: none;
   gap: 10px;
 }
 

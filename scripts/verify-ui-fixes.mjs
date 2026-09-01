@@ -11,12 +11,10 @@ const serverSource = readFileSync(new URL('../server/index.mjs', import.meta.url
 
 for (const expected of [
   "label: 'Automations & Workflows'",
-  "label: 'Connected Apps'",
   "label: 'Preferences'",
   "analytics: 'intelligence'",
   "workflows: 'automations'",
   "services: 'integrations'",
-  'connected-apps-diagram',
   'Clear all',
   "api.notifications.clear()",
 ]) assert.match(appSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
@@ -27,6 +25,9 @@ for (const absent of [
   "label: 'Analytics'",
   "label: 'Services'",
   "label: 'Workflows'",
+  "label: 'Connected Apps'",
+  "label: 'Pricing'",
+  "label: 'Workspace Builder'",
 ]) assert.equal(appSource.includes(absent), false, `${absent} must not be in workspace navigation`)
 
 assert.match(analyticsSource, /embedded = false/)
@@ -61,4 +62,4 @@ try {
   rmSync(directory, { recursive: true, force: true })
 }
 
-console.log('UI fixes verified: consolidated navigation, Connected Intelligence briefing/activity, Connected Apps diagram, and workspace-scoped notification clearing.')
+console.log('UI fixes verified: consolidated navigation, Connected Intelligence briefing/activity, Preferences-only settings destinations, and workspace-scoped notification clearing.')

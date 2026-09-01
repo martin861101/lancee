@@ -1,13 +1,7 @@
 import { motion } from 'motion/react'
 import type { BillingPeriod, PricingPlan } from '../../lib/api'
 import { planCopy } from './pricing-data'
-
-function formatPriceAmount(amount: number) {
-  return new Intl.NumberFormat('en', {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: amount % 1 === 0 ? 0 : 2,
-  }).format(amount)
-}
+import { formatPrice } from '../../lib/pricing'
 
 export default function PricingCard({
   plan,
@@ -45,7 +39,6 @@ export default function PricingCard({
       <h3 className="pricing-card__name">{plan.name}</h3>
 
       <div className="pricing-card__price" aria-live="polite">
-        <span className="pricing-card__symbol">{plan.symbol}</span>
         <motion.span
           key={`${plan.id}-${billingPeriod}`}
           className="pricing-card__amount"
@@ -53,7 +46,7 @@ export default function PricingCard({
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.28, ease: 'easeOut' }}
         >
-          {formatPriceAmount(amount)}
+          {formatPrice(amount, plan.currency)}
         </motion.span>
         {plan.perUser && <span className="pricing-card__unit"> per user</span>}
         <span className="pricing-card__period"> / month</span>
@@ -61,7 +54,7 @@ export default function PricingCard({
 
       {billingPeriod === 'yearly' && (
         <p className="pricing-card__save">
-          Or {plan.symbol}{formatPriceAmount(plan.yearlyPrice)} one time, billed yearly
+          Or {formatPrice(plan.yearlyPrice, plan.currency)} one time, billed yearly
         </p>
       )}
 

@@ -6,7 +6,11 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/img/icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#151813" />
+    <meta name="theme-color" content="#151A2E" />
+    <link rel="canonical" href="https://lancee.work" />
+    <meta property="og:url" content="https://lancee.work" />
+    <meta property="og:site_name" content="lancee" />
+    <meta property="og:type" content="website" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>lancee - Intelligent work, orchestrated</title>
@@ -14,21 +18,7 @@
       name="description"
       content="Connect, collaborate, automate, and deliver with trusted AI agents in one calm operating workspace."
     />
-    <script>
-      ;(function () {
-        try {
-          var savedTheme = localStorage.getItem('lancee-theme') || 'dark'
-          var isDashboard = window.location.pathname.indexOf('/dashboard') === 0
-          var theme = isDashboard ? savedTheme : 'dark'
-          document.documentElement.setAttribute('data-theme', theme === 'sky' ? 'light' : theme)
-          if (theme === 'sky') {
-            document.documentElement.setAttribute('data-theme-variant', 'sky')
-          }
-        } catch (e) {
-          document.documentElement.setAttribute('data-theme', 'dark')
-        }
-      })()
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

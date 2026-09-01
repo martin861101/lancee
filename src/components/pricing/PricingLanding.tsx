@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, type BillingPeriod, type PricingCatalog, type PricingRegion } from '../../lib/api'
+import { detectPricingRegion } from '../../lib/pricing'
+import BrandMark from '../BrandMark'
 import './pricing-page.css'
 import BillingToggle from './BillingToggle'
 import PricingCard from './PricingCard'
 import AddOns from './AddOns'
 import PricingComparison from './PricingComparison'
-import { regions } from './pricing-data'
 
 export default function PricingLanding({
   onSignIn,
@@ -18,24 +19,18 @@ export default function PricingLanding({
 }) {
   const [pricing, setPricing] = useState<PricingCatalog | null>(null)
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('monthly')
-  const [region, setRegion] = useState<PricingRegion>('ZA')
+  const [region, setRegion] = useState<PricingRegion>('OTHER')
   const [error, setError] = useState('')
-
-  const loadPricing = async (targetRegion: PricingRegion) => {
-    try {
-      const catalog = await api.pricing.get(targetRegion)
-      setPricing(catalog)
-      setRegion(targetRegion)
-      setError('')
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to load pricing.')
-    }
-  }
+  const [navOpen, setNavOpen] = useState(false)
 
   useEffect(() => {
     let active = true
+    const tz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined
+    const locale = typeof navigator !== 'undefined' ? navigator.language : undefined
+    const detectedRegion = detectPricingRegion(undefined, locale, tz)
+    setRegion(detectedRegion)
     api.pricing
-      .get()
+      .get(detectedRegion)
       .then((catalog) => {
         if (active) {
           setPricing(catalog)
@@ -64,12 +59,25 @@ export default function PricingLanding({
     <main className="landing pricing-landing">
       <header className="landing-nav">
         <a className="landing-brand" href="#top" aria-label="lancee home" onClick={(event) => { event.preventDefault(); onHome() }}>
-          <span className="pricing-brand-mark" aria-hidden="true">◆</span>
+          <BrandMark />
           <span>lancee</span>
         </a>
-        <nav aria-label="Public navigation">
-          <a href="#top" aria-current="page">Pricing</a>
+        <nav id="pricing-navigation" className={navOpen ? 'is-open' : ''} aria-label="Public navigation">
+          <a href="#top" aria-current="page" onClick={() => setNavOpen(false)}>Pricing</a>
+          <div className="landing-nav__mobile-actions">
+            <button className="landing-sign-in" onClick={() => { setNavOpen(false); onSignIn() }}>Sign in</button>
+            <button className="button button--primary btn-shine" onClick={() => { setNavOpen(false); onSignUp() }}>Get started</button>
+          </div>
         </nav>
+        <button
+          className="landing-menu-toggle"
+          aria-controls="pricing-navigation"
+          aria-expanded={navOpen}
+          aria-label={navOpen ? 'Close navigation menu' : 'Open navigation menu'}
+          onClick={() => setNavOpen((current) => !current)}
+        >
+          <span className="landing-menu-toggle__bars" aria-hidden="true"><i /><i /><i /></span>
+        </button>
         <div>
           <button className="landing-sign-in" onClick={onSignIn}>
             Sign in
@@ -83,7 +91,7 @@ export default function PricingLanding({
       <section className="pricing-page" id="top">
         <header className="pricing-header">
           <span className="pricing-landing__eyebrow">Pricing</span>
-          <h1>Choose how you want to work</h1>
+          <h1>Choose how you want to <em>work.</em></h1>
           <p>
             Start with the workspace you need today and expand as your business grows.
             Every new workspace includes a 14-day Solo trial.
@@ -92,22 +100,7 @@ export default function PricingLanding({
 
         <div className="pricing-controls">
           <BillingToggle billingPeriod={billingPeriod} onChange={setBillingPeriod} />
-          <div className="pricing-region" role="group" aria-label="Billing region">
-            <label>Billing region</label>
-            <div className="pricing-region__options">
-              {regions.map((r) => (
-                <button
-                  key={r.code}
-                  type="button"
-                  className={region === r.code ? 'is-active' : ''}
-                  aria-pressed={region === r.code}
-                  onClick={() => void loadPricing(r.code)}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          {pricing && <span className="pricing-region-hint">{pricing.currency} · {region} pricing</span>}
         </div>
 
         {error && <p className="pricing-error" role="alert">{error}</p>}
@@ -145,9 +138,16 @@ export default function PricingLanding({
         </section>
       </section>
 
-      <footer className="pricing-landing__footer">
-        <a href="#top" onClick={(event) => { event.preventDefault(); onHome() }}>Back to home</a>
-        <a href="#top" onClick={(event) => { event.preventDefault(); onSignIn() }}>Sign in</a>
+      <footer className="landing-footer pricing-landing__footer">
+        <div className="landing-footer__brand" aria-label="lancee">
+          <BrandMark compact />
+          <span>lancee</span>
+        </div>
+        <small>© {new Date().getFullYear()} lancee. All rights reserved.</small>
+        <div className="landing-footer__links">
+          <button onClick={onHome}>Back to home</button>
+          <button onClick={onSignIn}>Sign in</button>
+        </div>
       </footer>
     </main>
   )

@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="512" height="512" viewBox="0 0 512 512"
+     role="img" aria-label="Animated circular chat widget icon">
+  <defs>
+    <radialGradient id="orbGlow" cx="50%" cy="36%" r="72%">
+      <stop offset="0%" stop-color="#118CFF"/>
+      <stop offset="34%" stop-color="#2450FF"/>
+      <stop offset="58%" stop-color="#7A29D9"/>
+      <stop offset="78%" stop-color="#E83C8D"/>
+      <stop offset="100%" stop-color="#FF7A18"/>
+    </radialGradient>
+
+    <linearGradient id="waveStroke" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#CFE9FF" stop-opacity="0.92"/>
+      <stop offset="25%" stop-color="#C8B9FF" stop-opacity="0.86"/>
+      <stop offset="52%" stop-color="#EA8CFF" stop-opacity="0.88"/>
+      <stop offset="78%" stop-color="#FF89C8" stop-opacity="0.86"/>
+      <stop offset="100%" stop-color="#FFE0B6" stop-opacity="0.92"/>
+    </linearGradient>
+
+    <linearGradient id="waveFill" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#CFE9FF" stop-opacity="0.10"/>
+      <stop offset="50%" stop-color="#F3A6FF" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#FFD9AF" stop-opacity="0.10"/>
+    </linearGradient>
+
+    <filter id="softGlow" x="-30%" y="-40%" width="160%" height="180%">
+      <feGaussianBlur stdDeviation="3.2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <clipPath id="circleClip">
+      <circle cx="256" cy="256" r="220"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#circleClip)">
+    <circle cx="256" cy="256" r="220" fill="url(#orbGlow)"/>
+
+    <!-- subtle depth -->
+    <ellipse cx="270" cy="390" rx="188" ry="92" fill="#7F1A73" opacity="0.12"/>
+    <ellipse cx="215" cy="116" rx="168" ry="108" fill="#1AA8FF" opacity="0.08"/>
+
+    <!-- animated ribbon body -->
+    <path id="ribbonFill"
+      d="M20 249
+         C120 170, 165 189, 238 234
+         C312 280, 350 320, 492 253
+         L492 306
+         C357 365, 292 327, 227 286
+         C151 238, 99 228, 20 308 Z"
+      fill="url(#waveFill)">
+      <animate attributeName="d" dur="6s" repeatCount="indefinite"
+        values="
+        M20 249 C120 170,165 189,238 234 C312 280,350 320,492 253 L492 306 C357 365,292 327,227 286 C151 238,99 228,20 308 Z;
+        M20 265 C118 207,170 171,245 222 C320 274,374 329,492 271 L492 315 C358 350,301 311,231 274 C153 233,93 249,20 320 Z;
+        M20 249 C120 170,165 189,238 234 C312 280,350 320,492 253 L492 306 C357 365,292 327,227 286 C151 238,99 228,20 308 Z"/>
+    </path>
+
+    <!-- layered mesh lines -->
+    <g fill="none" stroke="url(#waveStroke)" stroke-width="1.15"
+       stroke-linecap="round" opacity="0.72" filter="url(#softGlow)">
+      <path d="M16 270 C105 202 154 174 235 222 C319 271 373 319 496 262"/>
+      <path d="M16 274 C108 210 158 179 238 227 C320 276 376 323 496 266"/>
+      <path d="M16 278 C111 218 161 184 241 232 C321 281 378 327 496 270"/>
+      <path d="M16 282 C114 226 165 189 244 237 C322 286 381 331 496 274"/>
+      <path d="M16 286 C117 234 168 194 247 242 C323 291 384 335 496 278"/>
+      <path d="M16 290 C120 242 172 199 250 247 C324 296 387 339 496 282"/>
+      <path d="M16 294 C123 250 175 204 253 252 C325 301 390 343 496 286"/>
+      <path d="M16 298 C126 258 179 209 256 257 C326 306 393 347 496 290"/>
+      <path d="M16 302 C129 266 182 214 259 262 C327 311 396 351 496 294"/>
+      <path d="M16 306 C132 274 186 219 262 267 C328 316 399 355 496 298"/>
+      <path d="M16 310 C135 282 189 224 265 272 C329 321 402 359 496 302"/>
+      <path d="M16 314 C138 290 193 229 268 277 C330 326 405 363 496 306"/>
+    </g>
+
+    <!-- Animate the whole mesh with a tiny horizontal drift -->
+    <g opacity="0.9">
+      <animateTransform attributeName="transform" type="translate"
+        values="-7 0; 8 0; -7 0" dur="6s" repeatCount="indefinite"/>
+    </g>
+
+    <!-- highlight crest -->
+    <path d="M14 267 C107 198 157 176 236 223 C319 272 374 319 498 260"
+          fill="none" stroke="#FFFFFF" stroke-opacity="0.50"
+          stroke-width="1.8" stroke-linecap="round" filter="url(#softGlow)">
+      <animate attributeName="stroke-opacity"
+               values="0.35;0.68;0.35" dur="3.4s" repeatCount="indefinite"/>
+    </path>
+  </g>
+</svg>

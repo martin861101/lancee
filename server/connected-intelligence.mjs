@@ -591,7 +591,9 @@ export function createConnectedIntelligenceService({
           startAt,
           endAt,
           durationMinutes: meetingDuration,
-          meetingType: kind,
+          meetingType: ['internal', 'client'].includes(input?.meetingType)
+            ? input.meetingType
+            : kind,
           source,
         },
         importance: 60,
@@ -621,15 +623,24 @@ export function createConnectedIntelligenceService({
     )
   }
 
-  async function completeDueMeetings({ workspaceId = null, eventId = null, completedAt = nowIso() } = {}) {
+  async function completeDueMeetings({
+    workspaceId = null,
+    eventId = null,
+    completedAt = nowIso(),
+    force = false,
+  } = {}) {
     const completionTime = timestamp(completedAt, 'completedAt')
-    const params = [completionTime]
+    const params = []
     const filters = [
       "kind = 'meeting'",
       "status = 'scheduled'",
       'completion_event_id IS NULL',
-      'end_at <= $1',
     ]
+    if (!force) {
+      params.push(completionTime)
+      filters.push(`end_at <= $${params.length}`)
+      filters.push("id NOT IN (SELECT id FROM meetings WHERE status = 'live')")
+    }
     if (workspaceId) {
       params.push(workspaceId)
       filters.push(`workspace_id = $${params.length}`)
@@ -655,6 +666,10 @@ export function createConnectedIntelligenceService({
         )
         if (!claimed[0]) return null
         const event = claimed[0]
+        const nativeMeeting = await database.query(
+          `SELECT meeting_type, started_at FROM meetings WHERE workspace_id = $1 AND id = $2`,
+          [event.workspace_id, event.id],
+        )
         const context = {
           workspace: { id: event.workspace_id },
           user: event.created_by ? { id: event.created_by } : null,
@@ -678,14 +693,17 @@ export function createConnectedIntelligenceService({
           sourceIdentifier: event.source_identifier,
           payload: {
             title: event.title,
-            startAt: event.start_at,
-            endAt: event.end_at,
-            durationMinutes: durationMinutes(event.start_at, event.end_at),
-            meetingType: event.kind,
+            startAt: nativeMeeting[0]?.started_at || event.start_at,
+            endAt: force ? completionTime : event.end_at,
+            durationMinutes: durationMinutes(
+              nativeMeeting[0]?.started_at || event.start_at,
+              force ? completionTime : event.end_at,
+            ),
+            meetingType: nativeMeeting[0]?.meeting_type || event.kind,
             source: event.source,
           },
           importance: 70,
-          occurredAt: event.end_at,
+          occurredAt: force ? completionTime : event.end_at,
         })
         await database.query(
           `UPDATE calendar_events SET completion_event_id = $1 WHERE workspace_id = $2 AND id = $3`,

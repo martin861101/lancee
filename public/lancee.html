@@ -387,7 +387,7 @@
   </div>
   <div class="topbar-actions">
     <a class="btn btn-outline" href="#api-reference"><span class="full">API reference</span></a>
-    <a class="btn btn-gradient" href="https://lancee.hookitupservices.com" target="_blank" rel="noopener">Open lancee →</a>
+    <a class="btn btn-gradient" href="https://lancee.work" target="_blank" rel="noopener">Open lancee →</a>
   </div>
 </header>
 
@@ -489,7 +489,7 @@
       <div class="kicker">Start here</div>
       <h2 class="section-heading"><span class="fold"></span>What lancee is</h2>
       <p>lancee is a portable operating workspace for freelancers and small business owners. It keeps client work, ideas, lightweight automations, connected tools, invoices, and payments in one calm place. AI is optional and appears only where it removes meaningful effort from an existing workflow.</p>
-      <p>The application is built with <strong>React, TypeScript, Vite</strong>, and an <strong>Express</strong> backend. PostgreSQL is the production database, SQLite is the single-process local fallback, and Redis backs queued automation work with an in-process fallback for development. Live platform: <a href="https://lancee.hookitupservices.com" target="_blank" rel="noopener">lancee.hookitupservices.com</a>.</p>
+      <p>The application is built with <strong>React, TypeScript, Vite</strong>, and an <strong>Express</strong> backend. PostgreSQL is the production database, SQLite is the single-process local fallback, and Redis backs queued automation work with an in-process fallback for development. Live platform: <a href="https://lancee.work" target="_blank" rel="noopener">lancee.work</a>.</p>
 
       <div class="pill-row">
         <span class="pill pill-live">Live &amp; durable</span>
@@ -676,7 +676,7 @@ chmod 600 .env</code></pre>
       <p>At minimum, set:</p>
       <pre><code>APP_ENV=production
 PORT=5177
-PUBLIC_ORIGIN=https://lancee.hookitupservices.com
+PUBLIC_ORIGIN=https://lancee.work
 
 ADMIN_NAME=Workspace Admin
 ADMIN_EMAIL=admin@example.com
@@ -695,7 +695,7 @@ REDIS_QUEUE_PREFIX=lancee</code></pre>
 ENCRYPTION_MASTER_KEY=
 GOOGLE_DRIVE_CLIENT_ID=
 GOOGLE_DRIVE_CLIENT_SECRET=
-GOOGLE_DRIVE_REDIRECT_URI=https://lancee.hookitupservices.com/oauth/callback
+GOOGLE_DRIVE_REDIRECT_URI=https://lancee.work/oauth/callback
 GOOGLE_PICKER_API_KEY=
 GOOGLE_PICKER_APP_ID=
 N8N_BASE_URL=https://n8n.hygridtech.co.za
@@ -772,7 +772,7 @@ pm2 describe lancee</code></pre>
 
       <div class="table-wrap"><table>
         <tr><th>Reverse proxy setting</th><th>Value</th></tr>
-        <tr><td>Public hostname</td><td><code>lancee.hookitupservices.com</code></td></tr>
+        <tr><td>Public hostname</td><td><code>lancee.work</code></td></tr>
         <tr><td>Forward scheme</td><td><code>http</code></td></tr>
         <tr><td>Forward host</td><td><code>127.0.0.1</code> or the host running the app</td></tr>
         <tr><td>Forward port</td><td><code>5177</code></td></tr>
@@ -781,8 +781,8 @@ pm2 describe lancee</code></pre>
       </table></div>
 
       <h3 class="subheading"><span class="fold"></span>Production verification</h3>
-      <pre><code>curl -fsS https://lancee.hookitupservices.com/api/health
-curl -I https://lancee.hookitupservices.com
+      <pre><code>curl -fsS https://lancee.work/api/health
+curl -I https://lancee.work
 pm2 logs lancee --nostream --lines 50</code></pre>
       <p>In a private browser window, confirm: HTTPS loads without a certificate warning, the landing page appears before sign-in, invalid credentials fail without identifying the wrong field, valid credentials open the workspace, refresh preserves the session, and sign-out clears it.</p>
 
@@ -791,7 +791,7 @@ pm2 logs lancee --nostream --lines 50</code></pre>
 pnpm install --frozen-lockfile
 pnpm build
 pm2 startOrReload ecosystem.config.cjs --update-env
-curl -fsS https://lancee.hookitupservices.com/api/health</code></pre>
+curl -fsS https://lancee.work/api/health</code></pre>
       <p>Do not overwrite an existing <code>.env</code> during an update.</p>
 
       <h3 class="subheading"><span class="fold"></span>Backend verification suite</h3>
@@ -880,7 +880,7 @@ node --check public/sw.js</code></pre>
         <tr><td><code>SMTP_REPLY_TO</code> / <code>SMTP_TEST_TO</code></td><td>No</td><td>Optional reply and test-recipient addresses</td></tr>
         <tr><td><code>MAIL_SYNC_INTERVAL_MS</code> / <code>MAIL_ALLOW_PRIVATE_HOSTS</code></td><td>Optional</td><td>Mailbox poll interval (default 60s) and explicit private-host opt-in</td></tr>
         <tr><td><code>GOOGLE_DRIVE_CLIENT_ID</code> / <code>CLIENT_SECRET</code></td><td>Drive</td><td>OAuth client credentials; keep the secret server-side</td></tr>
-        <tr><td><code>GOOGLE_DRIVE_REDIRECT_URI</code></td><td>Drive</td><td>OAuth callback, normally <code>https://lancee.hookitupservices.com/oauth/callback</code></td></tr>
+        <tr><td><code>GOOGLE_DRIVE_REDIRECT_URI</code></td><td>Drive</td><td>OAuth callback, normally <code>https://lancee.work/oauth/callback</code></td></tr>
         <tr><td><code>GOOGLE_PICKER_API_KEY</code> / <code>GOOGLE_PICKER_APP_ID</code></td><td>Drive Picker</td><td>Browser Picker configuration values; access is still scoped by saved selections</td></tr>
         <tr><td><code>N8N_BASE_URL</code> / <code>N8N_SIGNING_SECRET</code></td><td>n8n</td><td>Managed n8n URL and server-side webhook signing secret</td></tr>
         <tr><td><code>N8N_TIMEOUT_MS</code> / <code>N8N_ALLOW_PRIVATE</code> / <code>N8N_PRIVATE_NETWORK</code></td><td>Optional</td><td>Timeout and explicit network-policy controls</td></tr>
@@ -1039,7 +1039,7 @@ pnpm verify:offline</code></pre>
       <p>After one authenticated load, the browser retains a non-secret display snapshot of the last user/workspace so the installed shell can reopen cached Idea notes offline. This snapshot is never accepted by the server and never replaces the signed cookie.</p>
 
       <h3 class="subheading"><span class="fold"></span>Administrator sign-in &amp; password rotation</h3>
-      <p>Open <a href="https://lancee.hookitupservices.com" target="_blank" rel="noopener">lancee.hookitupservices.com</a>, select <strong>Sign in</strong>, and use the email in <code>ADMIN_EMAIL</code> with the password used to generate the current hash. There is no dashboard bypass and no plaintext password stored on the server.</p>
+      <p>Open <a href="https://lancee.work" target="_blank" rel="noopener">lancee.work</a>, select <strong>Sign in</strong>, and use the email in <code>ADMIN_EMAIL</code> with the password used to generate the current hash. There is no dashboard bypass and no plaintext password stored on the server.</p>
       <pre><code>pnpm auth:hash</code></pre>
       <p>The script prompts without echoing the password and prints a new <code>ADMIN_PASSWORD_SALT</code> / <code>ADMIN_PASSWORD_HASH</code>. Replace both in <code>.env</code>, then reload PM2 with <code>--update-env</code>.</p>
       <p>In-app notification history is workspace-scoped: the bell reads <code>GET /api/notifications</code>, shows unread state, and marks individual items read with <code>PATCH /api/notifications/:id/read</code>. SMTP is an optional outbound channel for tests and transactional notices; it is separate from the in-app notification feed.</p>
@@ -1089,7 +1089,7 @@ SMTP_TEST_TO=</code></pre>
       </div>
       <pre><code>GOOGLE_DRIVE_CLIENT_ID=
 GOOGLE_DRIVE_CLIENT_SECRET=
-GOOGLE_DRIVE_REDIRECT_URI=https://lancee.hookitupservices.com/oauth/callback
+GOOGLE_DRIVE_REDIRECT_URI=https://lancee.work/oauth/callback
 GOOGLE_PICKER_API_KEY=
 GOOGLE_PICKER_APP_ID=</code></pre>
     </section>
@@ -1201,7 +1201,7 @@ sha256_hex_of_exact_body_bytes</code></pre>
       <p>For GET, the body is empty and the query string is part of the signed path. Inbound timestamps must be within five minutes of server time; nonces are stored per workspace and accepted once, then retained ten minutes for replay cleanup.</p>
 
       <h3 class="subheading"><span class="fold"></span>Inbound callback</h3>
-      <pre><code>https://lancee.hookitupservices.com/api/hooks/n8n/&lt;workspace-id&gt;</code></pre>
+      <pre><code>https://lancee.work/api/hooks/n8n/&lt;workspace-id&gt;</code></pre>
       <div class="table-wrap"><table>
         <tr><th>Response</th><th>Meaning</th></tr>
         <tr><td><code>202</code></td><td>Signature accepted and event recorded</td></tr>
@@ -1257,7 +1257,7 @@ Cookie: lancee_session=&lt;HttpOnly session&gt;</code></pre>
 
       <h3 class="subheading"><span class="fold"></span>Deployment</h3>
       <div class="table-wrap"><table>
-        <tr><td>Public MCP URL</td><td><code>https://lancee.hookitupservices.com/mcp</code></td></tr>
+        <tr><td>Public MCP URL</td><td><code>https://lancee.work/mcp</code></td></tr>
         <tr><td>Application listener</td><td><code>0.0.0.0:5177</code></td></tr>
         <tr><td>Deployment unit</td><td>The Lancee application; no separate MCP process</td></tr>
       </table></div>
@@ -1275,9 +1275,9 @@ Cookie: lancee_session=&lt;HttpOnly session&gt;</code></pre>
       <h3 class="subheading"><span class="fold"></span>Configuration</h3>
       <pre><code>PAYSTACK_SECRET_KEY=sk_test_replace_me
 PAYSTACK_BASE_URL=https://api.paystack.co
-PAYSTACK_CALLBACK_URL=https://lancee.hookitupservices.com/?payment=paystack</code></pre>
+PAYSTACK_CALLBACK_URL=https://lancee.work/?payment=paystack</code></pre>
       <p>Start with an <code>sk_test_...</code> key — the Money UI reports test or live mode from the key prefix. lancee stores only a short SHA-256 fingerprint and the fact that the connection comes from the environment. Configure this webhook in the Paystack dashboard:</p>
-      <pre><code>https://lancee.hookitupservices.com/api/webhooks/paystack</code></pre>
+      <pre><code>https://lancee.work/api/webhooks/paystack</code></pre>
 
       <h3 class="subheading"><span class="fold"></span>User flow</h3>
       <ol>
@@ -1504,7 +1504,7 @@ node --check public/sw.js</code></pre>
 <footer>
   <div class="brand"><img src="img/icon.png" alt="lancee" style="width:20px;height:20px;border-radius:4px;"><span style="font-size:15px;">lancee</span></div>
   <p style="color:var(--text-faint); margin-bottom:6px;">Connect · Collaborate · Automate · Deliver</p>
-  <p style="margin-bottom:0;"><a href="https://lancee.hookitupservices.com" target="_blank" rel="noopener">lancee.hookitupservices.com</a> · <a href="#">Documentation</a></p>
+  <p style="margin-bottom:0;"><a href="https://lancee.work" target="_blank" rel="noopener">lancee.work</a> · <a href="#">Documentation</a></p>
 </footer>
 
 <script>

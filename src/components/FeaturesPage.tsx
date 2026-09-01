@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BUSINESS_IDENTITY } from '../lib/business'
 
 type FeatureIconName =
@@ -502,7 +502,9 @@ export default function FeaturesPage({
   onSignUp: () => void
   signupsPaused?: boolean
 }) {
+  const pageRef = useRef<HTMLElement>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [navOpen, setNavOpen] = useState(false)
   const [signupNotice, setSignupNotice] = useState(false)
 
   useEffect(() => {
@@ -510,6 +512,27 @@ export default function FeaturesPage({
     const timeout = window.setTimeout(() => setSignupNotice(false), 4200)
     return () => window.clearTimeout(timeout)
   }, [signupNotice])
+
+  useEffect(() => {
+    const page = pageRef.current
+    if (!page) return
+    const stories = Array.from(page.querySelectorAll<HTMLElement>('[data-feature-story]'))
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      stories.forEach((story) => story.classList.add('is-visible'))
+      return
+    }
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return
+        const story = entry.target as HTMLElement
+        story.classList.add('is-visible')
+        setActiveId(story.dataset.featureStory || null)
+        observer.unobserve(story)
+      })
+    }, { threshold: 0.16, rootMargin: '0px 0px -8% 0px' })
+    stories.forEach((story) => observer.observe(story))
+    return () => observer.disconnect()
+  }, [])
 
   const handleSignUp = () => {
     if (signupsPaused) {
@@ -529,7 +552,7 @@ export default function FeaturesPage({
   }
 
   return (
-    <main className="landing features-page">
+    <main ref={pageRef} className="landing features-page">
       <header className="features-nav">
         <a className="landing-brand" href="#" onClick={(e) => { e.preventDefault(); onBack() }}>
           <span className="brand-mark brand-mark--compact">
@@ -537,9 +560,22 @@ export default function FeaturesPage({
           </span>
           <span>lancee</span>
         </a>
-        <nav aria-label="Public navigation">
-          <a href="#" onClick={(e) => { e.preventDefault(); onBack() }}>Home</a>
+        <nav id="features-navigation" className={navOpen ? 'is-open' : ''} aria-label="Public navigation">
+          <a href="#" onClick={(e) => { e.preventDefault(); setNavOpen(false); onBack() }}>Home</a>
+          <div className="landing-nav__mobile-actions">
+            <button className="landing-sign-in" onClick={() => { setNavOpen(false); onSignIn() }}>Sign in</button>
+            <button className="button button--primary btn-shine" onClick={() => { setNavOpen(false); handleSignUp() }}>Sign Up</button>
+          </div>
         </nav>
+        <button
+          className="landing-menu-toggle"
+          aria-controls="features-navigation"
+          aria-expanded={navOpen}
+          aria-label={navOpen ? 'Close navigation menu' : 'Open navigation menu'}
+          onClick={() => setNavOpen((current) => !current)}
+        >
+          <span className="landing-menu-toggle__bars" aria-hidden="true"><i /><i /><i /></span>
+        </button>
         <div>
           <button className="landing-sign-in" onClick={onSignIn}>
             Sign in
@@ -598,46 +634,175 @@ export default function FeaturesPage({
         ))}
       </nav>
 
-      {groups.map((group) => (
-        <section
-          key={group.id}
-          id={`feature-group-${group.id}`}
-          className="features-group"
-        >
-          <div className="features-group__heading">
-            <span
-              className="features-group__icon"
-              style={{ color: group.accent, borderColor: `${group.accent}55`, background: `${group.accent}12` }}
-            >
-              <FeatureIcon name={group.icon} size={20} />
-            </span>
-            <span className="landing-eyebrow">
-              <i /> {group.number} — {group.title}
-            </span>
-            <h2>{group.title}</h2>
-            <p>{group.description}</p>
+      <section id="feature-group-workspace" className="feature-story feature-story--workspace" data-feature-story="workspace">
+        <div className="feature-story__copy">
+          <span className="landing-eyebrow"><i /> 01 — Connected workspace</span>
+          <h2>Everything belongs<br /><em>to the work.</em></h2>
+          <p>{groups[0].description}</p>
+          <div className="feature-story__labels">
+            {['Clients', 'Projects', 'Ideas', 'Files', 'Meetings', 'Calendar'].map((label) => <span key={label}>{label}</span>)}
           </div>
-          <div className="features-card-grid">
-            {group.features.map((feature) => (
-              <article key={feature.title} className="features-card">
-                <span
-                  className="features-card__icon"
-                  style={{ color: group.accent, borderColor: `${group.accent}55`, background: `${group.accent}12` }}
-                >
-                  <FeatureIcon name={feature.icon} size={18} />
-                </span>
-                <h3>{feature.title}</h3>
-                <p>{feature.description}</p>
-                <div className="features-card__tags">
-                  {feature.tags.map((tag) => (
-                    <span key={tag}>{tag}</span>
-                  ))}
-                </div>
-              </article>
+        </div>
+        <div className="workspace-composition" aria-label="Connected Lancee workspace example">
+          <div className="workspace-composition__rail">
+            <span className="is-active"><FeatureIcon name="grid" size={15} /></span>
+            <span><FeatureIcon name="briefcase" size={15} /></span>
+            <span><FeatureIcon name="lightbulb" size={15} /></span>
+            <span><FeatureIcon name="file" size={15} /></span>
+          </div>
+          <div className="workspace-composition__main">
+            <header><small>JUNIPER &amp; TIDE</small><span>Project workspace</span></header>
+            <div className="workspace-composition__insight">
+              <FeatureIcon name="sparkles" size={16} />
+              <p>Client activity is increasing as Friday&apos;s delivery approaches.</p>
+            </div>
+            <div className="workspace-composition__columns">
+              <article><small>PROJECT</small><strong>Packaging refresh</strong><span>In review · 72%</span></article>
+              <article><small>CONTEXT</small><strong>4 feedback items</strong><span>2 meetings this week</span></article>
+            </div>
+            <div className="workspace-composition__timeline">
+              <span><i /> Client brief</span><span><i /> Concepts</span><span className="is-current"><i /> Review</span><span><i /> Delivery</span>
+            </div>
+          </div>
+          <aside className="workspace-composition__aside">
+            <small>CONNECTED NOW</small>
+            <span><FeatureIcon name="user" size={14} /> Juniper &amp; Tide</span>
+            <span><FeatureIcon name="messages" size={14} /> Client feedback</span>
+            <span><FeatureIcon name="file" size={14} /> 12 project files</span>
+            <span><FeatureIcon name="wallet" size={14} /> Draft invoice</span>
+          </aside>
+        </div>
+      </section>
+
+      <section id="feature-group-money" className="feature-story feature-story--money" data-feature-story="money">
+        <div className="money-composition" aria-label="Invoice and payment flow example">
+          <div className="money-composition__invoice">
+            <header><span>INVOICE</span><strong>#1042</strong></header>
+            <div className="money-composition__client"><small>BILLED TO</small><strong>Juniper &amp; Tide</strong><span>Packaging system · Final delivery</span></div>
+            <div className="money-composition__line"><span>Creative direction</span><strong>R18,000</strong></div>
+            <div className="money-composition__line"><span>Production artwork</span><strong>R12,500</strong></div>
+            <footer><span>Total</span><strong>R30,500</strong></footer>
+          </div>
+          <div className="money-composition__flow">
+            {['Quote approved', 'Invoice sent', 'Payment verified', 'Paid'].map((label, index) => (
+              <span className={index === 3 ? 'is-paid' : ''} key={label}><i>{index < 3 ? '0' + (index + 1) : '✓'}</i>{label}</span>
             ))}
           </div>
-        </section>
-      ))}
+        </div>
+        <div className="feature-story__copy">
+          <span className="landing-eyebrow"><i /> 02 — Money &amp; payments</span>
+          <h2>From the quote<br /><em>to paid.</em></h2>
+          <p>{groups[1].description}</p>
+          <div className="feature-story__labels"><span>ZAR invoices</span><span>Paystack</span><span>Approval flow</span><span>Money analytics</span></div>
+        </div>
+      </section>
+
+      <section id="feature-group-automations" className="feature-story feature-story--automations" data-feature-story="automations">
+        <div className="feature-story__copy">
+          <span className="landing-eyebrow"><i /> 03 — Automations</span>
+          <h2>Quiet systems for<br /><em>repeatable work.</em></h2>
+          <p>{groups[2].description}</p>
+          <p className="feature-story__note">Every run stays visible. Important actions still wait for your approval.</p>
+        </div>
+        <div className="automation-composition" aria-label="Lancee workflow example">
+          <div><small>TRIGGER</small><strong>Client approves final artwork</strong><span>Project · Juniper &amp; Tide</span></div>
+          <i><FeatureIcon name="arrow-right" size={14} /></i>
+          <div><small>CONTEXT</small><strong>Delivery complete · invoice draft ready</strong><span>Project and client checked</span></div>
+          <i><FeatureIcon name="arrow-right" size={14} /></i>
+          <div><small>ACTION</small><strong>Prepare invoice for approval</strong><span>Lancee workflow · native</span></div>
+          <i><FeatureIcon name="arrow-right" size={14} /></i>
+          <div className="is-result"><small>RESULT</small><strong>Ready for you to send</strong><span>Nothing leaves without your say</span></div>
+        </div>
+      </section>
+
+      <section id="feature-group-connections" className="feature-story feature-story--connections" data-feature-story="connections">
+        <div className="connection-composition" aria-label="Lancee connections example">
+          <svg viewBox="0 0 620 520" aria-hidden="true"><circle cx="310" cy="260" r="180" /><circle cx="310" cy="260" r="112" /><path d="M310 80V180M490 260H390M310 440V340M130 260H230" /></svg>
+          <div className="connection-composition__core"><span className="brand-mark brand-mark--compact"><img src="/img/icon.png" alt="" /></span><strong>Lancee</strong><small>CONNECTED WORKSPACE</small></div>
+          <span className="connection-composition__node is-google"><b>G</b><small>Google Workspace</small></span>
+          <span className="connection-composition__node is-n8n"><b>n8n</b><small>Automation</small></span>
+          <span className="connection-composition__node is-store"><FeatureIcon name="store" size={18} /><small>Storefront</small></span>
+          <span className="connection-composition__node is-mcp"><FeatureIcon name="layers" size={18} /><small>Lancee MCP</small></span>
+        </div>
+        <div className="feature-story__copy">
+          <span className="landing-eyebrow"><i /> 04 — Connections</span>
+          <h2>Your tools, with<br /><em>shared context.</em></h2>
+          <p>{groups[3].description}</p>
+          <p className="feature-story__note">Google Workspace is central; n8n and Lancee MCP add breadth without turning the product into a connector marketplace.</p>
+        </div>
+      </section>
+
+      <section id="feature-group-ai" className="feature-story feature-story--ai" data-feature-story="ai">
+        <div className="feature-story__copy">
+          <span className="landing-eyebrow"><i /> 05 — Integrated intelligence</span>
+          <h2>An assistant that<br /><em>knows the workspace.</em></h2>
+          <p>{groups[4].description}</p>
+          <div className="feature-story__labels"><span>Typed tools</span><span>Approval gates</span><span>Workspace context</span><span>PDF Studio</span></div>
+        </div>
+        <div className="assistant-composition" aria-label="Context-aware Lancee assistant example">
+          <header><span><FeatureIcon name="sparkles" size={16} /> Lancee assistant</span><small>Workspace context on</small></header>
+          <div className="assistant-composition__user">What needs me before Friday?</div>
+          <div className="assistant-composition__response">
+            <span><FeatureIcon name="sparkles" size={15} /></span>
+            <p>Juniper &amp; Tide has a delivery due Friday, four unresolved feedback items, and an invoice still in draft. I can turn the feedback into a checklist and prepare the invoice for your review.</p>
+          </div>
+          <div className="assistant-composition__context"><small>CONTEXT USED</small><span>Project</span><span>2 meetings</span><span>4 feedback items</span><span>Draft invoice</span></div>
+          <button type="button">Review proposed actions <FeatureIcon name="arrow-right" size={13} /></button>
+        </div>
+      </section>
+
+      <section id="feature-group-review" className="feature-story feature-story--review" data-feature-story="review">
+        <div className="review-composition" aria-label="Client review and approval example">
+          <div className="review-composition__art"><span>J&amp;T</span><i className="review-pin review-pin--one">1</i><i className="review-pin review-pin--two">2</i></div>
+          <div className="review-composition__panel">
+            <header><small>CLIENT REVIEW</small><strong>Packaging artwork · v4</strong></header>
+            <article><span>01</span><p><strong>Colour adjustment</strong>Could the blue feel slightly softer?</p></article>
+            <article><span>02</span><p><strong>Approved detail</strong>The side-panel typography is perfect.</p></article>
+            <button type="button"><FeatureIcon name="check-circle" size={14} /> Approved by client</button>
+          </div>
+        </div>
+        <div className="feature-story__copy">
+          <span className="landing-eyebrow"><i /> 06 — Collaboration</span>
+          <h2>Feedback that lands<br /><em>in the right place.</em></h2>
+          <p>{groups[5].description}</p>
+        </div>
+      </section>
+
+      <section id="feature-group-platform" className="feature-story feature-story--security" data-feature-story="platform">
+        <div className="feature-story__copy">
+          <span className="landing-eyebrow"><i /> 07 — Security &amp; platform</span>
+          <h2>Quietly trustworthy<br /><em>underneath.</em></h2>
+          <p>{groups[6].description}</p>
+        </div>
+        <div className="security-composition">
+          {groups[6].features.map((feature) => (
+            <div key={feature.title}><FeatureIcon name={feature.icon} size={17} /><span><strong>{feature.title}</strong><small>{feature.tags.join(' · ')}</small></span></div>
+          ))}
+        </div>
+      </section>
+
+      <section className="capability-index" aria-labelledby="capability-index-title">
+        <div className="capability-index__heading">
+          <span className="landing-eyebrow"><i /> Complete capability index</span>
+          <h2 id="capability-index-title">Nothing hidden.<br /><em>Everything included.</em></h2>
+          <p>Every current Lancee capability remains here for detail and discovery.</p>
+        </div>
+        <div className="capability-index__groups">
+          {groups.map((group, groupIndex) => (
+            <details key={group.id} open={groupIndex === 0}>
+              <summary><span>{group.number}</span><strong>{group.title}</strong><small>{group.features.length} capabilities</small></summary>
+              <div>
+                {group.features.map((feature) => (
+                  <article key={feature.title}>
+                    <span><FeatureIcon name={feature.icon} size={15} /></span>
+                    <div><strong>{feature.title}</strong><p>{feature.description}</p><small>{feature.tags.join(' · ')}</small></div>
+                  </article>
+                ))}
+              </div>
+            </details>
+          ))}
+        </div>
+      </section>
 
       <section className="features-cta">
         <span className="landing-eyebrow">A lighter way to run your business</span>

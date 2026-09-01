@@ -19,6 +19,7 @@ dist-ssr
 .env.*
 !.env.example
 .runtime/
+unused
 
 # Editor directories and files
 .vscode/*

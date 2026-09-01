@@ -401,7 +401,7 @@ export default function ClientsPage({
                 <div className="client-history__heading">
                   <div>
                     <h3>History</h3>
-                    <span>Projects and matching mail activity</span>
+                    <span>Projects, meetings, and matching mail activity</span>
                   </div>
                   {history?.domain && <em>{history.domain}</em>}
                 </div>
@@ -422,6 +422,16 @@ export default function ClientsPage({
                         </button>
                       ))}
                       {!(history?.projects || selectedProjects).length && <p className="client-history__empty">No project history yet.</p>}
+                    </div>
+                    <div className="client-history__group">
+                      <strong>Meetings</strong>
+                      {history?.meetings.map((meeting) => (
+                        <div key={meeting.id}>
+                          <span>{meeting.title}</span>
+                          <small>{new Date(meeting.scheduledStart).toLocaleString()} · {meeting.status} · {meeting.durationMinutes} min</small>
+                        </div>
+                      ))}
+                      {!history?.meetings.length && <p className="client-history__empty">No meeting history yet.</p>}
                     </div>
                     <div className="client-history__group">
                       <strong>Messages</strong>

@@ -3,14 +3,17 @@ import {
   useEffectEvent,
   useState,
   type ChangeEvent,
-  type DragEvent,
   type FormEvent,
+  type ReactNode,
 } from 'react'
+import { DragDropProvider, useDraggable, useDroppable } from '@dnd-kit/react'
 import type {
   Client,
   GoogleDriveResourceLink,
+  Meeting,
   Project,
   ProjectTask,
+  ProjectBoardSettings,
   ProjectLink,
   ProjectFile,
   ProjectComment,
@@ -19,9 +22,65 @@ import type {
 } from '../../lib/api'
 import { api } from '../../lib/api'
 import { AnnotationReviewPanel } from '../annotations/AnnotationReviewPanel'
+import { AssigneePicker } from '../collaboration/AssigneePicker'
+import { MentionTextarea } from '../collaboration/MentionTextarea'
+import { MemberAvatar, type WorkspaceMember } from '../workspace/WorkspaceMember'
 import ReviewPackagesPanel from './ReviewPackagesPanel'
 import '../work-page.css'
 import './work-panel.css'
+
+function displayCollaborativeText(content: string) {
+  return content.replace(/@\[([^\]]+)\]\(user:[^)]+\)/g, '@$1')
+}
+
+type BoardDragData =
+  | { kind: 'bucket'; bucketId: string }
+  | { kind: 'task'; taskId: string }
+
+function BoardSortableLane({
+  laneId,
+  index,
+  className,
+  children,
+}: {
+  laneId: string
+  index: number
+  className: string
+  children: (drag: { handleRef: (element: Element | null) => void; isDragging: boolean; isDropTarget: boolean }) => ReactNode
+}) {
+  const draggable = useDraggable({
+    id: `bucket-drag:${laneId}`,
+    data: { kind: 'bucket', bucketId: laneId },
+  })
+  const droppable = useDroppable({
+    id: `bucket:${laneId}`,
+    data: { kind: 'bucket', bucketId: laneId, index },
+    disabled: draggable.isDragging,
+  })
+  const ref = (element: Element | null) => {
+    draggable.ref(element)
+    droppable.ref(element)
+  }
+  return (
+    <section ref={ref} className={`${className}${droppable.isDropTarget ? ' is-drop-target' : ''}${draggable.isDragging ? ' is-dragging-bucket' : ''}`}>
+      {children({ handleRef: draggable.handleRef, isDragging: draggable.isDragging, isDropTarget: droppable.isDropTarget })}
+    </section>
+  )
+}
+
+function BoardTaskDrag({
+  task,
+  children,
+}: {
+  task: ProjectTask
+  children: (drag: { ref: (element: Element | null) => void; handleRef: (element: Element | null) => void; isDragging: boolean }) => ReactNode
+}) {
+  const { ref, handleRef, isDragging } = useDraggable({
+    id: `task:${task.id}`,
+    data: { kind: 'task', taskId: task.id },
+  })
+  return <>{children({ ref, handleRef, isDragging })}</>
+}
 
 export default function WorkPanel({
   onToast,
@@ -62,6 +121,7 @@ export default function WorkPanel({
   const [editBoardId, setEditBoardId] = useState<string | null>(null)
   const [boards, setBoards] = useState<Array<{ id: string; label: string }>>([])
   const [links, setLinks] = useState<ProjectLink[]>([])
+  const [projectMeetings, setProjectMeetings] = useState<Meeting[]>([])
   const [files, setFiles] = useState<ProjectFile[]>([])
   const [projectDriveLinks, setProjectDriveLinks] = useState<GoogleDriveResourceLink[]>([])
   const [uploadingFiles, setUploadingFiles] = useState(false)
@@ -72,17 +132,21 @@ export default function WorkPanel({
   const [statusFilter, setStatusFilter] = useState<'All' | Project['status']>('All')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [page, setPage] = useState(1)
-  const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null)
-  const [dropLaneId, setDropLaneId] = useState<string | null>(null)
   const [activeProjectTab, setActiveProjectTab] =
     useState<'board' | 'details' | 'files' | 'reviews' | 'activity'>('board')
-  const [teamMembers, setTeamMembers] = useState<Array<{ id: string; name: string }>>([])
+  const [teamMembers, setTeamMembers] = useState<WorkspaceMember[]>([])
   const [customBuckets, setCustomBuckets] = useState<Array<{ id: string; label: string }>>([])
   const [bucketAssignees, setBucketAssignees] = useState<Record<string, string>>({})
+  const [bucketOrder, setBucketOrder] = useState<string[]>([])
+  const [boardMenuOpen, setBoardMenuOpen] = useState(false)
   const [tasks, setTasks] = useState<ProjectTask[]>([])
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<ProjectTask | null>(null)
-  const [taskDraft, setTaskDraft] = useState({ bucketId: 'backlog', title: '', notes: '' })
+  const [taskDraft, setTaskDraft] = useState({ bucketId: 'backlog', title: '', notes: '', assigneeIds: [] as string[] })
+  const [assignedToMe, setAssignedToMe] = useState(false)
+  const [taskComment, setTaskComment] = useState('')
+  const [commentSaving, setCommentSaving] = useState(false)
+  const [projectComment, setProjectComment] = useState('')
   const [taskSaving, setTaskSaving] = useState(false)
   const [taskDeletingId, setTaskDeletingId] = useState('')
   const [reviewComments, setReviewComments] = useState<ProjectComment[]>([])
@@ -109,7 +173,7 @@ export default function WorkPanel({
           const firstClient = clientList.find((client) => client.status === 'active')
           setSelectedClientId((current) => current || firstClient?.id || '')
           setNewProjectClientId((current) => current || firstClient?.id || '')
-          setTeamMembers(members.filter((member) => member.status === 'active'))
+          setTeamMembers(members.filter((member) => member.status === 'active') as WorkspaceMember[])
           const requestedProject = initialProjectId
             ? data.find((project) => project.id === initialProjectId)
             : null
@@ -214,30 +278,58 @@ export default function WorkPanel({
     setLastReviewUrl('')
     setWorkspaceLoading(true)
     setActiveProjectTab('board')
-    try {
-      setCustomBuckets(JSON.parse(localStorage.getItem(`lancee:project-buckets:${project.id}`) || '[]'))
-      setBucketAssignees(JSON.parse(localStorage.getItem(`lancee:bucket-assignees:${project.id}`) || '{}'))
-    } catch {
-      setCustomBuckets([])
-      setBucketAssignees({})
-    }
+    setAssignedToMe(false)
+    setBoardMenuOpen(false)
+    setCustomBuckets([])
+    setBucketAssignees({})
+    setBucketOrder([])
     setLinks([])
+    setProjectMeetings([])
     setFiles([])
     setProjectDriveLinks([])
     setTasks([])
     setReviewPackages([])
     setReviewComments([])
     try {
-      const [projectLinks, projectFiles, driveLinks, projectTasks] = await Promise.all([
+      const [projectLinks, projectFiles, driveLinks, projectTasks, loadedBoardSettings, linkedMeetings] = await Promise.all([
         api.projects.links.list(project.id),
         api.projects.files.list(project.id),
         api.googleDrive.resourceLinks.list({ projectId: project.id }),
         api.projects.tasks.list(project.id),
+        api.projects.board.get(project.id),
+        api.meetings.list({ projectId: project.id }),
       ])
       setLinks(projectLinks)
       setFiles(projectFiles)
       setProjectDriveLinks(driveLinks)
       setTasks(projectTasks)
+      setProjectMeetings(linkedMeetings)
+      let boardSettings = loadedBoardSettings
+      if (!loadedBoardSettings.configured) {
+        try {
+          const legacyBuckets = JSON.parse(localStorage.getItem(`lancee:project-buckets:${project.id}`) || '[]')
+          const legacyAssignees = JSON.parse(localStorage.getItem(`lancee:bucket-assignees:${project.id}`) || '{}')
+          const legacyOrder = JSON.parse(localStorage.getItem(`lancee:bucket-order:${project.id}`) || '[]')
+          if (Array.isArray(legacyBuckets) && Array.isArray(legacyOrder) && legacyAssignees && typeof legacyAssignees === 'object') {
+            const hasLegacySettings = legacyBuckets.length > 0 || legacyOrder.length > 0 || Object.keys(legacyAssignees).length > 0
+            if (hasLegacySettings) {
+              boardSettings = await api.projects.board.update(project.id, {
+                customBuckets: legacyBuckets,
+                bucketOrder: legacyOrder,
+                bucketAssignees: legacyAssignees,
+              })
+              localStorage.removeItem(`lancee:project-buckets:${project.id}`)
+              localStorage.removeItem(`lancee:bucket-assignees:${project.id}`)
+              localStorage.removeItem(`lancee:bucket-order:${project.id}`)
+            }
+          }
+        } catch {
+          onToast('Legacy board settings could not be migrated.')
+        }
+      }
+      setCustomBuckets(boardSettings.customBuckets)
+      setBucketAssignees(boardSettings.bucketAssignees)
+      setBucketOrder(boardSettings.bucketOrder)
       const review = await api.projectsWorkflow.approvals(project.id)
       setReviewComments(review.comments)
       setReviewPackages(review.approvals)
@@ -246,6 +338,7 @@ export default function WorkPanel({
       setDraftAmount(review.draftInvoice ? String(review.draftInvoice.amountMinor / 100) : '')
     } catch {
       setLinks([])
+      setProjectMeetings([])
       setFiles([])
       setProjectDriveLinks([])
       setTasks([])
@@ -345,13 +438,39 @@ export default function WorkPanel({
     } catch (error) { onToast(error instanceof Error ? error.message : 'Unable to send invoice.') }
   }
 
+  const persistBoardSettings = (settings: Omit<ProjectBoardSettings, 'configured'>) => {
+    if (!selectedProject) return
+    void api.projects.board.update(selectedProject.id, settings)
+      .then((saved) => {
+        setCustomBuckets(saved.customBuckets)
+        setBucketAssignees(saved.bucketAssignees)
+        setBucketOrder(saved.bucketOrder)
+      })
+      .catch(async () => {
+        onToast('Unable to save project board settings.')
+        try {
+          const restored = await api.projects.board.get(selectedProject.id)
+          setCustomBuckets(restored.customBuckets)
+          setBucketAssignees(restored.bucketAssignees)
+          setBucketOrder(restored.bucketOrder)
+        } catch {
+          // Preserve the local view until the next successful project reload.
+        }
+      })
+  }
+
   const addCustomBucket = () => {
     if (!selectedProject) return
     const label = window.prompt('Name this bucket')
     if (!label?.trim()) return
-    const next = [...customBuckets, { id: `custom-${crypto.randomUUID()}`, label: label.trim().slice(0, 60) }]
+    const newId = `custom-${crypto.randomUUID()}`
+    const next = [...customBuckets, { id: newId, label: label.trim().slice(0, 60) }]
     setCustomBuckets(next)
-    localStorage.setItem(`lancee:project-buckets:${selectedProject.id}`, JSON.stringify(next))
+    const baseIds = ['backlog', 'in-progress', 'waiting', 'review', 'completed']
+    const fallbackOrder = [...baseIds, ...customBuckets.map(c => c.id), newId]
+    const nextOrder = bucketOrder.length ? [...bucketOrder, newId] : fallbackOrder
+    setBucketOrder(nextOrder)
+    persistBoardSettings({ customBuckets: next, bucketOrder: nextOrder, bucketAssignees })
   }
 
   const manageBucket = (bucket: { id: string; label: string }) => {
@@ -370,7 +489,12 @@ export default function WorkPanel({
       ? customBuckets.map((item) => item.id === bucket.id ? { ...item, label: label.trim().slice(0, 60) } : item)
       : customBuckets.filter((item) => item.id !== bucket.id)
     setCustomBuckets(next)
-    localStorage.setItem(`lancee:project-buckets:${selectedProject.id}`, JSON.stringify(next))
+    const nextOrder = !label?.trim() ? bucketOrder.filter(id => id !== bucket.id) : bucketOrder
+    const nextAssignees = { ...bucketAssignees }
+    if (!label?.trim()) delete nextAssignees[bucket.id]
+    setBucketOrder(nextOrder)
+    setBucketAssignees(nextAssignees)
+    persistBoardSettings({ customBuckets: next, bucketOrder: nextOrder, bucketAssignees: nextAssignees })
   }
 
   const assignBucket = (bucketId: string, memberId: string) => {
@@ -378,7 +502,35 @@ export default function WorkPanel({
     const next = { ...bucketAssignees, [bucketId]: memberId }
     if (!memberId) delete next[bucketId]
     setBucketAssignees(next)
-    localStorage.setItem(`lancee:bucket-assignees:${selectedProject.id}`, JSON.stringify(next))
+    persistBoardSettings({ customBuckets, bucketOrder, bucketAssignees: next })
+  }
+
+  const reorderBuckets = (fromId: string, toId: string) => {
+    if (!selectedProject || fromId === toId) return
+    const allIds = bucketOrder.length ? bucketOrder : baseLanes.map(l => l.id).concat(customBuckets.map(c => c.id))
+    const fromIndex = allIds.indexOf(fromId)
+    const toIndex = allIds.indexOf(toId)
+    if (fromIndex === -1 || toIndex === -1) return
+    const next = [...allIds]
+    const [moved] = next.splice(fromIndex, 1)
+    next.splice(toIndex, 0, moved)
+    setBucketOrder(next)
+    persistBoardSettings({ customBuckets, bucketOrder: next, bucketAssignees })
+  }
+
+  const moveTaskToBucket = (taskId: string, targetBucketId: string) => {
+    if (!taskId || !selectedProject) return
+    const task = tasks.find(t => t.id === taskId)
+    if (!task || task.bucketId === targetBucketId) {
+      return
+    }
+    setTasks(current => current.map(t => t.id === taskId ? { ...t, bucketId: targetBucketId } : t))
+    void api.projects.tasks.update(selectedProject.id, taskId, { bucketId: targetBucketId })
+      .then(updated => setTasks(current => current.map(t => t.id === updated.id ? updated : t)))
+      .catch(() => {
+        setTasks(current => current.map(t => t.id === taskId ? task : t))
+        onToast('Unable to move task.')
+      })
   }
 
   const openTaskComposer = (bucketId: string, task: ProjectTask | null = null) => {
@@ -387,7 +539,9 @@ export default function WorkPanel({
       bucketId: task?.bucketId || bucketId,
       title: task?.title || '',
       notes: task?.notes || '',
+      assigneeIds: task?.assignees.map((assignee) => assignee.userId) || [],
     })
+    setTaskComment('')
     setTaskDialogOpen(true)
   }
 
@@ -409,6 +563,7 @@ export default function WorkPanel({
           bucketId: taskDraft.bucketId,
           title,
           notes: taskDraft.notes.trim(),
+          assigneeIds: taskDraft.assigneeIds,
         })
         setTasks((current) => current.map((task) => task.id === updated.id ? updated : task))
         onToast('Task updated.')
@@ -417,6 +572,7 @@ export default function WorkPanel({
           bucketId: taskDraft.bucketId,
           title,
           notes: taskDraft.notes.trim(),
+          assigneeIds: taskDraft.assigneeIds,
         })
         setTasks((current) => [...current, created])
         onToast('Task added.')
@@ -427,6 +583,48 @@ export default function WorkPanel({
       onToast(error instanceof Error ? error.message : 'Unable to save task.')
     } finally {
       setTaskSaving(false)
+    }
+  }
+
+  const toggleAssignedToMe = async () => {
+    if (!selectedProject) return
+    const next = !assignedToMe
+    setAssignedToMe(next)
+    try {
+      setTasks(await api.projects.tasks.list(selectedProject.id, { assignedToMe: next }))
+    } catch (error) {
+      setAssignedToMe(!next)
+      onToast(error instanceof Error ? error.message : 'Unable to filter assigned tasks.')
+    }
+  }
+
+  const addTaskComment = async () => {
+    if (!selectedProject || !editingTask || !taskComment.trim() || commentSaving) return
+    setCommentSaving(true)
+    try {
+      const comment = await api.projects.tasks.comment(selectedProject.id, editingTask.id, taskComment.trim())
+      setReviewComments((current) => [...current, comment])
+      setTaskComment('')
+      onToast('Comment added.')
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : 'Unable to add comment.')
+    } finally {
+      setCommentSaving(false)
+    }
+  }
+
+  const addProjectComment = async () => {
+    if (!selectedProject || !projectComment.trim() || commentSaving) return
+    setCommentSaving(true)
+    try {
+      const comment = await api.projects.comments.create(selectedProject.id, projectComment.trim())
+      setReviewComments((current) => [...current, comment])
+      setProjectComment('')
+      onToast('Project comment added.')
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : 'Unable to add project comment.')
+    } finally {
+      setCommentSaving(false)
     }
   }
 
@@ -473,38 +671,6 @@ export default function WorkPanel({
     } catch {
       onToast('Unable to move this project.')
     }
-  }
-
-  const startProjectDrag = (
-    event: DragEvent<HTMLElement>,
-    project: Project,
-  ) => {
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', project.id)
-    setDraggingProjectId(project.id)
-  }
-
-  const dragOverLane = (
-    event: DragEvent<HTMLElement>,
-    laneId: string,
-    status: Project['status'] | null,
-  ) => {
-    if (!status || status === selectedProject?.status) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'move'
-    setDropLaneId(laneId)
-  }
-
-  const dropProjectInLane = (
-    event: DragEvent<HTMLElement>,
-    status: Project['status'] | null,
-  ) => {
-    event.preventDefault()
-    const projectId = event.dataTransfer.getData('text/plain')
-    setDropLaneId(null)
-    setDraggingProjectId(null)
-    if (!status || !selectedProject || projectId !== selectedProject.id) return
-    void moveProject(selectedProject, status)
   }
 
   const saveEdit = async () => {
@@ -667,23 +833,32 @@ export default function WorkPanel({
           year: 'numeric',
         }).format(date)
   }
-  const projectLanes: Array<{
-    id: string
-    label: string
-    status: Project['status'] | null
-    tone: string
-  }> = [
+  const baseLanes: Array<{ id: string; label: string; status: Project['status'] | null; tone: string }> = [
     { id: 'backlog', label: 'Project brief', status: null, tone: 'slate' },
     { id: 'in-progress', label: 'In progress', status: 'In progress', tone: 'blue' },
     { id: 'waiting', label: 'Waiting on client', status: 'Waiting on client', tone: 'amber' },
     { id: 'review', label: 'Review', status: 'In review', tone: 'pink' },
     { id: 'completed', label: 'Completed', status: 'Ready', tone: 'green' },
+  ]
+  const allLanesUnordered: Array<{ id: string; label: string; status: Project['status'] | null; tone: string }> = [
+    ...baseLanes,
     ...customBuckets.map((bucket, index) => ({
       ...bucket,
       status: null,
       tone: ['blue', 'amber', 'pink', 'green'][index % 4],
     })),
   ]
+  const projectLanes = (() => {
+    if (!bucketOrder || bucketOrder.length === 0) return allLanesUnordered
+    const laneMap = new Map(allLanesUnordered.map(l => [l.id, l] as const))
+    const ordered: typeof allLanesUnordered = []
+    for (const id of bucketOrder) {
+      const lane = laneMap.get(id)
+      if (lane) { ordered.push(lane); laneMap.delete(id) }
+    }
+    for (const remaining of laneMap.values()) ordered.push(remaining)
+    return ordered
+  })()
   const latestBucketReview = (bucketId: string) => {
     for (const reviewPackage of reviewPackages) {
       const item = reviewPackage.items.find((candidate) => candidate.bucketId === bucketId)
@@ -795,7 +970,21 @@ export default function WorkPanel({
                 </button>
               </div>
               {activeProjectTab === 'board' ? (
-                <button type="button" className="button button--secondary button--small" onClick={addCustomBucket}>＋ Add bucket</button>
+                <div className="project-board-actions">
+                  <details className="board-options-menu" open={boardMenuOpen} onToggle={(e) => setBoardMenuOpen((e.target as HTMLDetailsElement).open)}>
+                    <summary className="board-options-menu__trigger" aria-label="Board options">
+                      <span aria-hidden="true">☰</span>
+                    </summary>
+                    <div className="board-options-menu__panel">
+                      <button type="button" onClick={() => { setBoardMenuOpen(false); addCustomBucket() }}>＋ Add bucket</button>
+                      <button type="button" onClick={() => { setBoardMenuOpen(false); onToast('Drag bucket headers to reorder. Changes save automatically.') }}>↕ Reorder buckets</button>
+                      <button type="button" onClick={() => { setBoardMenuOpen(false); void beginEdit(selectedProject!) }}>⚙ Project settings</button>
+                      <button type="button" onClick={() => { setBoardMenuOpen(false); void toggleAssignedToMe() }}>{assignedToMe ? '◉ Show all tasks' : '◉ Assigned to me'}</button>
+                    </div>
+                  </details>
+                  <button type="button" className={`button button--small ${assignedToMe ? 'button--primary' : 'button--secondary'}`} aria-pressed={assignedToMe} onClick={() => void toggleAssignedToMe()}>Assigned to me</button>
+                  <button type="button" className="button button--secondary button--small" onClick={addCustomBucket}>＋ Add bucket</button>
+                </div>
               ) : (
                 <span>Each section keeps its own focused project tools.</span>
               )}
@@ -850,6 +1039,10 @@ export default function WorkPanel({
             ) : activeProjectTab === 'activity' ? (
               <section className="project-section-panel">
                 <header><div><span>Project activity</span><h2>Feedback, links, and project events</h2></div></header>
+                <div className="project-comment-composer">
+                  <MentionTextarea value={projectComment} onChange={setProjectComment} placeholder="Add a project comment or @mention a teammate…" rows={3} maxLength={2_000} />
+                  <button className="button button--secondary button--small" type="button" disabled={commentSaving || !projectComment.trim()} onClick={() => void addProjectComment()}>{commentSaving ? 'Adding…' : 'Add comment'}</button>
+                </div>
                 <div className="project-link-composer">
                   <input value={newLinkLabel} onChange={(event) => setNewLinkLabel(event.target.value)} placeholder="Label" />
                   <input value={newLinkUrl} onChange={(event) => setNewLinkUrl(event.target.value)} placeholder="https://…" />
@@ -857,10 +1050,13 @@ export default function WorkPanel({
                 </div>
                 <div className="project-section-list">
                   {reviewComments.map((comment) => (
-                    <article key={comment.id}><span>💬</span><div><strong>{comment.authorName}</strong><small>{comment.body}</small></div><span>{formatDate(comment.createdAt)}</span></article>
+                    <article key={comment.id}><span>💬</span><div><strong>{comment.authorName}</strong><small>{displayCollaborativeText(comment.body)}</small></div><span>{formatDate(comment.createdAt)}</span></article>
                   ))}
                   {links.map((link) => (
                     <article key={link.id}><span>↗</span><div><strong>{link.label || 'Shared reference'}</strong><small>{link.url}</small></div><a href={link.url} target="_blank" rel="noreferrer">Open ↗</a><button onClick={() => void removeLink(link.id)}>Remove</button></article>
+                  ))}
+                  {projectMeetings.map((meeting) => (
+                    <article key={meeting.id}><span>◉</span><div><strong>{meeting.title}</strong><small>{new Date(meeting.scheduledStart).toLocaleString()} · {meeting.status} · {meeting.meetingType} meeting</small></div><span>{meeting.durationMinutes} min</span></article>
                   ))}
                   {draftInvoice && (
                     <article className="project-activity-invoice">
@@ -870,12 +1066,26 @@ export default function WorkPanel({
                       <div><button type="button" onClick={() => void saveDraftAmount()}>Save</button>{draftInvoice.status !== 'sent' && <button type="button" onClick={() => void sendDraftInvoice()} disabled={draftInvoice.amountMinor < 100}>Send</button>}</div>
                     </article>
                   )}
-                  {!links.length && !reviewComments.length && !draftInvoice && <p>No project activity yet.</p>}
+                  {!links.length && !reviewComments.length && !projectMeetings.length && !draftInvoice && <p>No project activity yet.</p>}
                 </div>
               </section>
             ) : workspaceLoading ? (
               <div className="project-workspace__loading">Loading the project workspace…</div>
             ) : (
+              <>
+              <DragDropProvider
+                onDragEnd={(event) => {
+                  if (event.canceled) return
+                  const source = event.operation.source?.data as BoardDragData | undefined
+                  const target = event.operation.target?.data as BoardDragData | undefined
+                  if (!source || !target || source.kind !== 'bucket' && target.kind !== 'bucket') return
+                  if (source.kind === 'bucket' && target.kind === 'bucket') {
+                    reorderBuckets(source.bucketId, target.bucketId)
+                  } else if (source.kind === 'task' && target.kind === 'bucket') {
+                    moveTaskToBucket(source.taskId, target.bucketId)
+                  }
+                }}
+              >
               <div className="project-kanban-scroll">
                 <div className="project-kanban">
                   {projectLanes.map((lane) => {
@@ -893,21 +1103,20 @@ export default function WorkPanel({
                               ? projectDriveLinks.length + (isCurrent ? 1 : 0)
                               : isCurrent ? 1 : 0)
                     return (
-                      <section
+                      <BoardSortableLane
                         key={lane.id}
-                        className={`project-lane project-lane--${lane.tone}${isCurrent ? ' is-current' : ''}${dropLaneId === lane.id ? ' is-drop-target' : ''}`}
-                        onDragLeave={(event) => {
-                          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                            setDropLaneId((current) => current === lane.id ? null : current)
-                          }
-                        }}
-                        onDragOver={(event) => dragOverLane(event, lane.id, lane.status)}
-                        onDrop={(event) => dropProjectInLane(event, lane.status)}
+                        laneId={lane.id}
+                        index={projectLanes.findIndex((candidate) => candidate.id === lane.id)}
+                        className={`project-lane project-lane--${lane.tone}${isCurrent ? ' is-current' : ''}${lane.id === 'backlog' ? ' project-lane--brief' : ''}`}
                       >
+                        {({ handleRef }) => (
+                        <>
                         <header>
                           <div>
+                            <button ref={handleRef} type="button" className="project-lane__drag-handle" aria-label={`Reorder ${lane.label}`} title="Drag or use the keyboard to reorder this bucket">⠿</button>
                             <i />
                             <strong>{lane.label}</strong>
+                            {lane.id === 'backlog' && <span className="project-lane__badge">Title</span>}
                             <span>{laneAssetCount}</span>
                           </div>
                           <div className="project-lane__header-actions">
@@ -924,13 +1133,27 @@ export default function WorkPanel({
                         </label>
                         <div className="project-lane__body">
                           {laneTasks.map((task) => (
-                            <article key={task.id} className={`project-kanban-card project-task-card${task.completed ? ' is-completed' : ''}`}>
+                            <BoardTaskDrag key={task.id} task={task}>
+                              {({ ref, handleRef, isDragging }) => <article
+                              ref={ref}
+                              className={`project-kanban-card project-task-card${task.completed ? ' is-completed' : ''}${isDragging ? ' is-dragging' : ''}`}>
                               <span>Task</span>
                               <div className="project-task-card__title">
+                                <button ref={handleRef} type="button" className="project-task-drag-handle" aria-label={`Move ${task.title}`} title="Drag or use the keyboard to move this task">⠿</button>
                                 <button type="button" className="project-task-check" onClick={() => void toggleTaskComplete(task)} aria-label={task.completed ? `Reopen ${task.title}` : `Complete ${task.title}`} aria-pressed={task.completed}>{task.completed ? '✓' : ''}</button>
                                 <h3>{task.title}</h3>
                               </div>
                               <p>{task.notes || 'No notes added yet.'}</p>
+                              {task.assignees.length > 0 && (
+                                <div className="task-assignee-stack" aria-label={`${task.assignees.length} assignees`}>
+                                  {task.assignees.slice(0, 3).map((assignee) => (
+                                    <span key={assignee.userId} title={`${assignee.name}${assignee.status === 'active' ? '' : ' · inactive'}`} className={assignee.status === 'active' ? '' : 'is-inactive'}>
+                                      <MemberAvatar member={assignee} />
+                                    </span>
+                                  ))}
+                                  {task.assignees.length > 3 && <b>+{task.assignees.length - 3}</b>}
+                                </div>
+                              )}
                               {laneReview && <div className="project-review-meta"><span className={`review-state review-state--${laneReview.status}`}>{reviewStateLabel[laneReview.status]}</span>{laneReview.commentCount > 0 && <button type="button" onClick={() => openTaskComposer(lane.id, task)}>💬 {laneReview.commentCount}</button>}</div>}
                               <footer>
                                 <em>{task.notes ? 'Notes added' : 'Add notes'}</em>
@@ -939,7 +1162,8 @@ export default function WorkPanel({
                                   <button type="button" onClick={() => void deleteTask(task)} disabled={taskDeletingId === task.id}>Delete</button>
                                 </div>
                               </footer>
-                            </article>
+                            </article>}
+                            </BoardTaskDrag>
                           ))}
                           {lane.id === 'backlog' && (
                             <>
@@ -974,14 +1198,7 @@ export default function WorkPanel({
 
                           {isCurrent && (
                             <article
-                              className={`project-kanban-card project-kanban-card--primary${draggingProjectId === selectedProject.id ? ' is-dragging' : ''}`}
-                              draggable
-                              onDragEnd={() => {
-                                setDraggingProjectId(null)
-                                setDropLaneId(null)
-                              }}
-                              onDragStart={(event) => startProjectDrag(event, selectedProject)}
-                              title="Drag this project into another status lane"
+                              className="project-kanban-card project-kanban-card--primary"
                             >
                               <span>Active project</span>
                               <h3>{selectedProject.name}</h3>
@@ -1054,10 +1271,14 @@ export default function WorkPanel({
                             </button>
                           )}
                         </div>
-                      </section>
+                        </>
+                        )}
+                      </BoardSortableLane>
                     )
                   })}
                 </div>
+              </div>
+              </DragDropProvider>
                 <ReviewPackagesPanel
                   packages={reviewPackages}
                   selectedId={selectedReviewPackageId}
@@ -1068,7 +1289,7 @@ export default function WorkPanel({
                   formatDate={formatDate}
                   compact
                 />
-              </div>
+              </>
             )}
           </section>
         ) : (
@@ -1592,13 +1813,13 @@ export default function WorkPanel({
             </label>
             {editingTask && (
               <section className="task-feedback">
-                <span>Client feedback</span>
+                <span>Task comments</span>
                 {reviewComments
                   .filter((comment) => comment.taskId === editingTask.id || (!comment.taskId && comment.bucketId === editingTask.bucketId))
                   .map((comment) => (
-                    <blockquote key={comment.id}><strong>{comment.authorName}</strong><p>{comment.body}</p><small>{formatDate(comment.createdAt)}</small></blockquote>
+                    <blockquote key={comment.id}><strong>{comment.authorName}</strong><p>{displayCollaborativeText(comment.body)}</p><small>{formatDate(comment.createdAt)}</small></blockquote>
                   ))}
-                {!reviewComments.some((comment) => comment.taskId === editingTask.id || (!comment.taskId && comment.bucketId === editingTask.bucketId)) && <p>No client feedback on this task yet.</p>}
+                {!reviewComments.some((comment) => comment.taskId === editingTask.id || (!comment.taskId && comment.bucketId === editingTask.bucketId)) && <p>No comments on this task yet.</p>}
               </section>
             )}
             <label>
@@ -1620,6 +1841,45 @@ export default function WorkPanel({
                 maxLength={2_000}
               />
             </label>
+            <label>
+              <span>Assignees <small>Active workspace members</small></span>
+              <AssigneePicker
+                members={[
+                  ...teamMembers,
+                  ...(editingTask?.assignees || [])
+                    .filter((assignee) => !teamMembers.some((member) => member.userId === assignee.userId))
+                    .map((assignee): WorkspaceMember => ({
+                      id: `historical_${assignee.userId}`,
+                      userId: assignee.userId,
+                      name: assignee.name,
+                      email: assignee.email,
+                      avatarUrl: assignee.avatarUrl,
+                      role: 'member',
+                      status: assignee.status,
+                      invitedAt: null,
+                      joinedAt: null,
+                      createdAt: assignee.assignedAt,
+                    })),
+                ]}
+                selected={taskDraft.assigneeIds}
+                onChange={(assigneeIds) => setTaskDraft((current) => ({ ...current, assigneeIds }))}
+              />
+            </label>
+            {editingTask && (
+              <section className="task-comment-composer">
+                <span>Team comment</span>
+                <MentionTextarea
+                  value={taskComment}
+                  onChange={setTaskComment}
+                  placeholder="Add a comment or @mention a teammate…"
+                  rows={3}
+                  maxLength={2_000}
+                />
+                <button type="button" className="button button--secondary button--small" disabled={commentSaving || !taskComment.trim()} onClick={() => void addTaskComment()}>
+                  {commentSaving ? 'Adding…' : 'Add comment'}
+                </button>
+              </section>
+            )}
             <div className="work-dialog__actions">
               <button className="button button--secondary" type="button" onClick={closeTaskComposer} disabled={taskSaving}>Cancel</button>
               <button className="button button--primary" type="submit" disabled={taskSaving || !taskDraft.title.trim()}>

@@ -7,12 +7,12 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5177,
     strictPort: true,
-    allowedHosts: ['lancee.hookitupservices.com'],
+    allowedHosts: ['lancee.work'],
   },
   preview: {
     host: '0.0.0.0',
     port: 5177,
     strictPort: true,
-    allowedHosts: ['lancee.hookitupservices.com'],
+    allowedHosts: ['lancee.work'],
   },
 })

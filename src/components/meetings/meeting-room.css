@@ -1,0 +1,153 @@
+.lancee-prejoin,
+.lancee-meeting {
+  --meeting-ink: #f7f7f5;
+  --meeting-muted: #a6a7aa;
+  --meeting-panel: #17181a;
+  --meeting-line: rgba(255, 255, 255, .11);
+  --meeting-accent: #6e8cff;
+  --meeting-brand: var(--brand-gradient, linear-gradient(125deg, #ff706f 0%, #ee45aa 34%, #6854e8 67%, #43bdf4 100%));
+  min-height: 100vh;
+  color: var(--meeting-ink);
+  background: #0d0e0f;
+}
+
+.lancee-prejoin__brand {
+  height: 72px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 clamp(20px, 5vw, 72px);
+  border-bottom: 1px solid var(--meeting-line);
+}
+
+.lancee-prejoin__brand strong { font-size: 18px; letter-spacing: -.04em; }
+.lancee-prejoin__brand em { color: var(--meeting-muted); font-size: 13px; font-style: normal; }
+
+.lancee-prejoin__layout {
+  width: min(1100px, calc(100% - 40px));
+  min-height: calc(100vh - 72px);
+  margin: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(300px, .7fr);
+  align-items: center;
+  gap: clamp(30px, 6vw, 88px);
+  padding: 48px 0;
+}
+
+.lancee-prejoin__preview {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--meeting-line);
+  border-radius: 22px;
+  background: #1b1d1f;
+  box-shadow: 0 32px 90px rgba(0, 0, 0, .35);
+}
+
+.lancee-prejoin__preview video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.lancee-prejoin__avatar { width: 112px; height: 112px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: var(--meeting-brand); font-size: 36px; font-weight: 760; }
+.lancee-prejoin__preview-controls { position: absolute; bottom: 20px; display: flex; gap: 10px; }
+.lancee-prejoin__preview-controls button { width: 46px; height: 46px; display: grid; place-items: center; color: #fff; border: 1px solid var(--meeting-line); border-radius: 50%; background: rgba(20, 21, 22, .8); backdrop-filter: blur(12px); }
+.lancee-prejoin__preview-controls button.is-off { color: #fff; border-color: #d84949; background: #b62e2e; }
+.lancee-prejoin svg,
+.lancee-meeting svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.lancee-prejoin__panel { display: grid; gap: 16px; }
+.lancee-meeting-kicker { color: #83c9ff; font-size: 12px; font-weight: 720; letter-spacing: .11em; text-transform: uppercase; }
+.lancee-prejoin__panel h1 { max-width: 12ch; margin: -4px 0 0; font-size: clamp(32px, 4.2vw, 52px); line-height: .98; letter-spacing: -.055em; }
+.lancee-prejoin__panel > p { margin: -4px 0 8px; color: var(--meeting-muted); }
+.lancee-prejoin__panel label { display: grid; gap: 7px; color: #c7c7c9; font-size: 12px; }
+.lancee-prejoin__panel input,
+.lancee-prejoin__panel select { width: 100%; min-height: 44px; padding: 0 12px; color: #fff; border: 1px solid var(--meeting-line); border-radius: 9px; outline: none; background: var(--meeting-panel); }
+.lancee-prejoin__panel input:focus,
+.lancee-prejoin__panel select:focus { border-color: rgba(110, 140, 255, .82); box-shadow: 0 0 0 3px rgba(110, 140, 255, .14); }
+.lancee-prejoin__panel small { color: var(--meeting-muted); line-height: 1.5; }
+.lancee-mic-meter { height: 4px; overflow: hidden; border-radius: 999px; background: #292b2d; }
+.lancee-mic-meter span { height: 100%; display: block; border-radius: inherit; background: var(--meeting-brand); transition: width 80ms linear; }
+.lancee-meeting-primary { min-height: 48px; color: #fff; border: 0; border-radius: 10px; background: var(--meeting-brand); font-weight: 760; box-shadow: 0 10px 28px rgba(104, 84, 232, .24); }
+.lancee-meeting-primary:disabled { opacity: .55; cursor: wait; }
+.lancee-meeting-error { padding: 11px 12px; color: #ffc3c3; border: 1px solid rgba(255, 110, 110, .3); border-radius: 9px; background: rgba(134, 28, 28, .18); font-size: 13px; line-height: 1.45; }
+
+.lancee-meeting { height: 100vh; min-height: 620px; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; }
+.lancee-meeting__header { min-height: 70px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 12px 24px; border-bottom: 1px solid var(--meeting-line); }
+.lancee-meeting__identity { min-width: 0; display: flex; align-items: center; gap: 18px; }
+.lancee-meeting__brand { display: flex; align-items: center; gap: 8px; padding-right: 18px; border-right: 1px solid var(--meeting-line); font-size: 15px; font-weight: 650; letter-spacing: -.04em; }
+.lancee-meeting__title { min-width: 0; display: grid; gap: 4px; }
+.lancee-meeting__title > div { display: flex; align-items: center; gap: 10px; }
+.lancee-meeting__header h1 { margin: 0; font-size: 16px; letter-spacing: -.025em; }
+.lancee-meeting__header p { margin: 0; color: var(--meeting-muted); font-size: 12px; }
+.lancee-meeting__live { padding: 4px 7px; color: #fff; border-radius: 5px; background: var(--meeting-brand); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.lancee-meeting__header-actions { display: flex; align-items: center; gap: 16px; }
+.lancee-meeting__meta { display: flex; gap: 18px; color: var(--meeting-muted); font-size: 12px; }
+.lancee-meeting__meta time { color: #fff; font-variant-numeric: tabular-nums; }
+.lancee-meeting__end { min-height: 38px; padding: 0 16px; color: #fff; border: 1px solid #d95858; border-radius: 9px; background: #b83232; font-size: 12px; font-weight: 750; white-space: nowrap; box-shadow: 0 8px 22px rgba(184, 50, 50, .22); }
+.lancee-meeting__end:hover { background: #ca3b3b; }
+.lancee-meeting__end:disabled { opacity: .6; cursor: wait; }
+
+.lancee-meeting__body { min-height: 0; display: flex; }
+.lancee-meeting__stage { min-width: 0; flex: 1; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 12px; padding: 14px; background: #090a0a; }
+.lancee-participant { position: relative; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid transparent; border-radius: 13px; background: #1a1c1d; }
+.lancee-participant.is-active { border-color: rgba(110, 140, 255, .78); box-shadow: 0 0 0 1px rgba(104, 84, 232, .22); }
+.lancee-participant video { width: 100%; height: 100%; display: block; object-fit: cover; }
+.lancee-participant video.is-mirrored { transform: scaleX(-1); }
+.lancee-participant__fallback { width: 100%; height: 100%; min-height: 130px; display: grid; place-items: center; color: #fff; background: var(--meeting-brand); font-size: clamp(28px, 5vw, 62px); font-weight: 800; }
+.lancee-participant footer { position: absolute; left: 10px; right: 10px; bottom: 9px; display: flex; justify-content: space-between; align-items: center; padding: 6px 9px; color: #fff; border-radius: 7px; background: rgba(0, 0, 0, .6); font-size: 12px; backdrop-filter: blur(7px); }
+.lancee-participant footer svg { width: 14px; height: 14px; }
+.lancee-participant > button { position: absolute; top: 10px; right: 10px; padding: 5px 8px; color: #fff; border: 1px solid rgba(255, 255, 255, .18); border-radius: 6px; background: rgba(0, 0, 0, .65); font-size: 11px; }
+.lancee-meeting__strip { height: 132px; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(170px, 220px); gap: 10px; overflow-x: auto; }
+
+.lancee-meeting__drawer { width: min(350px, 34vw); min-width: 280px; display: flex; flex-direction: column; padding: 18px; border-left: 1px solid var(--meeting-line); background: #121314; }
+.lancee-meeting__drawer > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+.lancee-meeting__drawer h2 { margin: 0; font-size: 16px; }
+.lancee-meeting__drawer header button { width: 32px; height: 32px; color: var(--meeting-muted); border: 1px solid var(--meeting-line); border-radius: 8px; background: transparent; font-size: 22px; }
+.lancee-meeting__drawer dl { display: grid; gap: 6px; margin: 0; }
+.lancee-meeting__drawer dt { margin-top: 14px; color: var(--meeting-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.lancee-meeting__drawer dd { margin: 0; font-size: 14px; }
+.lancee-meeting__people { display: grid; gap: 8px; }
+.lancee-meeting__people > div { display: grid; grid-template-columns: 36px 1fr auto; align-items: center; gap: 10px; padding: 8px; border: 1px solid var(--meeting-line); border-radius: 9px; }
+.lancee-meeting__people span { width: 36px; height: 36px; display: grid; place-items: center; color: #fff; border-radius: 50%; background: var(--meeting-brand); font-size: 11px; font-weight: 800; }
+.lancee-meeting__people strong { font-size: 12px; font-weight: 600; }
+.lancee-meeting__people button { color: #f7a2a2; border: 0; background: transparent; font-size: 11px; }
+.lancee-meeting__private { margin: 0 0 14px; color: var(--meeting-muted); font-size: 12px; line-height: 1.4; }
+.lancee-meeting__notes { min-height: 0; flex: 1; display: grid; align-content: start; gap: 9px; overflow-y: auto; }
+.lancee-meeting__notes article { padding: 10px; border: 1px solid var(--meeting-line); border-radius: 9px; background: #18191b; }
+.lancee-meeting__notes strong { font-size: 11px; }
+.lancee-meeting__notes p { margin: 5px 0; white-space: pre-wrap; font-size: 13px; line-height: 1.45; }
+.lancee-meeting__notes time { color: var(--meeting-muted); font-size: 10px; }
+.lancee-meeting__drawer form { display: grid; gap: 8px; margin-top: 12px; }
+.lancee-meeting__drawer textarea { min-height: 92px; resize: vertical; padding: 10px; color: #fff; border: 1px solid var(--meeting-line); border-radius: 9px; background: #0d0e0f; }
+.lancee-meeting__drawer form button { min-height: 38px; color: #fff; border: 0; border-radius: 8px; background: var(--meeting-brand); font-weight: 700; }
+
+.lancee-meeting__controls { min-height: 78px; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 10px 18px; border-top: 1px solid var(--meeting-line); background: #121314; }
+.lancee-meeting__controls button { min-width: 66px; min-height: 54px; display: grid; place-items: center; gap: 3px; padding: 7px 10px; color: #ddd; border: 1px solid transparent; border-radius: 9px; background: transparent; }
+.lancee-meeting__controls button:hover,
+.lancee-meeting__controls button.is-active { border-color: var(--meeting-line); background: #232527; }
+.lancee-meeting__controls button.is-off { color: #fff; background: #a62e2e; }
+.lancee-meeting__controls button.is-leave { color: #ff9999; }
+.lancee-meeting__controls span { font-size: 10px; }
+.lancee-meeting__audio { position: fixed; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+.lancee-meeting__toast { position: fixed; z-index: 5; left: 50%; bottom: 92px; display: flex; align-items: center; gap: 12px; max-width: min(520px, calc(100% - 32px)); padding: 10px 12px; transform: translateX(-50%); color: #ffd4d4; border: 1px solid rgba(255, 121, 121, .28); border-radius: 9px; background: #491d1d; font-size: 12px; box-shadow: 0 12px 35px rgba(0, 0, 0, .35); }
+.lancee-meeting__toast button { color: inherit; border: 0; background: transparent; font-size: 18px; }
+
+@media (max-width: 800px) {
+  .lancee-prejoin__layout { grid-template-columns: 1fr; align-content: start; padding-top: 28px; }
+  .lancee-prejoin__panel h1 { max-width: none; }
+  .lancee-meeting { min-height: 100dvh; }
+  .lancee-meeting__header { align-items: flex-start; padding: 10px 12px; }
+  .lancee-meeting__brand span { display: none; }
+  .lancee-meeting__brand { padding-right: 10px; }
+  .lancee-meeting__header-actions { gap: 8px; }
+  .lancee-meeting__meta { gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .lancee-meeting__meta > span:first-child { display: none; }
+  .lancee-meeting__drawer { position: absolute; z-index: 4; inset: 70px 0 78px auto; width: min(92vw, 350px); }
+  .lancee-meeting__stage { padding: 8px; }
+  .lancee-meeting__strip { height: 105px; grid-auto-columns: 145px; }
+  .lancee-meeting__controls { justify-content: flex-start; overflow-x: auto; }
+  .lancee-meeting__controls button { min-width: 58px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lancee-prejoin *, .lancee-meeting * { scroll-behavior: auto !important; transition: none !important; }
+}

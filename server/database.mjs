@@ -201,7 +201,38 @@ function mapProjectTask(row) {
     completedAt: row.completed_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    assignees: [],
   }
+}
+
+function mapTaskAssignee(row) {
+  return {
+    userId: row.user_id,
+    name: row.name,
+    email: row.email,
+    avatarUrl: row.avatar_url || '',
+    status: row.status,
+    assignedBy: row.assigned_by,
+    assignedAt: row.assigned_at,
+  }
+}
+
+function mapNoteTaskLink(row) {
+  return {
+    noteId: row.note_id,
+    taskId: row.task_id,
+    projectId: row.project_id,
+    taskTitle: row.task_title,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+  }
+}
+
+function mentionedUserIds(content) {
+  const ids = new Set()
+  const token = /@\[[^\]\n]{1,160}\]\(user:([a-z0-9_-]{3,160})\)/gi
+  for (const match of String(content || '').matchAll(token)) ids.add(match[1])
+  return [...ids]
 }
 
 function mapAutomation(row) {
@@ -631,6 +662,7 @@ function mapProjectComment(row) {
     taskId: row.task_id || null,
     authorType: row.author_type,
     authorName: row.author_name,
+    createdBy: row.created_by || null,
     body: row.body,
     createdAt: row.created_at,
   }
@@ -1442,6 +1474,16 @@ export async function openDatabase({
       updated_at TEXT NOT NULL,
       PRIMARY KEY (workspace_id, integration_id)
     )`,
+    `CREATE TABLE IF NOT EXISTS workspace_ai_configs (
+      workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL CHECK (provider IN ('openai', 'anthropic', 'gemini', 'openai_compatible')),
+      model TEXT NOT NULL,
+      endpoint_url TEXT,
+      encrypted_api_key TEXT NOT NULL,
+      api_key_fingerprint TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS mail_accounts (
       workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
       connected_by TEXT NOT NULL REFERENCES users(id),
@@ -1961,6 +2003,45 @@ export async function openDatabase({
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS meetings (
+      id TEXT PRIMARY KEY REFERENCES calendar_events(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      description TEXT NOT NULL DEFAULT '',
+      meeting_type TEXT NOT NULL CHECK (meeting_type IN ('internal', 'client')),
+      status TEXT NOT NULL DEFAULT 'scheduled'
+        CHECK (status IN ('scheduled', 'live', 'completed', 'cancelled')),
+      started_at TEXT,
+      ended_at TEXT,
+      livekit_room_name TEXT NOT NULL UNIQUE,
+      guest_access_enabled INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS meeting_guest_invitations (
+      id TEXT PRIMARY KEY,
+      meeting_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      created_by TEXT NOT NULL REFERENCES users(id),
+      token_hash TEXT NOT NULL UNIQUE,
+      email TEXT,
+      guest_name TEXT,
+      expires_at TEXT NOT NULL,
+      revoked_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, meeting_id) REFERENCES meetings(workspace_id, id) ON DELETE CASCADE
+    )`,
+    `CREATE TABLE IF NOT EXISTS meeting_notes (
+      id TEXT PRIMARY KEY,
+      meeting_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      author_id TEXT NOT NULL REFERENCES users(id),
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, meeting_id) REFERENCES meetings(workspace_id, id) ON DELETE CASCADE
+    )`,
     `CREATE TABLE IF NOT EXISTS communication_messages (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -2048,6 +2129,43 @@ export async function openDatabase({
       completed_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS project_board_settings (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      custom_buckets_json TEXT NOT NULL DEFAULT '[]',
+      bucket_order_json TEXT NOT NULL DEFAULT '[]',
+      bucket_assignees_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, project_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS task_assignees (
+      task_id TEXT NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      assigned_by TEXT NOT NULL REFERENCES users(id),
+      assigned_at TEXT NOT NULL,
+      unassigned_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      unassigned_at TEXT,
+      PRIMARY KEY (task_id, user_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS note_task_links (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      note_id TEXT NOT NULL,
+      task_id TEXT NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+      created_by TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, note_id, task_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS mentions (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      source_type TEXT NOT NULL CHECK (source_type IN ('note', 'task_comment', 'project_comment')),
+      source_id TEXT NOT NULL,
+      mentioned_user_id TEXT NOT NULL REFERENCES users(id),
+      mentioned_by TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      UNIQUE (workspace_id, source_type, source_id, mentioned_user_id)
     )`,
     `ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS completed_at TEXT`,
     `ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS due_at TEXT`,
@@ -2185,6 +2303,7 @@ export async function openDatabase({
     `ALTER TABLE project_comments ADD COLUMN IF NOT EXISTS review_item_id TEXT`,
     `ALTER TABLE project_comments ADD COLUMN IF NOT EXISTS bucket_id TEXT`,
     `ALTER TABLE project_comments ADD COLUMN IF NOT EXISTS task_id TEXT REFERENCES project_tasks(id) ON DELETE SET NULL`,
+    `ALTER TABLE project_comments ADD COLUMN IF NOT EXISTS created_by TEXT REFERENCES users(id) ON DELETE SET NULL`,
     `CREATE TABLE IF NOT EXISTS review_package_items (
       id TEXT PRIMARY KEY,
       approval_id TEXT NOT NULL REFERENCES client_approvals(id) ON DELETE CASCADE,
@@ -2438,6 +2557,12 @@ export async function openDatabase({
       ON calendar_events (workspace_id, project_id, start_at)`,
     `CREATE INDEX IF NOT EXISTS idx_calendar_events_client
       ON calendar_events (workspace_id, client_id, start_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_meetings_workspace_status
+      ON meetings (workspace_id, status, updated_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_meeting_guest_invitations_lookup
+      ON meeting_guest_invitations (token_hash, expires_at, revoked_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_meeting_notes_meeting_created
+      ON meeting_notes (workspace_id, meeting_id, created_at)`,
     `CREATE INDEX IF NOT EXISTS idx_connected_people_client
       ON connected_people (workspace_id, client_id)`,
     `CREATE INDEX IF NOT EXISTS idx_communication_messages_client
@@ -2456,6 +2581,14 @@ export async function openDatabase({
       ON connected_inspections (workspace_id, related_opportunity_id)`,
     `CREATE INDEX IF NOT EXISTS idx_project_tasks_workspace_project_bucket
       ON project_tasks (workspace_id, project_id, bucket_id, updated_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_task_assignees_user_active
+      ON task_assignees (user_id, unassigned_at, task_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_note_task_links_note
+      ON note_task_links (workspace_id, note_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_mentions_source
+      ON mentions (workspace_id, source_type, source_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_mentions_recipient
+      ON mentions (workspace_id, mentioned_user_id, created_at)`,
     `CREATE INDEX IF NOT EXISTS idx_clients_workspace_name
       ON clients (workspace_id, name)`,
     `CREATE INDEX IF NOT EXISTS idx_clients_workspace_email
@@ -2625,6 +2758,9 @@ export async function openDatabase({
     await query(`ALTER TABLE workspace_members ADD COLUMN IF NOT EXISTS joined_at TEXT`)
     await query(`ALTER TABLE workspace_members ADD COLUMN IF NOT EXISTS updated_at TEXT`)
     await query(`UPDATE workspace_members SET id = 'wsm_' || workspace_id || '_' || user_id WHERE id IS NULL`)
+    // Older PostgreSQL deployments may constrain roles to their pre-Team-
+    // Foundation values. Remove that constraint before normalizing legacy rows.
+    await query(`ALTER TABLE workspace_members DROP CONSTRAINT IF EXISTS workspace_members_role_check`)
     await query(`UPDATE workspace_members SET role = CASE WHEN role = 'owner' THEN 'owner' ELSE 'member' END`)
     await query(`UPDATE workspace_members SET joined_at = created_at, updated_at = created_at WHERE joined_at IS NULL OR updated_at IS NULL`)
     await query(`ALTER TABLE workspace_members ALTER COLUMN id SET NOT NULL`)
@@ -2632,7 +2768,6 @@ export async function openDatabase({
     await query(`ALTER TABLE workspace_members ADD PRIMARY KEY (id)`)
     await query(`ALTER TABLE workspace_members DROP CONSTRAINT IF EXISTS workspace_members_workspace_id_user_id_key`)
     await query(`ALTER TABLE workspace_members ADD CONSTRAINT workspace_members_workspace_id_user_id_key UNIQUE (workspace_id, user_id)`)
-    await query(`ALTER TABLE workspace_members DROP CONSTRAINT IF EXISTS workspace_members_role_check`)
     await query(
       `ALTER TABLE workspace_members
        ADD CONSTRAINT workspace_members_role_check
@@ -2645,8 +2780,8 @@ export async function openDatabase({
        CHECK (status IN ('active', 'invited', 'disabled'))`,
     )
     await query(`ALTER TABLE team_invitations ADD COLUMN IF NOT EXISTS revoked_at TEXT`)
-    await query(`UPDATE team_invitations SET role = CASE WHEN role = 'owner' THEN 'admin' ELSE 'member' END`)
     await query(`ALTER TABLE team_invitations DROP CONSTRAINT IF EXISTS team_invitations_role_check`)
+    await query(`UPDATE team_invitations SET role = CASE WHEN role = 'owner' THEN 'admin' ELSE 'member' END`)
     await query(
       `ALTER TABLE team_invitations
        ADD CONSTRAINT team_invitations_role_check
@@ -5915,7 +6050,12 @@ export async function openDatabase({
          ORDER BY updated_at DESC`,
         [selectedWorkspaceId, boardId],
       )
-      return rows.map(mapIdeaNote)
+      const notes = rows.map(mapIdeaNote)
+      for (const note of notes) {
+        note.taskLinks = await this.listNoteTaskLinks(selectedWorkspaceId, note.id)
+        note.mentions = await this.listMentions(selectedWorkspaceId, 'note', note.id)
+      }
+      return notes
     },
 
     async getIdeaNote(selectedWorkspaceId, id) {
@@ -5925,7 +6065,12 @@ export async function openDatabase({
          WHERE workspace_id = $1 AND id = $2`,
         [selectedWorkspaceId, id],
       )
-      return mapIdeaNote(rows[0])
+      const note = mapIdeaNote(rows[0])
+      if (note) {
+        note.taskLinks = await this.listNoteTaskLinks(selectedWorkspaceId, note.id)
+        note.mentions = await this.listMentions(selectedWorkspaceId, 'note', note.id)
+      }
+      return note
     },
 
     async saveIdeaNote({ selectedWorkspaceId, boardId, id, content, createdBy }) {
@@ -5941,6 +6086,114 @@ export async function openDatabase({
         [id, selectedWorkspaceId, boardId, content, createdBy, timestamp, timestamp],
       )
       return await this.getIdeaNote(selectedWorkspaceId, id)
+    },
+
+    async listNoteTaskLinks(workspaceId, noteId) {
+      const rows = await query(
+        `SELECT links.note_id, links.task_id, links.created_by, links.created_at,
+                tasks.project_id, tasks.title AS task_title
+         FROM note_task_links links
+         JOIN project_tasks tasks ON tasks.id = links.task_id AND tasks.workspace_id = links.workspace_id
+         WHERE links.workspace_id = $1 AND links.note_id = $2
+         ORDER BY links.created_at ASC`,
+        [workspaceId, noteId],
+      )
+      return rows.map(mapNoteTaskLink)
+    },
+
+    async linkNoteTask({ workspaceId, noteId, taskId, createdBy }) {
+      const resources = await query(
+        `SELECT notes.id AS note_id, tasks.id AS task_id
+         FROM idea_notes notes
+         JOIN project_tasks tasks ON tasks.workspace_id = notes.workspace_id
+         WHERE notes.workspace_id = $1 AND notes.id = $2 AND tasks.id = $3`,
+        [workspaceId, noteId, taskId],
+      )
+      if (!resources[0]) return null
+      const timestamp = nowIso()
+      await query(
+        `INSERT INTO note_task_links (workspace_id, note_id, task_id, created_by, created_at)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (workspace_id, note_id, task_id) DO NOTHING`,
+        [workspaceId, noteId, taskId, createdBy, timestamp],
+      )
+      return (await this.listNoteTaskLinks(workspaceId, noteId)).find((link) => link.taskId === taskId) || null
+    },
+
+    async unlinkNoteTask(workspaceId, noteId, taskId) {
+      const rows = await query(
+        `DELETE FROM note_task_links
+         WHERE workspace_id = $1 AND note_id = $2 AND task_id = $3
+         RETURNING task_id`,
+        [workspaceId, noteId, taskId],
+      )
+      return rows.length > 0
+    },
+
+    async listMentions(workspaceId, sourceType, sourceId) {
+      const rows = await query(
+        `SELECT mentions.mentioned_user_id, mentions.mentioned_by, mentions.created_at,
+                users.name, users.email, users.avatar_url, workspace_members.status
+         FROM mentions
+         JOIN users ON users.id = mentions.mentioned_user_id
+         LEFT JOIN workspace_members ON workspace_members.workspace_id = mentions.workspace_id
+           AND workspace_members.user_id = mentions.mentioned_user_id
+         WHERE mentions.workspace_id = $1 AND mentions.source_type = $2 AND mentions.source_id = $3
+         ORDER BY mentions.created_at ASC`,
+        [workspaceId, sourceType, sourceId],
+      )
+      return rows.map((row) => ({
+        userId: row.mentioned_user_id,
+        name: row.name,
+        email: row.email,
+        avatarUrl: row.avatar_url || '',
+        status: row.status || 'disabled',
+        mentionedBy: row.mentioned_by,
+        createdAt: row.created_at,
+      }))
+    },
+
+    async syncMentions({ workspaceId, sourceType, sourceId, mentionedBy, content }) {
+      if (!['note', 'task_comment', 'project_comment'].includes(sourceType)) {
+        throw codedError('MENTION_SOURCE_INVALID', 'This mention source is not supported.')
+      }
+      const requestedIds = mentionedUserIds(content)
+      const existing = await this.listMentions(workspaceId, sourceType, sourceId)
+      const existingIds = new Set(existing.map((mention) => mention.userId))
+      const validRows = requestedIds.length ? await query(
+        `SELECT users.id
+         FROM users
+         JOIN workspace_members ON workspace_members.user_id = users.id
+         WHERE workspace_members.workspace_id = $1
+           AND workspace_members.status = 'active'
+           AND users.id IN (${requestedIds.map((_, index) => `$${index + 2}`).join(', ')})`,
+        [workspaceId, ...requestedIds],
+      ) : []
+      const validIds = new Set(validRows.map((row) => row.id))
+      if (requestedIds.some((userId) => !validIds.has(userId) && !existingIds.has(userId))) {
+        throw codedError('MENTION_TARGET_INVALID', 'Mentions may only target active members of this workspace.')
+      }
+      const added = requestedIds.filter((id) => !existingIds.has(id))
+      const requestedSet = new Set(requestedIds)
+      const removed = [...existingIds].filter((id) => !requestedSet.has(id))
+      const timestamp = nowIso()
+      for (const userId of added) {
+        await query(
+          `INSERT INTO mentions (
+             id, workspace_id, source_type, source_id, mentioned_user_id, mentioned_by, created_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (workspace_id, source_type, source_id, mentioned_user_id) DO NOTHING`,
+          [`mtn_${randomUUID()}`, workspaceId, sourceType, sourceId, userId, mentionedBy, timestamp],
+        )
+      }
+      for (const userId of removed) {
+        await query(
+          `DELETE FROM mentions
+           WHERE workspace_id = $1 AND source_type = $2 AND source_id = $3 AND mentioned_user_id = $4`,
+          [workspaceId, sourceType, sourceId, userId],
+        )
+      }
+      return { added, removed, mentions: await this.listMentions(workspaceId, sourceType, sourceId) }
     },
 
     async listAutomations(selectedWorkspaceId) {
@@ -6663,11 +6916,59 @@ export async function openDatabase({
       const newConnected = target.connected ? 0 : 1
       await query(
         `UPDATE workspace_integrations SET connected = $1, updated_at = $2
-         WHERE workspace_id = $3 AND integration_id = $4`,
+          WHERE workspace_id = $3 AND integration_id = $4`,
         [newConnected, nowIso(), selectedWorkspaceId, integrationId],
       )
       const updated = await this.listIntegrations(selectedWorkspaceId)
       return updated.find((i) => i.id === integrationId) || null
+    },
+
+    // === BYO AI: workspace-scoped custom provider storage (chat-only, never MCP) ===
+    async getWorkspaceAiConfig(selectedWorkspaceId) {
+      const rows = await query(
+        `SELECT workspace_id, provider, model, endpoint_url, encrypted_api_key, api_key_fingerprint, created_at, updated_at
+         FROM workspace_ai_configs WHERE workspace_id = $1`,
+        [selectedWorkspaceId],
+      )
+      const row = rows[0]
+      if (!row) return null
+      return {
+        workspaceId: row.workspace_id,
+        provider: row.provider,
+        model: row.model,
+        endpointUrl: row.endpoint_url,
+        encryptedApiKey: row.encrypted_api_key,
+        apiKeyFingerprint: row.api_key_fingerprint,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }
+    },
+
+    async saveWorkspaceAiConfig({ workspaceId, provider, model, endpointUrl, encryptedApiKey, apiKeyFingerprint }) {
+      const timestamp = nowIso()
+      const existing = await this.getWorkspaceAiConfig(workspaceId)
+      const createdAt = existing?.createdAt || timestamp
+      await query(
+        `INSERT INTO workspace_ai_configs (
+           workspace_id, provider, model, endpoint_url, encrypted_api_key, api_key_fingerprint, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (workspace_id) DO UPDATE SET
+           provider = EXCLUDED.provider,
+           model = EXCLUDED.model,
+           endpoint_url = EXCLUDED.endpoint_url,
+           encrypted_api_key = EXCLUDED.encrypted_api_key,
+           api_key_fingerprint = EXCLUDED.api_key_fingerprint,
+           updated_at = EXCLUDED.updated_at`,
+        [workspaceId, provider, model, endpointUrl || null, encryptedApiKey, apiKeyFingerprint, createdAt, timestamp],
+      )
+      return await this.getWorkspaceAiConfig(workspaceId)
+    },
+
+    async deleteWorkspaceAiConfig(selectedWorkspaceId) {
+      const existing = await this.getWorkspaceAiConfig(selectedWorkspaceId)
+      if (!existing) return false
+      await query(`DELETE FROM workspace_ai_configs WHERE workspace_id = $1`, [selectedWorkspaceId])
+      return true
     },
 
     async createIntegrationRequest({ workspaceId, requestedBy, name, category, details = '' }) {
@@ -7055,6 +7356,7 @@ export async function openDatabase({
           isOnTrial: true,
           subscribedAt: null,
           updatedAt: started,
+          isPersisted: false,
         }
       }
       const trialStartedAt = row.trial_started_at || nowIso()
@@ -7076,6 +7378,7 @@ export async function openDatabase({
         isOnTrial,
         subscribedAt: row.subscribed_at,
         updatedAt: row.updated_at,
+        isPersisted: true,
       }
     },
 
@@ -7808,15 +8111,169 @@ export async function openDatabase({
       }))
     },
 
-    async listProjectTasks(selectedWorkspaceId, projectId) {
+    async listProjectTasks(selectedWorkspaceId, projectId, { assignedTo = null } = {}) {
+      const params = [selectedWorkspaceId, projectId]
+      const assignmentFilter = assignedTo
+        ? `AND EXISTS (
+             SELECT 1 FROM task_assignees filtered_assignment
+             WHERE filtered_assignment.task_id = project_tasks.id
+               AND filtered_assignment.user_id = $3
+               AND filtered_assignment.unassigned_at IS NULL
+           )`
+        : ''
+      if (assignedTo) params.push(assignedTo)
       const rows = await query(
         `SELECT id, workspace_id, project_id, bucket_id, title, notes, completed_at, created_at, updated_at
          FROM project_tasks
          WHERE workspace_id = $1 AND project_id = $2
+         ${assignmentFilter}
          ORDER BY created_at ASC`,
-        [selectedWorkspaceId, projectId],
+        params,
       )
-      return rows.map(mapProjectTask)
+      const tasks = rows.map(mapProjectTask)
+      if (!tasks.length) return tasks
+      const taskIds = tasks.map((task) => task.id)
+      const assignments = await query(
+        `SELECT assignments.task_id, assignments.user_id, assignments.assigned_by, assignments.assigned_at,
+                users.name, users.email, users.avatar_url,
+                COALESCE(workspace_members.status, 'disabled') AS status
+         FROM task_assignees assignments
+         JOIN users ON users.id = assignments.user_id
+         LEFT JOIN workspace_members ON workspace_members.workspace_id = $1
+           AND workspace_members.user_id = assignments.user_id
+         WHERE assignments.unassigned_at IS NULL
+           AND assignments.task_id IN (${taskIds.map((_, index) => `$${index + 2}`).join(', ')})
+         ORDER BY assignments.assigned_at ASC`,
+        [selectedWorkspaceId, ...taskIds],
+      )
+      const byTask = new Map()
+      for (const assignment of assignments) {
+        const assignees = byTask.get(assignment.task_id) || []
+        assignees.push(mapTaskAssignee(assignment))
+        byTask.set(assignment.task_id, assignees)
+      }
+      return tasks.map((task) => ({ ...task, assignees: byTask.get(task.id) || [] }))
+    },
+
+    async getProjectBoardSettings(workspaceId, projectId) {
+      const projects = await query(
+        `SELECT id FROM projects WHERE workspace_id = $1 AND id = $2`,
+        [workspaceId, projectId],
+      )
+      if (!projects[0]) return null
+      const rows = await query(
+        `SELECT custom_buckets_json, bucket_order_json, bucket_assignees_json
+         FROM project_board_settings WHERE workspace_id = $1 AND project_id = $2`,
+        [workspaceId, projectId],
+      )
+      const row = rows[0]
+      const parseArray = (value) => {
+        try {
+          const parsed = JSON.parse(value || '[]')
+          return Array.isArray(parsed) ? parsed : []
+        } catch {
+          return []
+        }
+      }
+      return {
+        customBuckets: parseArray(row?.custom_buckets_json),
+        bucketOrder: parseArray(row?.bucket_order_json),
+        bucketAssignees: parseJsonObject(row?.bucket_assignees_json, {}),
+        configured: Boolean(row),
+      }
+    },
+
+    async updateProjectBoardSettings({ workspaceId, projectId, customBuckets, bucketOrder, bucketAssignees }) {
+      const projects = await query(
+        `SELECT id FROM projects WHERE workspace_id = $1 AND id = $2`,
+        [workspaceId, projectId],
+      )
+      if (!projects[0]) return null
+      const timestamp = nowIso()
+      await query(
+        `INSERT INTO project_board_settings (
+           workspace_id, project_id, custom_buckets_json, bucket_order_json,
+           bucket_assignees_json, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $6)
+         ON CONFLICT (workspace_id, project_id) DO UPDATE SET
+           custom_buckets_json = EXCLUDED.custom_buckets_json,
+           bucket_order_json = EXCLUDED.bucket_order_json,
+           bucket_assignees_json = EXCLUDED.bucket_assignees_json,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          workspaceId,
+          projectId,
+          JSON.stringify(customBuckets),
+          JSON.stringify(bucketOrder),
+          JSON.stringify(bucketAssignees),
+          timestamp,
+        ],
+      )
+      return this.getProjectBoardSettings(workspaceId, projectId)
+    },
+
+    async activeWorkspaceMemberIds(workspaceId, userIds) {
+      const requested = [...new Set((Array.isArray(userIds) ? userIds : []).filter(Boolean))]
+      if (!requested.length) return []
+      const rows = await query(
+        `SELECT user_id FROM workspace_members
+         WHERE workspace_id = $1 AND status = 'active'
+           AND user_id IN (${requested.map((_, index) => `$${index + 2}`).join(', ')})`,
+        [workspaceId, ...requested],
+      )
+      return rows.map((row) => row.user_id)
+    },
+
+    async replaceTaskAssignees({ workspaceId, taskId, userIds, actorId }) {
+      const requested = [...new Set((Array.isArray(userIds) ? userIds : []).map((id) => String(id || '').trim()).filter(Boolean))]
+      if (requested.length > 50) throw codedError('TASK_ASSIGNEES_LIMIT', 'A task may have up to 50 assignees.')
+      const tasks = await query(
+        `SELECT id, project_id FROM project_tasks WHERE workspace_id = $1 AND id = $2`,
+        [workspaceId, taskId],
+      )
+      if (!tasks[0]) return null
+      const existingRows = await query(
+        `SELECT user_id FROM task_assignees WHERE task_id = $1 AND unassigned_at IS NULL`,
+        [taskId],
+      )
+      const existing = new Set(existingRows.map((row) => row.user_id))
+      const members = requested.length ? await query(
+        `SELECT user_id FROM workspace_members
+         WHERE workspace_id = $1 AND status = 'active'
+           AND user_id IN (${requested.map((_, index) => `$${index + 2}`).join(', ')})`,
+        [workspaceId, ...requested],
+      ) : []
+      const valid = new Set(members.map((row) => row.user_id))
+      if (requested.some((userId) => !valid.has(userId) && !existing.has(userId))) {
+        throw codedError('TASK_ASSIGNEE_INVALID', 'Tasks may only be assigned to active members of this workspace.')
+      }
+      const added = requested.filter((id) => !existing.has(id))
+      const requestedSet = new Set(requested)
+      const removed = [...existing].filter((id) => !requestedSet.has(id))
+      const timestamp = nowIso()
+      for (const userId of added) {
+        await query(
+          `INSERT INTO task_assignees (
+             task_id, user_id, assigned_by, assigned_at, unassigned_by, unassigned_at
+           ) VALUES ($1, $2, $3, $4, NULL, NULL)
+           ON CONFLICT (task_id, user_id) DO UPDATE SET
+             assigned_by = EXCLUDED.assigned_by,
+             assigned_at = EXCLUDED.assigned_at,
+             unassigned_by = NULL,
+             unassigned_at = NULL`,
+          [taskId, userId, actorId, timestamp],
+        )
+      }
+      for (const userId of removed) {
+        await query(
+          `UPDATE task_assignees SET unassigned_by = $1, unassigned_at = $2
+           WHERE task_id = $3 AND user_id = $4 AND unassigned_at IS NULL`,
+          [actorId, timestamp, taskId, userId],
+        )
+      }
+      const task = (await this.listProjectTasks(workspaceId, tasks[0].project_id))
+        .find((candidate) => candidate.id === taskId)
+      return { task, added, removed }
     },
 
     async createProjectTask({ workspaceId, projectId, bucketId, title, notes = '', sourceKey = null }) {
@@ -8592,6 +9049,31 @@ export async function openDatabase({
       return rows.map(mapProjectComment)
     },
 
+    async createProjectComment({ workspaceId, projectId, taskId = null, createdBy, authorName, body }) {
+      const resources = await query(
+        `SELECT projects.id AS project_id, tasks.id AS task_id
+         FROM projects
+         LEFT JOIN project_tasks tasks ON tasks.workspace_id = projects.workspace_id
+           AND tasks.project_id = projects.id AND tasks.id = $3
+         WHERE projects.workspace_id = $1 AND projects.id = $2`,
+        [workspaceId, projectId, taskId],
+      )
+      if (!resources[0] || (taskId && !resources[0].task_id)) return null
+      const id = `cmt_${randomUUID()}`
+      const timestamp = nowIso()
+      await query(
+        `INSERT INTO project_comments (
+           id, workspace_id, project_id, task_id, author_type, author_name, body, created_by, created_at
+         ) VALUES ($1, $2, $3, $4, 'workspace', $5, $6, $7, $8)`,
+        [id, workspaceId, projectId, taskId, authorName, body, createdBy, timestamp],
+      )
+      const rows = await query(
+        `SELECT * FROM project_comments WHERE workspace_id = $1 AND id = $2`,
+        [workspaceId, id],
+      )
+      return mapProjectComment(rows[0])
+    },
+
     async createWorkspaceNotification({ workspaceId, kind, title, body, entityType = null, entityId = null }) {
       const timestamp = nowIso()
       const id = `ntf_${createHash('sha256')
@@ -8759,7 +9241,16 @@ export async function openDatabase({
     },
 
     async deleteProject(selectedWorkspaceId, id) {
-      await query(`DELETE FROM projects WHERE workspace_id = $1 AND id = $2`, [selectedWorkspaceId, id])
+      await this.transaction(async () => {
+        await query(
+          `DELETE FROM mentions
+           WHERE workspace_id = $1
+             AND source_type IN ('project_comment', 'task_comment')
+             AND source_id IN (SELECT id FROM project_comments WHERE workspace_id = $1 AND project_id = $2)`,
+          [selectedWorkspaceId, id],
+        )
+        await query(`DELETE FROM projects WHERE workspace_id = $1 AND id = $2`, [selectedWorkspaceId, id])
+      })
     },
 
     async listDriveResourceLinks(selectedWorkspaceId, { clientId, projectId } = {}) {
@@ -9659,6 +10150,37 @@ export async function openDatabase({
       ]
     },
 
+    async searchActiveWorkspaceMembers(selectedWorkspaceId, search = '') {
+      const normalized = String(search || '').trim().toLowerCase().slice(0, 80)
+      const rows = await query(
+        `SELECT workspace_members.id AS membership_id, users.id AS user_id, users.name, users.email,
+                users.avatar_url, workspace_members.role, workspace_members.status,
+                workspace_members.invited_at, workspace_members.joined_at,
+                workspace_members.created_at, workspace_members.updated_at
+         FROM users
+         JOIN workspace_members ON workspace_members.user_id = users.id
+         WHERE workspace_members.workspace_id = $1
+           AND workspace_members.status = 'active'
+           AND ($2 = '' OR LOWER(users.name) LIKE $3 OR LOWER(users.email) LIKE $3)
+         ORDER BY users.name ASC
+         LIMIT 20`,
+        [selectedWorkspaceId, normalized, `%${normalized}%`],
+      )
+      return rows.map((row) => ({
+        id: row.membership_id,
+        userId: row.user_id,
+        name: row.name,
+        email: row.email,
+        avatarUrl: row.avatar_url || '',
+        role: row.role,
+        status: row.status,
+        invitedAt: row.invited_at,
+        joinedAt: row.joined_at,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }))
+    },
+
     async updateTeamMember(selectedWorkspaceId, memberId, { name, role }) {
       const timestamp = nowIso()
       if (String(memberId).startsWith('inv_')) {
@@ -9845,6 +10367,18 @@ export async function openDatabase({
           [selectedWorkspaceId, id],
         )
         await query(
+          `DELETE FROM note_task_links
+           WHERE workspace_id = $1
+             AND note_id IN (SELECT id FROM idea_notes WHERE workspace_id = $1 AND board_id = $2)`,
+          [selectedWorkspaceId, id],
+        )
+        await query(
+          `DELETE FROM mentions
+           WHERE workspace_id = $1 AND source_type = 'note'
+             AND source_id IN (SELECT id FROM idea_notes WHERE workspace_id = $1 AND board_id = $2)`,
+          [selectedWorkspaceId, id],
+        )
+        await query(
           `DELETE FROM idea_notes WHERE workspace_id = $1 AND board_id = $2`,
           [selectedWorkspaceId, id],
         )
@@ -9940,6 +10474,21 @@ export async function openDatabase({
         `UPDATE users SET avatar_url = $1, updated_at = $2 WHERE id = $3`,
         [avatarUrl || '', nowIso(), userId],
       )
+    },
+
+    async updateUserProfile(userId, fields) {
+      const updates = []
+      const values = []
+      let index = 1
+      if (typeof fields.name === 'string' && fields.name.trim()) {
+        updates.push(`name = $${index++}`)
+        values.push(fields.name.trim().slice(0, 120))
+      }
+      if (updates.length === 0) return
+      updates.push(`updated_at = $${index++}`)
+      values.push(nowIso())
+      values.push(userId)
+      await query(`UPDATE users SET ${updates.join(', ')} WHERE id = $${index}`, values)
     },
 
     async getRegistrationConfirmationByTokenHash(tokenHash) {

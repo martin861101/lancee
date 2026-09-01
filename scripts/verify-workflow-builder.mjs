@@ -593,6 +593,18 @@ try {
   assert.equal(e2eTasks.length, 2)
   assert.equal(e2eTasks[0].projectId, e2eProjects[0].id)
   assert.match(e2eTasks[0].notes, /missing dimensions/)
+  const manualRunResponse = await sessionRequest(application.origin, cookie, '/api/automations/runs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'workflow-e2e-manual-run-0001' },
+    body: JSON.stringify({ automationId: automations[0].id }),
+  })
+  const manualRunPayload = await manualRunResponse.json()
+  assert.equal(manualRunResponse.status, 201, JSON.stringify(manualRunPayload))
+  assert.equal(manualRunPayload.automationId, automations[0].id)
+  const completedManualRun = await waitForAutomationRun(application.origin, cookie, manualRunPayload.id)
+  assert.equal(completedManualRun.status, 'completed', JSON.stringify(completedManualRun))
+  assert.match(completedManualRun.instruction, /"manual":true/)
+  assert.equal(completedManualRun.events.some((event) => event.eventType === 'trigger.manual'), true)
   console.log('Workflow builder verified end to end through assistant HTTP, approval, mailbox polling, claim idempotency, queue execution, and zero-write dry run.')
 } finally {
   await legacyDatabase?.close()
