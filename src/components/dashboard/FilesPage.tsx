@@ -9,6 +9,7 @@ import {
   type WorkspaceDocument,
   type WorkspaceDocumentFolder,
 } from '../../lib/api'
+import { useDialogFocus } from '../../lib/useDialogFocus'
 import DriveFileWorkspace from './DriveFileWorkspace'
 import PdfStudio from './PdfStudio'
 import { driveWorkspaceMode, isDriveFolder } from './driveFileUtils'
@@ -469,6 +470,7 @@ export default function FilesPage({
   >(null)
   const [moveTargetFolderId, setMoveTargetFolderId] = useState('')
   const [movingTarget, setMovingTarget] = useState(false)
+  const moveDialogRef = useDialogFocus<HTMLDivElement>(Boolean(moveTarget), () => setMoveTarget(null))
 
   // Multi-select and preview states
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
@@ -2554,7 +2556,7 @@ export default function FilesPage({
       </main>
 
       {moveTarget && (
-        <div className="file-explorer__move-dialog" role="dialog" aria-modal="true" aria-label="Move file">
+        <div ref={moveDialogRef} className="file-explorer__move-dialog" role="dialog" aria-modal="true" aria-label="Move file" tabIndex={-1}>
           <div className="file-explorer__move-panel">
             <div className="file-explorer__form-heading">
               <div>

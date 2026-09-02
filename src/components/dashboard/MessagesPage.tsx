@@ -123,12 +123,16 @@ export default function MessagesPage({
   onToast,
   focusMessage,
   onMessageFocusHandled,
+  openConnectionSettings = false,
+  onConnectionSettingsHandled,
 }: {
   automations: Automation[]
   canManageConnection: boolean
   onToast: (message: string) => void
   focusMessage?: { folder: string; uid: number } | null
   onMessageFocusHandled?: () => void
+  openConnectionSettings?: boolean
+  onConnectionSettingsHandled?: () => void
 }) {
   const [account, setAccount] = useState<MailAccount | null>(null)
   const [loading, setLoading] = useState(true)
@@ -165,6 +169,13 @@ export default function MessagesPage({
   const selectedAutomation = nativeAutomations.find((automation) => automation.id === rule.automationId)
   const canCreateProjectFromEmail = selectedAutomation?.tools.includes('projects.create') || false
   const handleMessageFocusHandled = useEffectEvent(() => onMessageFocusHandled?.())
+  const handleConnectionSettingsHandled = useEffectEvent(() => onConnectionSettingsHandled?.())
+
+  useEffect(() => {
+    if (!openConnectionSettings) return
+    setTab('settings')
+    handleConnectionSettingsHandled()
+  }, [openConnectionSettings, handleConnectionSettingsHandled])
 
   const loadAccount = useCallback(async () => {
     const status = await api.mail.getAccount()
@@ -278,7 +289,7 @@ export default function MessagesPage({
   }
 
   const disconnect = async () => {
-    if (!window.confirm('Disconnect this mailbox? Saved message rules will remain but cannot run.')) return
+    if (!window.confirm('Disconnect this mailbox? Its IMAP and SMTP credentials will be removed. Saved message rules will remain, but cannot run until you reconnect.')) return
     setConnecting(true)
     try {
       await api.mail.disconnect()

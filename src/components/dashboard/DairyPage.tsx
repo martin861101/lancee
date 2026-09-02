@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { api, type CalendarEvent, type Client, type Meeting, type MeetingInvitation, type Project } from '../../lib/api'
+import { useDialogFocus } from '../../lib/useDialogFocus'
 import MeetingRoom from '../meetings/MeetingRoom'
 import './dairy-page.css'
 
@@ -93,6 +94,8 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
   const [creatingMeeting, setCreatingMeeting] = useState(false)
   const [newInvitations, setNewInvitations] = useState<MeetingInvitation[]>([])
   const [liveKitConfigured, setLiveKitConfigured] = useState(true)
+  const entryDialogRef = useDialogFocus<HTMLElement>(entryDialogOpen, () => setEntryDialogOpen(false))
+  const meetingDialogRef = useDialogFocus<HTMLElement>(meetingFormOpen, () => setMeetingFormOpen(false))
 
   useEffect(() => {
     let cancelled = false
@@ -115,15 +118,6 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
     }).catch(() => onToast('Unable to load the calendar.'))
     return () => { cancelled = true }
   }, [workspaceId, onToast])
-
-  useEffect(() => {
-    if (!entryDialogOpen) return
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setEntryDialogOpen(false)
-    }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [entryDialogOpen])
 
   const calendarEvents = useMemo<CalendarDisplayEvent[]>(() => events.map((event) => {
     const startAt = new Date(event.startAt)
@@ -374,7 +368,7 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
                 if (event.currentTarget === event.target) setEntryDialogOpen(false)
               }}
             >
-              <article className="dairy-side-card dairy-entry-dialog" role="dialog" aria-modal="true" aria-labelledby="dairy-entry-dialog-title">
+              <article ref={entryDialogRef} className="dairy-side-card dairy-entry-dialog" role="dialog" aria-modal="true" aria-labelledby="dairy-entry-dialog-title" tabIndex={-1}>
                 <header>
                   <div>
                     <span className="dairy-card-label">New calendar entry</span>
@@ -442,7 +436,7 @@ export default function DairyPage({ workspaceId, userName, onNavigate, onToast }
 
           {meetingFormOpen && (
             <div className="dairy-entry-dialog__backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setMeetingFormOpen(false) }}>
-              <article className="dairy-side-card dairy-entry-dialog dairy-meeting-dialog" role="dialog" aria-modal="true" aria-labelledby="dairy-meeting-dialog-title">
+              <article ref={meetingDialogRef} className="dairy-side-card dairy-entry-dialog dairy-meeting-dialog" role="dialog" aria-modal="true" aria-labelledby="dairy-meeting-dialog-title" tabIndex={-1}>
                 <header><div><span className="dairy-card-label">Native lancee meeting</span><h2 id="dairy-meeting-dialog-title">Schedule a meeting</h2></div><button type="button" aria-label="Close meeting form" onClick={() => setMeetingFormOpen(false)}>×</button></header>
                 {newInvitations.length ? (
                   <div className="dairy-invitation-results">

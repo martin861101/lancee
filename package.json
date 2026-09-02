@@ -60,6 +60,7 @@
     "verify:decision-phase3": "node scripts/verify-decision-phase3.mjs",
     "verify:decision-ui": "node scripts/verify-decision-intelligence-ui.mjs",
     "verify:ui-fixes": "node scripts/verify-ui-fixes.mjs",
+    "verify:app-visuals": "node scripts/verify-app-visuals.mjs",
     "verify:marketing-visuals": "node scripts/verify-marketing-visuals.mjs",
     "update:marketing-visuals": "node scripts/verify-marketing-visuals.mjs --update",
     "verify:workspace-pulse": "node scripts/verify-workspace-pulse.mjs",

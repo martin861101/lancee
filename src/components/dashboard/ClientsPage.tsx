@@ -1,5 +1,6 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import { api, type Client, type ClientHistory, type Project } from '../../lib/api'
+import { useDialogFocus } from '../../lib/useDialogFocus'
 import './dashboard-page.css'
 
 export default function ClientsPage({
@@ -31,6 +32,10 @@ export default function ClientsPage({
   const [history, setHistory] = useState<ClientHistory | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [logoBusy, setLogoBusy] = useState(false)
+  const editDialogRef = useDialogFocus<HTMLFormElement>(Boolean(editingClient), () => {
+    if (!saving) setEditingClient(null)
+  })
+  const createDialogRef = useDialogFocus<HTMLFormElement>(creating, () => setCreating(false))
 
   useEffect(() => {
     let active = true
@@ -466,18 +471,23 @@ export default function ClientsPage({
       </div>
 
       {editingClient && (
-        <div className="clients-modal-backdrop" onMouseDown={() => !saving && setEditingClient(null)}>
+        <div className="clients-modal-backdrop" role="presentation" onMouseDown={() => !saving && setEditingClient(null)}>
           <form
+            ref={editDialogRef}
             className="clients-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-client-dialog-title"
+            tabIndex={-1}
             onSubmit={saveEdit}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="clients-modal__heading">
               <div>
                 <span>Edit client</span>
-                <h2>Update client details</h2>
+                <h2 id="edit-client-dialog-title">Update client details</h2>
               </div>
-              <button type="button" onClick={() => setEditingClient(null)} disabled={saving}>×</button>
+              <button type="button" aria-label="Close edit client dialog" onClick={() => setEditingClient(null)} disabled={saving}>×</button>
             </div>
             <label>
               Client name
@@ -508,18 +518,23 @@ export default function ClientsPage({
       )}
 
       {creating && (
-        <div className="clients-modal-backdrop" onMouseDown={() => setCreating(false)}>
+        <div className="clients-modal-backdrop" role="presentation" onMouseDown={() => setCreating(false)}>
           <form
+            ref={createDialogRef}
             className="clients-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-client-dialog-title"
+            tabIndex={-1}
             onSubmit={submitClient}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="clients-modal__heading">
               <div>
                 <span>New client</span>
-                <h2>Create a client workspace</h2>
+                <h2 id="create-client-dialog-title">Create a client workspace</h2>
               </div>
-              <button type="button" onClick={() => setCreating(false)}>×</button>
+              <button type="button" aria-label="Close new client dialog" onClick={() => setCreating(false)}>×</button>
             </div>
             <label>
               Client name

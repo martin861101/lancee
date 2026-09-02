@@ -110,6 +110,9 @@
 .lancee-meeting__people span { width: 36px; height: 36px; display: grid; place-items: center; color: #fff; border-radius: 50%; background: var(--meeting-brand); font-size: 11px; font-weight: 800; }
 .lancee-meeting__people strong { font-size: 12px; font-weight: 600; }
 .lancee-meeting__people button { color: #f7a2a2; border: 0; background: transparent; font-size: 11px; }
+.lancee-meeting__devices { display: grid; gap: 14px; }
+.lancee-meeting__devices label { display: grid; gap: 7px; color: var(--meeting-muted); font-size: 12px; }
+.lancee-meeting__devices select { min-height: 40px; padding: 0 10px; color: #fff; border: 1px solid var(--meeting-line); border-radius: 8px; background: #0d0e0f; }
 .lancee-meeting__private { margin: 0 0 14px; color: var(--meeting-muted); font-size: 12px; line-height: 1.4; }
 .lancee-meeting__notes { min-height: 0; flex: 1; display: grid; align-content: start; gap: 9px; overflow-y: auto; }
 .lancee-meeting__notes article { padding: 10px; border: 1px solid var(--meeting-line); border-radius: 9px; background: #18191b; }

@@ -715,6 +715,7 @@ html[data-theme='dark'] .landing > .landing-chat {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  filter: drop-shadow(0 6px 12px rgba(7, 12, 35, .28));
 }
 
 .landing-chat__panel {
@@ -1661,6 +1662,770 @@ html[data-theme='dark'] .landing .landing-workflow__visual {
     grid-column: 1;
     min-height: 390px;
   }
+}
+
+/* Public card language: compact workspace panels with a deliberate dark-to-light
+   section rhythm. Abstract maps and orbitals stay intact; only the surfaces that
+   carry product information change. */
+:root {
+  --public-panel: linear-gradient(145deg, rgba(19, 29, 60, .96), rgba(8, 14, 34, .98));
+  --public-panel-raised: linear-gradient(145deg, rgba(28, 41, 81, .98), rgba(11, 18, 44, .98));
+  --public-panel-line: rgba(162, 181, 255, .28);
+  --public-panel-line-strong: rgba(178, 197, 255, .48);
+  --public-panel-text: #f5f7ff;
+  --public-panel-muted: #aab5d0;
+  --public-panel-shadow: 0 22px 50px rgba(2, 7, 24, .3), inset 0 1px rgba(255, 255, 255, .06);
+  --public-light-canvas: #f2f4fb;
+  --public-light-panel: rgba(255, 255, 255, .88);
+  --public-light-line: rgba(74, 93, 142, .16);
+}
+
+/* Landing platform: six related UI panels, closer to the referenced inbox frame. */
+html[data-theme] .landing .landing-platform {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, #0c1430 0%, #0d1738 68%, #111d43 100%) !important;
+}
+
+html[data-theme] .landing .landing-platform .landing-section__heading h2,
+html[data-theme] .landing .landing-platform .landing-feature h3 {
+  color: var(--public-panel-text) !important;
+}
+
+html[data-theme] .landing .landing-platform :is(.landing-section__heading > p, .landing-feature > p) {
+  color: var(--public-panel-muted) !important;
+}
+
+html[data-theme] .landing .landing-platform .landing-feature-grid--six {
+  gap: 16px;
+  padding: 16px;
+  background: rgba(5, 11, 30, .38);
+  border: 1px solid rgba(168, 187, 255, .12);
+  border-radius: 26px;
+}
+
+html[data-theme] .landing .landing-platform .landing-feature-grid--six .landing-feature {
+  min-height: 430px;
+  padding: 30px;
+  background: var(--public-panel) !important;
+  border: 1px solid var(--public-panel-line) !important;
+  border-radius: 16px;
+  box-shadow: var(--public-panel-shadow);
+}
+
+html[data-theme] .landing .landing-platform .landing-feature-grid--six .landing-feature::after {
+  opacity: .72;
+  background: radial-gradient(circle, rgba(101, 110, 255, .2), transparent 68%);
+}
+
+html[data-theme] .landing .landing-platform .landing-feature__icon {
+  color: #e4e8ff;
+  background: rgba(117, 128, 255, .16);
+  border: 1px solid rgba(178, 190, 255, .22);
+  border-radius: 12px;
+}
+
+html[data-theme] .landing .landing-platform .landing-feature__number {
+  color: #8794bd;
+}
+
+html[data-theme] .landing .landing-platform .landing-feature-grid--six .landing-feature:hover {
+  border-color: var(--public-panel-line-strong) !important;
+  box-shadow: 0 28px 60px rgba(2, 7, 24, .42), 0 0 0 4px rgba(111, 127, 255, .06);
+}
+
+html[data-theme] .landing .landing-platform :is(
+  .feature-project-card,
+  .feature-insight-card,
+  .feature-attention-card,
+  .feature-meetings-card,
+  .feature-connections,
+  .feature-automation-flow
+) {
+  color: var(--public-panel-text);
+  background: rgba(4, 10, 29, .58) !important;
+  border-color: rgba(164, 182, 255, .18) !important;
+  border-radius: 12px;
+  box-shadow: inset 0 1px rgba(255, 255, 255, .04);
+}
+
+/* The product catalog takes its cadence from the landing reference: midnight
+   stories hand off to soft white editorial sections without altering content. */
+.features-page :is(
+  .feature-story--workspace,
+  .feature-story--automations,
+  .feature-story--ai,
+  .feature-story--security
+) {
+  background: linear-gradient(160deg, #0b132d, #101c42 58%, #0a1128) !important;
+}
+
+.features-page :is(
+  .feature-story--money,
+  .feature-story--connections,
+  .feature-story--review,
+  .capability-index
+) {
+  background: var(--public-light-canvas) !important;
+  box-shadow: 0 0 0 100vmax var(--public-light-canvas) !important;
+}
+
+.features-page :is(
+  .workspace-composition,
+  .automation-composition,
+  .assistant-composition,
+  .security-composition
+) {
+  color: var(--public-panel-text);
+  background: var(--public-panel) !important;
+  border: 1px solid var(--public-panel-line) !important;
+  border-radius: 16px;
+  box-shadow: var(--public-panel-shadow);
+}
+
+.features-page :is(
+  .money-composition,
+  .connection-composition,
+  .review-composition
+) {
+  background: var(--public-light-panel) !important;
+  border: 1px solid var(--public-light-line) !important;
+  border-radius: 16px;
+  box-shadow: 0 20px 42px rgba(42, 57, 97, .1), inset 0 1px rgba(255, 255, 255, .8);
+}
+
+.features-page .security-composition > div,
+.features-page .workspace-composition :is(article, .workspace-composition__insight, .workspace-composition__aside),
+.features-page .automation-composition > div,
+.features-page .assistant-composition :is(header, .assistant-composition__user, .assistant-composition__response, .assistant-composition__context) {
+  border-color: rgba(166, 184, 255, .18);
+}
+
+/* Pricing uses the same panel system so plan choice feels part of the product. */
+.pricing-landing {
+  background: linear-gradient(155deg, #08102a, #111d43 56%, #0a1129) !important;
+}
+
+.pricing-landing .pricing-page {
+  background:
+    radial-gradient(circle at 75% 16%, rgba(101, 105, 255, .18), transparent 26rem),
+    linear-gradient(180deg, rgba(21, 34, 74, .72), rgba(7, 14, 35, .98)) !important;
+}
+
+.pricing-landing .pricing-card,
+.pricing-landing .pricing-card.is-recommended,
+.pricing-landing :is(.pricing-addon, .pricing-enterprise, .pricing-comparison__header, .comparison-group, .comparison-group__toggle, .comparison-row) {
+  background: var(--public-panel) !important;
+  border: 1px solid var(--public-panel-line) !important;
+  border-radius: 16px;
+  box-shadow: var(--public-panel-shadow);
+}
+
+.pricing-landing .pricing-card.is-recommended {
+  background: var(--public-panel-raised) !important;
+  border-color: var(--public-panel-line-strong) !important;
+  box-shadow: 0 26px 68px rgba(10, 17, 53, .48), 0 0 0 4px rgba(115, 124, 255, .08), inset 0 1px rgba(255, 255, 255, .08);
+}
+
+.pricing-landing .pricing-card :is(.pricing-card__name, .pricing-card__amount) {
+  color: var(--public-panel-text);
+}
+
+.pricing-landing .pricing-card__cta {
+  color: var(--public-panel-text);
+  background: rgba(92, 105, 232, .22) !important;
+  border-color: rgba(180, 191, 255, .34) !important;
+  border-radius: 10px;
+}
+
+.pricing-landing .pricing-card.is-recommended .pricing-card__cta,
+.pricing-landing .pricing-card__cta:hover:not(:disabled) {
+  color: #fff;
+  background: linear-gradient(110deg, #626bff, #9d59df) !important;
+  border-color: rgba(227, 216, 255, .58) !important;
+}
+
+.pricing-landing .pricing-card__features {
+  border-color: rgba(166, 184, 255, .18);
+}
+
+@media (max-width: 640px) {
+  html[data-theme] .landing .landing-platform .landing-feature-grid--six { padding: 10px; border-radius: 20px; }
+  html[data-theme] .landing .landing-platform .landing-feature-grid--six .landing-feature { min-height: 350px; padding: 24px; }
+}
+
+/* Definitive public glass cascade. Kept last so older theme repairs cannot
+   return these product previews to opaque cards or unreadable inherited type. */
+html body .product-frame.product-frame,
+html[data-theme] .landing.landing :is(.landing-connected__visual, .landing-workflow__visual, .landing-intelligence__visual, .landing-pulse__visual),
+.features-page.features-page :is(.feature-story--workspace, .feature-story--automations, .feature-story--ai, .feature-story--security) .feature-product-frame.product-frame,
+.pricing-landing.pricing-landing .pricing-product-frame.product-frame {
+  background: var(--public-glass-dark) !important;
+  border: 1px solid var(--public-glass-line) !important;
+  box-shadow: var(--public-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(130%);
+  backdrop-filter: blur(22px) saturate(130%);
+}
+
+.product-frame__bar.product-frame__bar {
+  background: rgba(10, 17, 43, .58) !important;
+  border-color: rgba(179, 194, 255, .18) !important;
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+html[data-theme] .landing.landing :is(.landing-connected__insight, .workflow-automation-card, .workflow-result, .workflow-tool-row span, .landing-decision-chain__step, .landing-decision-match, .landing-decision-factors > div, .landing-pulse__card) {
+  background: var(--public-glass-dark-soft) !important;
+  border-color: rgba(179, 194, 255, .2) !important;
+  box-shadow: inset 0 1px rgba(255, 255, 255, .05) !important;
+}
+
+html[data-theme] .landing.landing .landing-pulse__visual :is(strong, h3) { color: #f5f7ff !important; }
+html[data-theme] .landing.landing .landing-pulse__visual :is(p, small, span) { color: #aab5d0 !important; }
+html[data-theme] .landing .landing-pulse__card--attention strong { color: #ffd79d !important; }
+html[data-theme] .landing .landing-pulse__card--money strong { color: #b6c9ff !important; }
+html[data-theme] .landing .landing-pulse__card--opportunity strong { color: #d5c6ff !important; }
+
+html[data-theme] .landing .landing-integrations .landing-integration-grid > article,
+.features-page :is(.feature-story--money, .feature-story--connections, .feature-story--review) .feature-product-frame,
+.pricing-landing :is(.pricing-addons, .pricing-comparison) :is(.pricing-addon, .pricing-comparison__header, .comparison-group, .comparison-group__toggle, .comparison-row) {
+  color: #18223a !important;
+  background: var(--public-glass-light) !important;
+  border: 1px solid var(--public-glass-line-light) !important;
+  box-shadow: var(--public-glass-shadow-light) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(120%) !important;
+  backdrop-filter: blur(20px) saturate(120%) !important;
+}
+
+.pricing-landing.pricing-landing .pricing-addons.pricing-addons .pricing-addons__grid > .pricing-addon.pricing-addon,
+.pricing-landing.pricing-landing .pricing-comparison.pricing-comparison :is(.pricing-comparison__header, .comparison-group, .comparison-group__toggle, .comparison-row) {
+  color: #18223a !important;
+  background: var(--public-glass-light) !important;
+  border-color: var(--public-glass-line-light) !important;
+  box-shadow: var(--public-glass-shadow-light) !important;
+}
+.pricing-landing.pricing-landing .pricing-addons.pricing-addons .pricing-addon.pricing-addon strong { color: #18223a !important; }
+.pricing-landing.pricing-landing .pricing-addons.pricing-addons .pricing-addon.pricing-addon p { color: #657089 !important; }
+
+html[data-theme] .landing .landing-integrations .landing-integration-grid h3,
+.pricing-landing :is(.pricing-addons, .pricing-comparison) :is(strong, h3, .comparison-group__toggle, .comparison-row__label) { color: #18223a !important; }
+html[data-theme] .landing .landing-integrations .landing-integration-grid p,
+.pricing-landing :is(.pricing-addons, .pricing-comparison) :is(p, small, .pricing-comparison__col) { color: #657089 !important; }
+html[data-theme] .landing .landing-integrations .landing-integration-grid small { color: #6d5ee6 !important; }
+
+.features-page :is(.feature-story--money, .feature-story--connections, .feature-story--review) .product-frame__bar {
+  color: #657089;
+  background: rgba(244, 247, 253, .66) !important;
+  border-color: var(--public-glass-line-light) !important;
+}
+.features-page :is(.feature-story--money, .feature-story--connections, .feature-story--review) .product-frame__bar > strong { color: #18223a; }
+.features-page :is(.feature-story--money, .feature-story--connections, .feature-story--review) .product-frame__status { color: #657089; }
+.features-page :is(.feature-story--money, .feature-story--connections, .feature-story--review) :is(.money-composition, .connection-composition, .review-composition, .money-composition__invoice, .money-composition__flow span, .review-composition__panel) {
+  background: rgba(255, 255, 255, .38) !important;
+  border-color: rgba(78, 99, 151, .16) !important;
+  box-shadow: inset 0 1px rgba(255, 255, 255, .72) !important;
+}
+.features-page :is(.feature-story--money, .feature-story--connections, .feature-story--review) :is(.money-composition strong, .connection-composition strong, .connection-composition small, .review-composition strong) { color: #18223a !important; }
+.features-page :is(.feature-story--money, .feature-story--connections, .feature-story--review) :is(.money-composition small, .money-composition span, .review-composition p, .review-composition small) { color: #657089 !important; }
+
+/* Glass surface consolidation: one window language across every public page. */
+:root {
+  --public-glass-dark: linear-gradient(145deg, rgba(20, 29, 63, .78), rgba(7, 13, 34, .7));
+  --public-glass-dark-soft: rgba(23, 33, 70, .58);
+  --public-glass-light: linear-gradient(145deg, rgba(255, 255, 255, .76), rgba(231, 237, 249, .58));
+  --public-glass-line: rgba(179, 194, 255, .3);
+  --public-glass-line-light: rgba(78, 99, 151, .18);
+  --public-glass-shadow: 0 28px 72px rgba(4, 9, 28, .3), inset 0 1px rgba(255, 255, 255, .09);
+  --public-glass-shadow-light: 0 22px 58px rgba(44, 57, 96, .12), inset 0 1px rgba(255, 255, 255, .8);
+}
+
+.product-frame,
+html[data-theme] .landing :is(
+  .landing-connected__visual,
+  .landing-workflow__visual,
+  .landing-intelligence__visual,
+  .landing-pulse__visual
+) {
+  background: var(--public-glass-dark) !important;
+  border: 1px solid var(--public-glass-line) !important;
+  box-shadow: var(--public-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(130%);
+  backdrop-filter: blur(22px) saturate(130%);
+}
+
+.product-frame__bar {
+  background: rgba(10, 17, 43, .58);
+  border-color: rgba(179, 194, 255, .18);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+/* Static hero snapshot replaces the unreliable animated orbital. */
+.hero-workspace-preview {
+  align-self: center;
+  width: min(100%, 720px);
+  min-width: 0;
+  transform: perspective(1200px) rotateY(-2deg) rotateX(1deg);
+  transform-origin: center;
+}
+.hero-workspace-preview__body { padding: clamp(18px, 3vw, 32px); }
+.hero-workspace-preview__body > header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid rgba(179, 194, 255, .15);
+}
+.hero-workspace-preview__brand {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  background: rgba(113, 91, 239, .18);
+  border: 1px solid rgba(171, 157, 255, .28);
+  border-radius: 12px;
+  box-shadow: 0 0 28px rgba(108, 86, 236, .17);
+}
+.hero-workspace-preview__brand img { width: 24px; height: 24px; object-fit: contain; }
+.hero-workspace-preview__body > header div { display: grid; gap: 4px; }
+.hero-workspace-preview__body > header small,
+.hero-workspace-preview__date { color: #7886aa; font-size: 8px; letter-spacing: .11em; }
+.hero-workspace-preview__body > header strong { color: #f7f8ff; font-size: 14px; }
+.hero-workspace-preview__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 22px 0;
+}
+.hero-workspace-preview__metrics article,
+.hero-workspace-preview__activity article {
+  background: rgba(34, 46, 91, .48);
+  border: 1px solid rgba(172, 188, 255, .14);
+  box-shadow: inset 0 1px rgba(255, 255, 255, .035);
+}
+.hero-workspace-preview__metrics article { display: grid; gap: 6px; padding: 16px; border-radius: 12px; }
+.hero-workspace-preview__metrics small,
+.hero-workspace-preview__activity small { color: #8491b2; font-size: 8px; }
+.hero-workspace-preview__metrics strong { color: #f3f5ff; font-size: 15px; }
+.hero-workspace-preview__metrics span { color: #9ca8c4; font-size: 9px; }
+.hero-workspace-preview__activity {
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+  background: rgba(6, 12, 32, .35);
+  border: 1px solid rgba(172, 188, 255, .12);
+  border-radius: 14px;
+}
+.hero-workspace-preview__section-title { display: flex; align-items: center; justify-content: space-between; padding: 2px 3px 9px; }
+.hero-workspace-preview__section-title strong { color: #eef1fc; font-size: 10px; }
+.hero-workspace-preview__section-title span { color: #6fd8b2; font-size: 8px; }
+.hero-workspace-preview__activity article {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 13px;
+  border-radius: 10px;
+}
+.hero-workspace-preview__activity article > i { width: 7px; height: 7px; border-radius: 50%; box-shadow: 0 0 13px currentColor; }
+.hero-workspace-preview__activity article > i.is-violet { color: #9a7cff; background: currentColor; }
+.hero-workspace-preview__activity article > i.is-blue { color: #64a4ff; background: currentColor; }
+.hero-workspace-preview__activity article > i.is-pink { color: #e269cf; background: currentColor; }
+.hero-workspace-preview__activity article div { display: grid; gap: 4px; }
+.hero-workspace-preview__activity article strong { color: #e9edfb; font-size: 9px; }
+.hero-workspace-preview__activity article > span { color: #8390b3; font-size: 13px; }
+.hero-workspace-preview__body > footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 20px; }
+.hero-workspace-preview__body > footer > span { display: flex; align-items: center; gap: 7px; color: #8f9bb8; font-size: 8px; }
+.hero-workspace-preview__body > footer > span i { width: 6px; height: 6px; background: #60d6ae; border-radius: 50%; box-shadow: 0 0 11px #60d6ae; }
+.hero-workspace-preview__body > footer button {
+  padding: 10px 13px;
+  color: #f7f8ff;
+  background: rgba(99, 91, 231, .22);
+  border: 1px solid rgba(178, 188, 255, .27);
+  border-radius: 9px;
+  font-size: 9px;
+}
+.hero-workspace-preview__body > footer b { margin-left: 8px; }
+
+/* Landing visual cards: translucent on dark sections, pearl glass on light. */
+html[data-theme] .landing .landing-context-map,
+html[data-theme] .landing :is(
+  .landing-connected__insight,
+  .workflow-automation-card,
+  .workflow-result,
+  .workflow-tool-row span,
+  .landing-decision-chain__step,
+  .landing-decision-match,
+  .landing-decision-factors > div,
+  .landing-pulse__card
+) {
+  background: var(--public-glass-dark-soft) !important;
+  border-color: rgba(179, 194, 255, .2) !important;
+  box-shadow: inset 0 1px rgba(255, 255, 255, .05) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(125%);
+  backdrop-filter: blur(14px) saturate(125%);
+}
+
+html[data-theme] .landing .landing-pulse__visual,
+html[data-theme] .landing .landing-pulse__visual :is(strong, h3) { color: #f5f7ff !important; }
+html[data-theme] .landing .landing-pulse__visual :is(p, small, span) { color: #aab5d0 !important; }
+html[data-theme] .landing .landing-pulse__card--attention strong { color: #ffd79d !important; }
+html[data-theme] .landing .landing-pulse__card--money strong { color: #b6c9ff !important; }
+html[data-theme] .landing .landing-pulse__card--opportunity strong { color: #d5c6ff !important; }
+
+html[data-theme] .landing .landing-integrations .landing-integration-grid > article {
+  color: #18223a !important;
+  background: var(--public-glass-light) !important;
+  border: 1px solid var(--public-glass-line-light) !important;
+  box-shadow: var(--public-glass-shadow-light) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(120%);
+  backdrop-filter: blur(20px) saturate(120%);
+}
+html[data-theme] .landing .landing-integrations .landing-integration-grid h3 { color: #18223a !important; }
+html[data-theme] .landing .landing-integrations .landing-integration-grid p { color: #657089 !important; }
+html[data-theme] .landing .landing-integrations .landing-integration-grid small { color: #6d5ee6 !important; }
+
+/* Feature demos use the same window, adapted to the tone underneath. */
+.features-page .feature-product-frame { background: var(--public-glass-dark) !important; }
+.features-page :is(.feature-story--money, .feature-story--connections, .feature-story--review) .feature-product-frame {
+  color: #18223a;
+  background: var(--public-glass-light) !important;
+  border-color: var(--public-glass-line-light) !important;
+  box-shadow: var(--public-glass-shadow-light) !important;
+}
+.features-page :is(.feature-story--money, .feature-story--connections, .feature-story--review) .product-frame__bar {
+  color: #657089;
+  background: rgba(244, 247, 253, .66);
+  border-color: var(--public-glass-line-light);
+}
+.features-page :is(.feature-story--money, .feature-story--connections, .feature-story--review) .product-frame__bar > strong { color: #18223a; }
+.features-page :is(.feature-story--money, .feature-story--connections, .feature-story--review) .product-frame__status { color: #657089; }
+.features-page :is(.money-composition, .connection-composition, .review-composition),
+.features-page :is(.money-composition__invoice, .money-composition__flow span, .review-composition__panel) {
+  background: rgba(255, 255, 255, .38) !important;
+  border-color: rgba(78, 99, 151, .16) !important;
+  box-shadow: inset 0 1px rgba(255, 255, 255, .72) !important;
+}
+.features-page :is(.feature-story--money, .feature-story--connections, .feature-story--review) :is(
+  .money-composition strong,
+  .connection-composition strong,
+  .connection-composition small,
+  .review-composition strong
+) { color: #18223a !important; }
+.features-page :is(.feature-story--money, .feature-story--connections, .feature-story--review) :is(
+  .money-composition small,
+  .money-composition span,
+  .review-composition p,
+  .review-composition small
+) { color: #657089 !important; }
+
+/* Pricing support cards remain readable glass on the pearl canvas. */
+.pricing-landing :is(.pricing-addons, .pricing-comparison) :is(
+  .pricing-addon,
+  .pricing-comparison__header,
+  .comparison-group,
+  .comparison-group__toggle,
+  .comparison-row
+) {
+  color: #18223a !important;
+  background: rgba(255, 255, 255, .62) !important;
+  border-color: var(--public-glass-line-light) !important;
+  box-shadow: 0 12px 34px rgba(44, 57, 96, .09), inset 0 1px rgba(255, 255, 255, .8) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(120%);
+  backdrop-filter: blur(18px) saturate(120%);
+}
+.pricing-landing :is(.pricing-addons, .pricing-comparison) :is(strong, h3, .comparison-group__toggle, .comparison-row__label) { color: #18223a !important; }
+.pricing-landing :is(.pricing-addons, .pricing-comparison) :is(p, small, .pricing-comparison__col) { color: #657089 !important; }
+
+@media (max-width: 760px) {
+  .hero-workspace-preview { width: 100%; transform: none; }
+  .hero-workspace-preview__metrics { grid-template-columns: 1fr; }
+  .hero-workspace-preview__metrics article { grid-template-columns: 1fr auto; }
+  .hero-workspace-preview__metrics article span { grid-column: 1 / -1; }
+  .hero-workspace-preview__date { display: none; }
+}
+
+/* Product-window system based on the supplied inbox reference. */
+.product-frame {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  color: #f4f6ff;
+  background: linear-gradient(145deg, #111a38, #080e24 76%);
+  border: 1px solid rgba(155, 177, 255, .32);
+  border-radius: 18px;
+  box-shadow: 0 32px 80px rgba(6, 11, 30, .28), inset 0 1px rgba(255, 255, 255, .06);
+}
+
+.product-frame__bar {
+  display: grid;
+  height: 48px;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 0 18px;
+  color: #aeb9d7;
+  background: rgba(16, 25, 55, .94);
+  border-bottom: 1px solid rgba(155, 177, 255, .17);
+  font-size: 10px;
+  letter-spacing: .04em;
+}
+
+.product-frame__bar > strong { color: #eef2ff; font-size: 11px; font-weight: 650; }
+.product-frame__controls { display: flex; gap: 6px; }
+.product-frame__controls i { width: 7px; height: 7px; background: #394667; border: 1px solid rgba(255, 255, 255, .08); border-radius: 50%; }
+.product-frame__controls i:first-child { background: #8268ff; box-shadow: 0 0 12px rgba(130, 104, 255, .55); }
+.product-frame__status { display: inline-flex; justify-self: end; align-items: center; gap: 6px; color: #8996b9; font-size: 9px; }
+.product-frame__status i { width: 6px; height: 6px; background: #61d5ad; border-radius: 50%; box-shadow: 0 0 10px rgba(97, 213, 173, .68); }
+.product-frame__content { min-width: 0; }
+
+/* Landing: a true dark product panel on a pearl editorial transition. */
+html[data-theme] .landing .landing-platform {
+  isolation: isolate;
+  overflow: visible;
+  color: #131b31;
+  background: #f3f5fb !important;
+  box-shadow: 0 0 0 100vmax #f3f5fb;
+  clip-path: inset(0 -100vmax);
+}
+html[data-theme] .landing .landing-platform .landing-section__heading h2 { color: #121a31 !important; }
+html[data-theme] .landing .landing-platform .landing-section__heading > p { color: #5e6880 !important; }
+html[data-theme] .landing .landing-platform .landing-eyebrow { color: #6958e7 !important; }
+
+.connected-workspace-panel { min-height: 660px; }
+.connected-workspace-panel__layout {
+  display: grid;
+  min-height: 610px;
+  grid-template-columns: 62px minmax(290px, 34%) minmax(0, 1fr);
+}
+.connected-workspace-panel__rail {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 9px;
+  padding: 18px 9px;
+  background: rgba(5, 10, 27, .74);
+  border-right: 1px solid rgba(155, 177, 255, .13);
+}
+.connected-workspace-panel__mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  margin-bottom: 12px;
+  background: rgba(111, 92, 244, .17);
+  border: 1px solid rgba(154, 139, 255, .27);
+  border-radius: 10px;
+}
+.connected-workspace-panel__mark img { width: 19px; height: 19px; object-fit: contain; }
+.connected-workspace-panel__rail button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: #7180a7;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  font: 650 8px/1 'DM Mono', monospace;
+  cursor: pointer;
+}
+.connected-workspace-panel__rail button:hover,
+.connected-workspace-panel__rail button:focus-visible,
+.connected-workspace-panel__rail button.is-active {
+  color: #f4f6ff;
+  background: rgba(111, 92, 244, .2);
+  border-color: rgba(160, 146, 255, .34);
+  outline: none;
+}
+.connected-workspace-panel__list {
+  padding: 24px 18px;
+  background: rgba(9, 16, 39, .75);
+  border-right: 1px solid rgba(155, 177, 255, .13);
+}
+.connected-workspace-panel__search {
+  display: flex;
+  height: 40px;
+  align-items: center;
+  padding: 0 13px;
+  color: #6f7b9c;
+  background: rgba(22, 33, 69, .72);
+  border: 1px solid rgba(148, 169, 240, .12);
+  border-radius: 10px;
+  font-size: 10px;
+}
+.connected-workspace-panel__tabs { display: flex; gap: 18px; padding: 17px 4px 12px; color: #7180a4; font-size: 9px; }
+.connected-workspace-panel__tabs span.is-active { color: #f4f6ff; }
+.connected-workspace-panel__items { display: grid; gap: 6px; }
+.connected-workspace-panel__items > button {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 10px;
+  color: #c0c9df;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+.connected-workspace-panel__items > button:hover,
+.connected-workspace-panel__items > button:focus-visible { background: rgba(41, 54, 102, .5); outline: none; transform: translateX(2px); }
+.connected-workspace-panel__items > button.is-active {
+  color: #fff;
+  background: linear-gradient(105deg, rgba(94, 71, 219, .38), rgba(44, 70, 142, .3));
+  border-color: rgba(143, 130, 255, .36);
+  box-shadow: inset 3px 0 #a35cff, 0 10px 28px rgba(4, 8, 27, .24);
+}
+.connected-workspace-panel__items > button > span:nth-child(2) { display: grid; min-width: 0; gap: 4px; }
+.connected-workspace-panel__items strong { overflow: hidden; font-size: 10px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.connected-workspace-panel__items small { overflow: hidden; color: #7e8aaa; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.connected-workspace-panel__items time { align-self: start; color: #7884a4; font-size: 8px; }
+.connected-workspace-panel__avatar {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: #e3ddff;
+  background: linear-gradient(145deg, #633dc8, #254f99);
+  border: 1px solid rgba(214, 204, 255, .2);
+  border-radius: 50%;
+  font: 650 8px/1 'DM Mono', monospace;
+  box-shadow: 0 0 22px rgba(120, 73, 223, .24);
+}
+.connected-workspace-panel__avatar.is-large { width: 39px; height: 39px; font-size: 9px; }
+.connected-workspace-panel__detail {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: clamp(26px, 3vw, 42px);
+  background: radial-gradient(circle at 78% 22%, rgba(90, 70, 210, .09), transparent 22rem), #090f26;
+}
+.connected-workspace-panel__detail > header { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.connected-workspace-panel__detail > header > span:nth-child(2) { display: grid; gap: 4px; }
+.connected-workspace-panel__detail > header strong { color: #eef1fb; font-size: 12px; }
+.connected-workspace-panel__detail > header small,
+.connected-workspace-panel__detail > header time { color: #74809f; font-size: 8px; }
+.connected-workspace-panel__message { max-width: 590px; padding: clamp(34px, 5vw, 72px) 0 24px; }
+.connected-workspace-panel__message h3 { margin: 0 0 34px; color: #fff; font-size: clamp(22px, 2.4vw, 34px); font-weight: 560; letter-spacing: -.04em; }
+.connected-workspace-panel__message p { margin: 0 0 18px; color: #a7b2cc; font-size: 12px; line-height: 1.75; text-wrap: pretty; }
+.connected-workspace-panel__linked {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 11px;
+  margin-top: auto;
+  padding: 12px 15px;
+  background: rgba(38, 51, 96, .48);
+  border: 1px solid rgba(143, 161, 231, .18);
+  border-radius: 10px;
+}
+.connected-workspace-panel__linked > span { display: grid; width: 30px; height: 30px; place-items: center; color: #c8c0ff; background: rgba(116, 91, 234, .22); border-radius: 8px; }
+.connected-workspace-panel__linked > div { display: grid; gap: 3px; }
+.connected-workspace-panel__linked strong { font-size: 9px; }
+.connected-workspace-panel__linked small { color: #7e8aa8; font-size: 8px; }
+.connected-workspace-panel__reply {
+  display: flex;
+  height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 18px;
+  padding-left: 14px;
+  color: #697695;
+  background: rgba(18, 28, 61, .68);
+  border: 1px solid rgba(149, 169, 240, .15);
+  border-radius: 10px;
+  font-size: 10px;
+}
+.connected-workspace-panel__reply button { width: 45px; height: 44px; padding: 0; color: #fff; background: transparent; border: 0; border-left: 1px solid rgba(149, 169, 240, .15); font-size: 20px; cursor: pointer; }
+
+/* Features: every demonstration is now presented as one coherent application window. */
+.feature-product-frame { min-width: 0; align-self: center; }
+.feature-product-frame .product-frame__content { min-height: 500px; }
+.feature-product-frame .product-frame__content > :first-child {
+  width: 100%;
+  min-height: 500px;
+  margin: 0;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+.features-page .connected-workspace-panel.is-compact { min-width: 680px; min-height: 560px; align-self: center; }
+.features-page .connected-workspace-panel.is-compact .connected-workspace-panel__layout { min-height: 510px; grid-template-columns: 48px minmax(210px, 36%) minmax(0, 1fr); }
+.features-page .connected-workspace-panel.is-compact .connected-workspace-panel__rail { padding-inline: 6px; }
+.features-page .connected-workspace-panel.is-compact .connected-workspace-panel__rail button:nth-of-type(n + 5) { display: none; }
+.features-page .connected-workspace-panel.is-compact .connected-workspace-panel__list { padding: 16px 12px; }
+.features-page .connected-workspace-panel.is-compact .connected-workspace-panel__items > button { padding: 8px 7px; }
+.features-page .connected-workspace-panel.is-compact .connected-workspace-panel__detail { padding: 24px; }
+.features-page .connected-workspace-panel.is-compact .connected-workspace-panel__message { padding-block: 28px 18px; }
+.features-page .connected-workspace-panel.is-compact .connected-workspace-panel__message h3 { margin-bottom: 22px; font-size: 23px; }
+.features-page .connected-workspace-panel.is-compact .connected-workspace-panel__message p { font-size: 10px; }
+
+/* Pricing: plans sit inside the same tool frame; supporting detail shifts to pearl. */
+.pricing-product-frame { max-width: 1180px; margin: 0 auto clamp(92px, 9vw, 130px); }
+.pricing-product-frame .product-frame__content { padding: 22px; }
+.pricing-product-frame .pricing-controls { margin: 0 0 18px; }
+.pricing-product-frame .pricing-card {
+  background: rgba(13, 22, 50, .74) !important;
+  border-color: rgba(150, 172, 244, .2) !important;
+  border-radius: 12px;
+  box-shadow: none;
+}
+.pricing-product-frame .pricing-card.is-recommended {
+  background: linear-gradient(145deg, rgba(34, 49, 96, .94), rgba(15, 25, 58, .94)) !important;
+  border-color: rgba(164, 148, 255, .58) !important;
+  box-shadow: 0 18px 42px rgba(3, 8, 25, .28), 0 0 0 3px rgba(128, 102, 255, .06);
+}
+.pricing-landing :is(.pricing-addons, .pricing-comparison) {
+  position: relative;
+  isolation: isolate;
+  color: #172038;
+  background: #f3f5fb;
+  box-shadow: 0 0 0 100vmax #f3f5fb;
+  clip-path: inset(0 -100vmax);
+}
+.pricing-landing :is(.pricing-addons, .pricing-comparison) :is(h2, h3, strong, .comparison-group__toggle, .comparison-row__label) { color: #172038; }
+.pricing-landing :is(.pricing-addons, .pricing-comparison) :is(p, small, .pricing-comparison__col) { color: #667189; }
+.pricing-landing .pricing-addons { margin-top: 0; padding-top: clamp(78px, 8vw, 112px); }
+.pricing-landing .pricing-comparison { margin-top: 0; padding-block: 48px clamp(88px, 9vw, 128px); }
+.pricing-landing .pricing-addons .pricing-addon,
+.pricing-landing .pricing-comparison :is(.pricing-comparison__header, .comparison-group, .comparison-group__toggle, .comparison-row) {
+  background: rgba(255, 255, 255, .84) !important;
+  border-color: rgba(74, 93, 142, .16) !important;
+  box-shadow: 0 10px 28px rgba(42, 57, 97, .07);
+}
+.pricing-landing .pricing-addons .pricing-addon strong { color: #f1f4ff !important; }
+.pricing-landing .pricing-addons .pricing-addon p { color: #8995b2 !important; }
+.pricing-landing .pricing-comparison :is(.pricing-comparison__col, .comparison-group__toggle, .comparison-row__label) { color: #aeb8d1 !important; }
+.pricing-landing .pricing-comparison .comparison-group__toggle { color: #eef2ff !important; }
+
+@media (max-width: 1100px) {
+  .connected-workspace-panel__layout { grid-template-columns: 54px minmax(260px, 40%) minmax(0, 1fr); }
+  .features-page .connected-workspace-panel.is-compact { min-width: 0; width: 100%; }
+  .feature-product-frame { width: 100%; }
+}
+
+@media (max-width: 760px) {
+  .product-frame { border-radius: 14px; }
+  .product-frame__bar { grid-template-columns: 1fr auto; }
+  .product-frame__controls { display: none; }
+  .product-frame__bar > strong { justify-self: start; }
+  .connected-workspace-panel { min-height: 0; }
+  .connected-workspace-panel__layout,
+  .features-page .connected-workspace-panel.is-compact .connected-workspace-panel__layout { min-height: 0; grid-template-columns: 44px minmax(0, 1fr); }
+  .connected-workspace-panel__rail { grid-row: 1 / span 2; padding-inline: 5px; }
+  .connected-workspace-panel__rail button:nth-of-type(n + 4) { display: none; }
+  .connected-workspace-panel__list { min-height: 410px; border-right: 0; }
+  .connected-workspace-panel__items > button { padding-block: 9px; }
+  .connected-workspace-panel__detail { display: none; }
+  .feature-product-frame .product-frame__content,
+  .feature-product-frame .product-frame__content > :first-child { min-height: 420px; }
+  .pricing-product-frame .product-frame__content { padding: 12px; }
 }
 
 /* Lancee Room is a continuous meeting signal rather than another card grid. */
@@ -3204,7 +3969,132 @@ html[data-theme] .landing .landing-footer,
   text-transform: uppercase;
   letter-spacing: .08em;
 }
-.auth-divider span { flex: 1; height: 1px; background: var(--border); }
+.auth-divider > span:not(.auth-divider__label) { flex: 1; height: 1px; background: var(--border); }
+.auth-divider__label { flex: 0 0 auto; }
+
+/* Public surfaces share the Lancee Room navy and elevation. */
+:root {
+  --lancee-room-canvas:
+    radial-gradient(circle at 72% 40%, rgba(106, 81, 232, .28), transparent 27rem),
+    radial-gradient(circle at 5% 85%, rgba(30, 141, 224, .15), transparent 30rem),
+    #0b1020;
+  --lancee-room-surface: linear-gradient(145deg, #111936, #0b1020);
+  --lancee-room-border: rgba(178, 191, 255, .3);
+  --lancee-room-shadow: 0 36px 90px rgba(0, 0, 0, .48), 0 0 90px rgba(93, 83, 232, .2);
+}
+
+html[data-theme] .landing :is(.landing-hero, .landing-connected, .landing-intelligence, .landing-cta, .landing-footer) {
+  background: var(--lancee-room-canvas) !important;
+}
+
+.landing :is(
+  .landing-product,
+  .landing-feature,
+  .landing-integration-grid > article,
+  .landing-integration-row,
+  .landing-workflow__visual,
+  .landing-pulse__visual,
+  .landing-connected__visual,
+  .landing-intelligence__visual
+),
+.features-page :is(
+  .workspace-composition,
+  .money-composition,
+  .automation-composition,
+  .connection-composition,
+  .assistant-composition,
+  .review-composition,
+  .security-composition
+),
+.pricing-landing :is(.pricing-card, .pricing-card.is-recommended, .pricing-addon, .pricing-enterprise) {
+  background: var(--lancee-room-surface) !important;
+  border-color: var(--lancee-room-border) !important;
+  border-radius: 24px;
+  box-shadow: var(--lancee-room-shadow);
+}
+
+/* Pulse cards are dark surfaces, so their labels need a clear light contrast. */
+html[data-theme] .landing .landing-pulse__card strong { color: #f4f7ef; }
+
+/* The dashboard assistant matches the landing launcher and both have a stronger lift. */
+.workspace-chat__toggle {
+  width: 68px;
+  height: 68px;
+}
+
+.landing-chat__launcher img,
+.workspace-chat__toggle img {
+  filter: drop-shadow(0 14px 24px rgba(7, 12, 35, .42)) drop-shadow(0 0 22px rgba(101, 82, 213, .22));
+}
+
+/* Clearly visible, independently animated background rings. */
+.landing-ambient-rings {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.landing-ambient-rings i {
+  position: absolute;
+  width: clamp(220px, 32vw, 520px);
+  aspect-ratio: 1;
+  border: 1px solid rgba(178, 191, 255, .2);
+  border-radius: 50%;
+  box-shadow: 0 0 0 38px rgba(108, 94, 241, .035), 0 0 110px rgba(102, 77, 242, .16);
+  animation: public-ring-float 16s ease-in-out infinite alternate;
+}
+
+.landing-ambient-rings i:nth-child(1) { top: -16%; right: -8%; }
+.landing-ambient-rings i:nth-child(2) { bottom: -24%; left: -10%; width: clamp(170px, 22vw, 340px); border-color: rgba(93, 156, 255, .17); animation-delay: -7s; }
+.landing-ambient-rings i:nth-child(3) { top: 30%; left: 42%; width: clamp(130px, 15vw, 240px); border-color: rgba(151, 166, 255, .12); animation-delay: -12s; }
+
+.landing :is(.landing-hero, .landing-connected, .landing-intelligence, .landing-cta) > :not(.landing-ambient-rings):not(.landing-hero__glow) {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes public-ring-float {
+  from { transform: translate3d(-20px, -12px, 0) rotate(-6deg); }
+  to { transform: translate3d(26px, 20px, 0) rotate(7deg); }
+}
+
+/* Keep the landing platform cards evenly aligned and retain all six. */
+.landing-platform .landing-feature-grid--six {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.landing-platform .landing-feature-grid--six .landing-feature:nth-child(n) {
+  display: flex;
+  min-height: 440px;
+  grid-column: auto;
+  transform: none;
+}
+
+.landing-platform .landing-feature-grid--six .landing-feature:nth-child(n):hover {
+  transform: translateY(-5px);
+}
+
+html[data-theme] .landing .landing-platform .landing-feature-grid--six .landing-feature {
+  position: relative;
+  z-index: 1;
+}
+
+@media (max-width: 1100px) {
+  .landing-platform .landing-feature-grid--six { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .landing-platform .landing-feature-grid--six { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-ambient-rings i {
+    animation: none;
+  }
+}
 
 @media (max-width: 1100px) {
   .landing-nav,
@@ -3266,4 +4156,98 @@ html[data-theme] .landing .landing-footer,
     border: 1px solid rgba(190, 204, 236, .18);
     border-radius: 9px;
   }
+}
+
+/* Final cascade: keep the card treatment above legacy public-page rules. */
+html[data-theme] .landing .landing-platform {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, #0c1430, #0d1738 68%, #111d43) !important;
+}
+html[data-theme] .landing .landing-platform .landing-feature-grid--six {
+  gap: 16px;
+  padding: 16px;
+  background: rgba(5, 11, 30, .38);
+  border: 1px solid rgba(168, 187, 255, .12);
+  border-radius: 26px;
+}
+html[data-theme] .landing .landing-platform .landing-feature-grid--six .landing-feature {
+  min-height: 430px;
+  padding: 30px;
+  background: var(--public-panel) !important;
+  border: 1px solid var(--public-panel-line) !important;
+  border-radius: 16px;
+  box-shadow: var(--public-panel-shadow);
+}
+html[data-theme] .landing .landing-platform .landing-feature-grid--six .landing-feature:hover {
+  border-color: var(--public-panel-line-strong) !important;
+  box-shadow: 0 28px 60px rgba(2, 7, 24, .42), 0 0 0 4px rgba(111, 127, 255, .06);
+}
+html[data-theme] .landing .landing-platform :is(.landing-section__heading h2, .landing-feature h3) { color: var(--public-panel-text) !important; }
+html[data-theme] .landing .landing-platform :is(.landing-section__heading > p, .landing-feature > p) { color: var(--public-panel-muted) !important; }
+html[data-theme] .landing .landing-platform .landing-feature__icon {
+  color: #e4e8ff;
+  background: rgba(117, 128, 255, .16);
+  border: 1px solid rgba(178, 190, 255, .22);
+  border-radius: 12px;
+}
+html[data-theme] .landing .landing-platform :is(.feature-project-card, .feature-insight-card, .feature-attention-card, .feature-meetings-card, .feature-connections, .feature-automation-flow) {
+  color: var(--public-panel-text);
+  background: rgba(4, 10, 29, .58) !important;
+  border-color: rgba(164, 182, 255, .18) !important;
+  border-radius: 12px;
+}
+
+.features-page :is(.feature-story--workspace, .feature-story--automations, .feature-story--ai, .feature-story--security) {
+  background: linear-gradient(160deg, #0b132d, #101c42 58%, #0a1128) !important;
+}
+.features-page :is(.feature-story--money, .feature-story--connections, .feature-story--review, .capability-index) {
+  background: var(--public-light-canvas) !important;
+  box-shadow: 0 0 0 100vmax var(--public-light-canvas) !important;
+}
+.features-page :is(.workspace-composition, .automation-composition, .assistant-composition, .security-composition) {
+  color: var(--public-panel-text);
+  background: var(--public-panel) !important;
+  border: 1px solid var(--public-panel-line) !important;
+  border-radius: 16px;
+  box-shadow: var(--public-panel-shadow);
+}
+.features-page :is(.money-composition, .connection-composition, .review-composition) {
+  background: var(--public-light-panel) !important;
+  border: 1px solid var(--public-light-line) !important;
+  border-radius: 16px;
+  box-shadow: 0 20px 42px rgba(42, 57, 97, .1), inset 0 1px rgba(255, 255, 255, .8);
+}
+
+.pricing-landing { background: linear-gradient(155deg, #08102a, #111d43 56%, #0a1129) !important; }
+.pricing-landing .pricing-page {
+  background: radial-gradient(circle at 75% 16%, rgba(101, 105, 255, .18), transparent 26rem), linear-gradient(180deg, rgba(21, 34, 74, .72), rgba(7, 14, 35, .98)) !important;
+}
+.pricing-landing :is(.pricing-card, .pricing-card.is-recommended, .pricing-addon, .pricing-enterprise, .pricing-comparison__header, .comparison-group, .comparison-group__toggle, .comparison-row) {
+  background: var(--public-panel) !important;
+  border: 1px solid var(--public-panel-line) !important;
+  border-radius: 16px;
+  box-shadow: var(--public-panel-shadow);
+}
+.pricing-landing .pricing-card.is-recommended {
+  background: var(--public-panel-raised) !important;
+  border-color: var(--public-panel-line-strong) !important;
+  box-shadow: 0 26px 68px rgba(10, 17, 53, .48), 0 0 0 4px rgba(115, 124, 255, .08), inset 0 1px rgba(255, 255, 255, .08);
+}
+.pricing-landing .pricing-card :is(.pricing-card__name, .pricing-card__amount) { color: var(--public-panel-text); }
+.pricing-landing .pricing-card__cta {
+  color: var(--public-panel-text);
+  background: rgba(92, 105, 232, .22) !important;
+  border-color: rgba(180, 191, 255, .34) !important;
+  border-radius: 10px;
+}
+.pricing-landing .pricing-card.is-recommended .pricing-card__cta,
+.pricing-landing .pricing-card__cta:hover:not(:disabled) {
+  color: #fff;
+  background: linear-gradient(110deg, #626bff, #9d59df) !important;
+  border-color: rgba(227, 216, 255, .58) !important;
+}
+@media (max-width: 640px) {
+  html[data-theme] .landing .landing-platform .landing-feature-grid--six { padding: 10px; border-radius: 20px; }
+  html[data-theme] .landing .landing-platform .landing-feature-grid--six .landing-feature { min-height: 350px; padding: 24px; }
 }

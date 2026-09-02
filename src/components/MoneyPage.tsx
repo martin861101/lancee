@@ -6,6 +6,7 @@ import {
   type MoneyInvoice,
   type PaystackConnection,
 } from '../lib/api'
+import { useDialogFocus } from '../lib/useDialogFocus'
 import './money-page.css'
 
 const providers = [
@@ -207,6 +208,7 @@ function createDocumentNumber(documentType: InvoiceForm['documentType']) {
 
 export default function MoneyPage() {
   const [showInvoice, setShowInvoice] = useState(false)
+  const invoiceDialogRef = useDialogFocus<HTMLElement>(showInvoice, () => setShowInvoice(false))
   const [notice, setNotice] = useState<string | null>(null)
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null)
   const [connection, setConnection] = useState<PaystackConnection | null>(null)
@@ -684,10 +686,12 @@ export default function MoneyPage() {
           onMouseDown={() => setShowInvoice(false)}
         >
           <section
+            ref={invoiceDialogRef}
             className="money-modal money-modal--invoice"
             role="dialog"
             aria-modal="true"
             aria-labelledby="invoice-modal-title"
+            tabIndex={-1}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <button

@@ -7,6 +7,7 @@ import BillingToggle from './BillingToggle'
 import PricingCard from './PricingCard'
 import AddOns from './AddOns'
 import PricingComparison from './PricingComparison'
+import ProductFrame from '../marketing/ProductFrame'
 
 export default function PricingLanding({
   onSignIn,
@@ -98,28 +99,30 @@ export default function PricingLanding({
           </p>
         </header>
 
-        <div className="pricing-controls">
-          <BillingToggle billingPeriod={billingPeriod} onChange={setBillingPeriod} />
-          {pricing && <span className="pricing-region-hint">{pricing.currency} · {region} pricing</span>}
-        </div>
+        <ProductFrame label="Workspace plans" meta="Billing & plans" className="pricing-product-frame">
+          <div className="pricing-controls">
+            <BillingToggle billingPeriod={billingPeriod} onChange={setBillingPeriod} />
+            {pricing && <span className="pricing-region-hint">{pricing.currency} · {region} pricing</span>}
+          </div>
 
-        {error && <p className="pricing-error" role="alert">{error}</p>}
+          {error && <p className="pricing-error" role="alert">{error}</p>}
 
-        <section className="pricing-plans" aria-label="Pricing plans">
-          {plans.length === 0 && !error && (
-            <p className="pricing-error">Loading pricing…</p>
-          )}
-          {plans.map((plan) => (
-            <PricingCard
-              key={plan.id}
-              plan={plan}
-              billingPeriod={billingPeriod}
-              current={false}
-              busy={false}
-              onSelect={() => onSignUp()}
-            />
-          ))}
-        </section>
+          <section className="pricing-plans" aria-label="Pricing plans">
+            {plans.length === 0 && !error && (
+              <p className="pricing-error">Loading pricing…</p>
+            )}
+            {plans.map((plan) => (
+              <PricingCard
+                key={plan.id}
+                plan={plan}
+                billingPeriod={billingPeriod}
+                current={false}
+                busy={false}
+                onSelect={() => onSignUp()}
+              />
+            ))}
+          </section>
+        </ProductFrame>
 
         <AddOns />
         <PricingComparison />

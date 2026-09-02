@@ -48,10 +48,13 @@ import {
 import { syncIdeaMutations } from './lib/ideasRepository'
 import { IDEA_SYNC_REQUEST_EVENT } from './pwa'
 import { applyTheme, getStoredTheme, toggleTheme, type Theme } from './lib/theme'
+import { useDialogFocus } from './lib/useDialogFocus'
 import type { WorkflowTemplate } from './components/WorkflowsPage'
 import { BUSINESS_IDENTITY } from './lib/business'
 import Icon, { type IconName } from './components/AppIcon'
 import BrandMark from './components/BrandMark'
+import HeroWorkspacePreview from './components/marketing/HeroWorkspacePreview'
+import ConnectedWorkspacePanel from './components/marketing/ConnectedWorkspacePanel'
 import './components/marketing.css'
 
 const IdeasCanvasPage = lazy(() => import('./components/IdeasCanvasPage'))
@@ -150,6 +153,7 @@ type ModalName =
   | 'codex-ai'
   | 'codex-runtime'
   | 'paystack'
+  | 'google-workspace'
   | 'whatsapp'
   | 'integration-request'
   | null
@@ -202,6 +206,16 @@ function LandingToolLogo({ name }: { name: LandingTool }) {
     >
       <BrandIcon name={name} />
     </span>
+  )
+}
+
+function LandingAmbientRings() {
+  return (
+    <div className="landing-ambient-rings" aria-hidden="true">
+      <i />
+      <i />
+      <i />
+    </div>
   )
 }
 void LandingToolLogo
@@ -1038,7 +1052,8 @@ function IntegrationsPage({
   onConfigurePaystack,
   onConfigureMail,
   onConfigureWhatsApp,
-  onToggleGoogleDrive,
+  onManageGoogleWorkspace,
+  onConnectGoogleWorkspace,
   onOpenStorageSetup,
   onRequestConnection,
   onConnectExternal,
@@ -1060,7 +1075,8 @@ function IntegrationsPage({
   onConfigurePaystack: () => void
   onConfigureMail: () => void
   onConfigureWhatsApp: () => void
-  onToggleGoogleDrive: (integration: Integration) => void
+  onManageGoogleWorkspace: () => void
+  onConnectGoogleWorkspace: () => void
   onOpenStorageSetup: (provider: 'dropbox' | 'onedrive') => void
   onRequestConnection: () => void
   onConnectExternal: (provider: OpenConnectorProvider) => void
@@ -1147,7 +1163,7 @@ function IntegrationsPage({
             {googleConnected && <small className="connected-identity">Gmail, Drive &amp; Calendar connected • Manage permissions in Google</small>}
             <button
               className={`button ${googleConnected ? 'button--secondary' : 'button--dark'}`}
-              onClick={() => driveIntegration && onToggleGoogleDrive(driveIntegration)}
+              onClick={googleConnected ? onManageGoogleWorkspace : onConnectGoogleWorkspace}
               disabled={busyId === 'drive'}
             >
               {busyId === 'drive' ? <span className="spinner spinner--dark" /> : <Icon name={googleConnected ? 'settings' : 'plus'} size={14} />}
@@ -1162,7 +1178,7 @@ function IntegrationsPage({
                 <BrandIcon name="onedrive" />
                 <BrandIcon name="teams" />
               </span>
-              <span className="platform-label">Available</span>
+              <span className="platform-label">Requires setup</span>
             </div>
             <h3>Microsoft 365</h3>
             <p>Outlook • OneDrive • Calendar • Contacts — for teams on Microsoft.</p>
@@ -1172,10 +1188,10 @@ function IntegrationsPage({
               <li>Calendar</li>
               <li>Contacts</li>
             </ul>
-            <small className="connected-identity">SharePoint and Office documents where supported</small>
-            <button className="button button--secondary" onClick={() => onToast('Microsoft 365 uses your existing Outlook/OneDrive account. Contact support to enable Microsoft OAuth for this workspace.')}>
-              <Icon name="plus" size={14} /> Connect
-            </button>
+            <small className="connected-identity">Microsoft OAuth is not enabled for this workspace.</small>
+            <span className="button button--secondary connected-family-card__static-action">
+              <Icon name="settings" size={14} /> Admin setup required
+            </span>
           </article>
         </div>
       </section>
@@ -1256,7 +1272,7 @@ function IntegrationsPage({
               <li>Reconciliation</li>
               <li>Transaction records</li>
             </ul>
-            <small>Paystack available now • Stripe/PayPal where supported</small>
+            <small>Paystack is available now. Stripe and PayPal are not enabled in this workspace.</small>
             <button className={`button ${paystackConnected ? 'button--secondary' : 'button--dark'}`} onClick={onConfigurePaystack} disabled={busyId === 'paystack'}>
               <Icon name={paystackConnected ? 'settings' : 'plus'} size={14} /> {paystackConnected ? 'Manage' : 'Connect Paystack'}
             </button>
@@ -1370,9 +1386,9 @@ function IntegrationsPage({
               <li>Lancee API</li>
             </ul>
             <small>Technical setup appears after entering this section</small>
-            <button className="button button--secondary" onClick={() => onToast('API & Webhooks: manage n8n above, then use API keys in Preferences → Dev Tools.')}>
+            <a className="button button--secondary" href="/lancee.html" target="_blank" rel="noopener">
               <Icon name="code" size={14} /> View docs
-            </button>
+            </a>
           </article>
         </div>
       </section>
@@ -1446,14 +1462,14 @@ function BringYourOwnAiModal({ config, onClose, onSaved, onRemoved, onToast }: {
   }
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Bring Your Own AI">
-      <div className="modal-card modal-card--wide">
-        <div className="modal-card__heading">
-          <h3>Bring Your Own AI</h3>
-          <p>Configure a provider for general chat only. BYO AI never receives Lancee workspace tools, MCP credentials, or Connected Intelligence.</p>
-          {config?.configured && <small>Current: {config.provider} • {config.model} • Key: {config.maskedKey}</small>}
-        </div>
+    <Modal
+      title="Bring Your Own AI"
+      description="Configure a provider for general chat only. BYO AI never receives Lancee workspace tools, MCP credentials, or Connected Intelligence."
+      onClose={onClose}
+      wide
+    >
         <form onSubmit={save} className="modal-form">
+          {config?.configured && <p className="byo-current-provider">Current: {config.provider} • {config.model} • Key: {config.maskedKey}</p>}
           <label className="form-field">
             <span>Provider</span>
             <select value={provider} onChange={e => setProvider(e.target.value)}>
@@ -1498,8 +1514,7 @@ function BringYourOwnAiModal({ config, onClose, onSaved, onRemoved, onToast }: {
           </div>
             <p className="byo-boundary-note"><Icon name="shield" size={12} /> BYO AI is chat-only: no MCP tools, no workspace data, no workflow execution.</p>
         </form>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -1675,7 +1690,6 @@ function N8nIntegrationForm({
   const [outboundUrl, setOutboundUrl] = useState(config.outboundUrl)
   const [signingSecret, setSigningSecret] = useState('')
   const [saving, setSaving] = useState(false)
-  const [disconnecting, setDisconnecting] = useState(false)
   const [testing, setTesting] = useState('')
   const [error, setError] = useState('')
   const [results, setResults] = useState<Partial<Record<string, N8nTestResult>>>({})
@@ -1726,12 +1740,6 @@ function N8nIntegrationForm({
     } finally {
       setSaving(false)
     }
-  }
-
-  const disconnect = async () => {
-    setDisconnecting(true)
-    await onDisconnect()
-    setDisconnecting(false)
   }
 
   const retryDelivery = async (delivery: N8nDelivery) => {
@@ -1963,17 +1971,7 @@ function N8nIntegrationForm({
 
       <div className="n8n-form__footer">
         <div>
-          {connected && (
-            <button
-              className="button button--danger button--small"
-              type="button"
-              onClick={() => void disconnect()}
-              disabled={disconnecting}
-            >
-              {disconnecting ? <span className="spinner spinner--dark" /> : <Icon name="plug" size={14} />}
-              Disconnect
-            </button>
-          )}
+          {connected && <DisconnectConfirmation service="n8n" consequence="Automations will no longer send to or receive from this n8n webhook." onDisconnect={onDisconnect} />}
         </div>
         <div>
           <button className="button button--secondary" type="button" onClick={onCancel}>
@@ -1986,6 +1984,128 @@ function N8nIntegrationForm({
         </div>
       </div>
     </form>
+  )
+}
+
+function GoogleWorkspaceConnectionPanel({
+  canManage,
+  onReconnect,
+  onDisconnect,
+  onCancel,
+}: {
+  canManage: boolean
+  onReconnect: () => Promise<void>
+  onDisconnect: () => Promise<void>
+  onCancel: () => void
+}) {
+  const [busy, setBusy] = useState<'reconnect' | 'disconnect' | ''>('')
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
+  const [error, setError] = useState('')
+
+  const reconnect = async () => {
+    setBusy('reconnect')
+    setError('')
+    try {
+      await onReconnect()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to re-authorise Google Workspace.')
+      setBusy('')
+    }
+  }
+
+  const disconnect = async () => {
+    setBusy('disconnect')
+    setError('')
+    try {
+      await onDisconnect()
+      onCancel()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to disconnect Google Workspace.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  return (
+    <div className="modal-form">
+      <div className="setting-row">
+        <span className="setting-row__icon"><Icon name="check" size={18} /></span>
+        <div>
+          <strong>Google Workspace is connected</strong>
+          <p>Gmail, Drive, Calendar and Contacts use this workspace connection.</p>
+        </div>
+        <span className="configured-label">Connected</span>
+      </div>
+      <div className="permission-box">
+        <span><Icon name="shield" size={17} /></span>
+        <div>
+          <strong>Connection permissions</strong>
+          <p>Re-authorise to restore access after a Google permission or token change.</p>
+        </div>
+      </div>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      {!canManage && <p className="form-error">Only a workspace owner can change this connection.</p>}
+      {confirmingDisconnect && (
+        <div className="connection-danger-confirm" role="alertdialog" aria-label="Confirm Google Workspace disconnect">
+          <strong>Disconnect Google Workspace?</strong>
+          <p>Gmail, Drive, Calendar and Contacts will stop syncing for this workspace. Your Google data will not be deleted.</p>
+          <div>
+            <button className="button button--secondary button--small" type="button" onClick={() => setConfirmingDisconnect(false)} disabled={busy === 'disconnect'}>Cancel</button>
+            <button className="button button--danger button--small" type="button" onClick={() => void disconnect()} disabled={busy === 'disconnect'}>{busy === 'disconnect' ? 'Disconnecting…' : 'Disconnect workspace'}</button>
+          </div>
+        </div>
+      )}
+      <div className="modal-form__footer">
+        <div>
+          {canManage && !confirmingDisconnect && <button className="button button--danger button--small" type="button" onClick={() => setConfirmingDisconnect(true)}>Disconnect</button>}
+        </div>
+        <div>
+          <button className="button button--secondary" type="button" onClick={onCancel}>Close</button>
+          {canManage && <button className="button button--primary" type="button" onClick={() => void reconnect()} disabled={Boolean(busy)}>{busy === 'reconnect' ? 'Opening Google…' : 'Reconnect / re-authorise'}</button>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DisconnectConfirmation({
+  service,
+  consequence,
+  onDisconnect,
+}: {
+  service: string
+  consequence: string
+  onDisconnect: () => Promise<void>
+}) {
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const disconnect = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      await onDisconnect()
+      setConfirming(false)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : `Unable to disconnect ${service}.`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!confirming) return <button className="button button--danger button--small" type="button" onClick={() => setConfirming(true)}>Disconnect</button>
+
+  return (
+    <div className="connection-danger-confirm" role="alertdialog" aria-label={`Confirm ${service} disconnect`}>
+      <strong>Disconnect {service}?</strong>
+      <p>{consequence}</p>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <div>
+        <button className="button button--secondary button--small" type="button" onClick={() => setConfirming(false)} disabled={busy}>Cancel</button>
+        <button className="button button--danger button--small" type="button" onClick={() => void disconnect()} disabled={busy}>{busy ? 'Disconnecting…' : 'Disconnect'}</button>
+      </div>
+    </div>
   )
 }
 
@@ -2006,7 +2126,6 @@ function PaystackConnectionForm({
 }) {
   const [secretKey, setSecretKey] = useState('')
   const [busy, setBusy] = useState(false)
-  const [disconnecting, setDisconnecting] = useState(false)
   const [error, setError] = useState('')
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -2020,18 +2139,6 @@ function PaystackConnectionForm({
       setError(caught instanceof Error ? caught.message : 'Unable to connect Paystack.')
     } finally {
       setBusy(false)
-    }
-  }
-
-  const disconnect = async () => {
-    setDisconnecting(true)
-    setError('')
-    try {
-      await onDisconnect()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to disconnect Paystack.')
-    } finally {
-      setDisconnecting(false)
     }
   }
 
@@ -2097,16 +2204,7 @@ function PaystackConnectionForm({
 
       <div className="modal-form__footer">
         <div>
-          {connection.configured && canManage && (
-            <button
-              className="button button--danger button--small"
-              type="button"
-              onClick={() => void disconnect()}
-              disabled={disconnecting}
-            >
-              {disconnecting ? 'Disconnecting…' : 'Disconnect'}
-            </button>
-          )}
+          {connection.configured && canManage && <DisconnectConfirmation service="Paystack" consequence="New invoice payments will not be processed until a payment provider is connected again." onDisconnect={onDisconnect} />}
         </div>
         <div>
           <button className="button button--secondary" type="button" onClick={onCancel}>
@@ -2556,6 +2654,13 @@ function SettingsPage({
   const [travelMode, setTravelMode] = useState('none')
   const [travelLocation, setTravelLocation] = useState('')
   const [workspaceLogoUrl, setWorkspaceLogoUrl] = useState('')
+  const [savedWorkspaceSettings, setSavedWorkspaceSettings] = useState(() => ({
+    name: user.workspace,
+    email: user.email,
+    timezone: 'Africa/Johannesburg',
+    travelMode: 'none',
+    travelLocation: '',
+  }))
   const [saving, setSaving] = useState(false)
   const [savingProfile, setSavingProfile] = useState(false)
   const [settingsLoading, setSettingsLoading] = useState(true)
@@ -2589,11 +2694,19 @@ function SettingsPage({
     api.workspace
       .getSettings()
       .then((settings) => {
-        if (settings.name) setWorkspace(settings.name)
-        if (settings.email) setEmail(settings.email)
-        setTimezone(settings.timezone || 'Africa/Johannesburg')
-        setTravelMode(settings.travelMode || 'none')
-        setTravelLocation(settings.travelLocation || '')
+        const nextSettings = {
+          name: settings.name || user.workspace,
+          email: settings.email || user.email,
+          timezone: settings.timezone || 'Africa/Johannesburg',
+          travelMode: settings.travelMode || 'none',
+          travelLocation: settings.travelLocation || '',
+        }
+        setWorkspace(nextSettings.name)
+        setEmail(nextSettings.email)
+        setTimezone(nextSettings.timezone)
+        setTravelMode(nextSettings.travelMode)
+        setTravelLocation(nextSettings.travelLocation)
+        setSavedWorkspaceSettings(nextSettings)
         setWorkspaceLogoUrl(settings.logoUrl || '')
       })
       .catch((caught) => {
@@ -2620,7 +2733,15 @@ function SettingsPage({
       .catch(() => undefined)
     api.integrations.list().then(setIntegrations).catch(() => undefined)
     if (user.role === 'owner') api.apiKeys.list().then(setApiKeys).catch(() => undefined)
-  }, [user.role])
+  }, [user.email, user.role, user.workspace])
+
+  const workspaceSettingsDirty = !settingsLoading && canEdit && (
+    workspace !== savedWorkspaceSettings.name ||
+    email !== savedWorkspaceSettings.email ||
+    timezone !== savedWorkspaceSettings.timezone ||
+    travelMode !== savedWorkspaceSettings.travelMode ||
+    travelLocation !== savedWorkspaceSettings.travelLocation
+  )
 
   const saveWorkspace = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -2639,6 +2760,13 @@ function SettingsPage({
       setTimezone(updated.timezone)
       setTravelMode(updated.travelMode)
       setTravelLocation(updated.travelLocation)
+      setSavedWorkspaceSettings({
+        name: updated.name,
+        email: updated.email,
+        timezone: updated.timezone,
+        travelMode: updated.travelMode,
+        travelLocation: updated.travelLocation,
+      })
       onSaved(updated)
       onToast('Workspace settings saved')
     } catch (caught) {
@@ -2894,7 +3022,7 @@ function SettingsPage({
                   <div>
                     <strong>Workspace logo</strong>
                     <small>Shown on invoices, client pages, and shared work.</small>
-                    <label className="button button--secondary button--small">
+                    <label className="button button--secondary button--small workspace-logo-upload">
                       {logoSaving ? 'Uploading…' : workspaceLogoUrl ? 'Change logo' : 'Add logo'}
                       <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void changeWorkspaceLogo(event)} disabled={logoSaving || !canEdit} />
                     </label>
@@ -2912,13 +3040,18 @@ function SettingsPage({
                 )}
                 <div className="form-footer">
                   {canEdit ? (
-                    <button
-                      className="button button--dark"
-                      type="submit"
-                      disabled={saving || settingsLoading}
-                    >
-                      {saving ? 'Saving…' : settingsLoading ? 'Loading…' : 'Save workspace changes'}
-                    </button>
+                    <>
+                      <span className={`settings-save-state${workspaceSettingsDirty ? ' is-dirty' : ''}`} aria-live="polite">
+                        {settingsLoading ? 'Loading workspace settings…' : workspaceSettingsDirty ? 'Unsaved changes' : 'All changes saved'}
+                      </span>
+                      <button
+                        className="button button--dark"
+                        type="submit"
+                        disabled={saving || settingsLoading || !workspaceSettingsDirty}
+                      >
+                        {saving ? 'Saving…' : settingsLoading ? 'Loading…' : 'Save workspace changes'}
+                      </button>
+                    </>
                   ) : (
                     <small>Only workspace owners can change these settings.</small>
                   )}
@@ -3470,6 +3603,7 @@ if (policyView !== 'landing') {
       </header>
 
       <section className="landing-hero" id="top">
+        <LandingAmbientRings />
         <div className="landing-hero__glow" aria-hidden="true" />
         <div className="landing-hero__copy">
           <span className="landing-eyebrow">
@@ -3515,56 +3649,7 @@ if (policyView !== 'landing') {
           </div>
         </div>
 
-        <div className="landing-product" aria-label="lancee product preview">
-          <div className="landing-product__top">
-            <div>
-              <BrandMark compact />
-              <span>lancee today</span>
-            </div>
-            <span className="landing-live">
-              <i /> 3 projects moving
-            </span>
-          </div>
-          <div className="landing-intel-quote" aria-label="Connected insight">
-            <span className="landing-intel-quote__icon"><Icon name="sparkles" size={14} /></span>
-            <p>“Juniper & Tide has had two client meetings this week and three unresolved feedback items. Friday&apos;s delivery may need attention.”</p>
-          </div>
-          <div className="landing-mini-grid">
-            <article>
-              <span>Open projects</span>
-              <strong>8</strong>
-              <small>3 due this week</small>
-            </article>
-            <article>
-              <span>Outstanding</span>
-              <strong>R46.2k</strong>
-              <small>2 invoices</small>
-            </article>
-            <article>
-              <span>Automations</span>
-              <strong>3</strong>
-              <small>All healthy</small>
-            </article>
-          </div>
-          <div className="landing-attention" role="group" aria-label="Worth your attention">
-            <div className="landing-attention__header">
-              <small>WORTH YOUR ATTENTION</small>
-              <span><i /> Attention</span>
-            </div>
-            <div className="landing-attention__body">
-              <span className="automation-avatar automation-avatar--lime">
-                <Icon name="briefcase" size={17} />
-              </span>
-              <span>
-                <strong>Kalahari Ember Gin</strong>
-                <small>Client feedback received yesterday. No follow-up task has been created yet.</small>
-              </span>
-            </div>
-            <button className="landing-attention__cta" onClick={onSignIn} type="button">
-              Review feedback <Icon name="arrow-up-right" size={13} />
-            </button>
-          </div>
-        </div>
+        <HeroWorkspacePreview />
       </section>
 
       <section className="landing-proof">
@@ -3603,148 +3688,11 @@ if (policyView !== 'landing') {
             Check out all features <Icon name="arrow-up-right" size={14} />
           </button>
         </div>
-        <div className="landing-feature-grid landing-feature-grid--six">
-          <article className="landing-feature landing-feature--command">
-            <span className="landing-feature__icon">
-              <Icon name="briefcase" size={20} />
-            </span>
-            <span className="landing-feature__number">01</span>
-            <h3>Connected Projects</h3>
-            <p>
-              Everything around the work stays connected. Briefs, files, client conversations, meetings, decisions, deadlines, approvals and invoices remain attached to the work they belong to.
-            </p>
-            <div className="landing-feature__visual">
-              <div className="feature-project-card">
-                <strong>Kalahari Ember Gin</strong>
-                <small>In Review</small>
-                <div className="feature-project-card__meta">
-                  <span><Icon name="messages" size={12} /> Client feedback · 2h ago</span>
-                  <span><Icon name="calendar" size={12} /> Meeting · Yesterday</span>
-                  <span><Icon name="wallet" size={12} /> Invoice · Draft</span>
-                </div>
-              </div>
-            </div>
-          </article>
-          <article className="landing-feature landing-feature--intelligence">
-            <span className="landing-feature__icon">
-              <Icon name="sparkles" size={20} />
-            </span>
-            <span className="landing-feature__number">02</span>
-            <h3>Connected Intelligence</h3>
-            <p>
-              Your work knows more than you think. Lancee looks across the activity already happening in your workspace and surfaces useful patterns, risks and opportunities.
-            </p>
-            <div className="landing-feature__visual">
-              <div className="feature-insight-card">
-                <small>CONNECTED INSIGHT</small>
-                <strong>Juniper & Tide may need attention</strong>
-                <ul>
-                  <li>3 meetings this week</li>
-                  <li>4 unresolved feedback items</li>
-                  <li>Delivery due Friday</li>
-                </ul>
-                <p>“Activity is increasing as the deadline approaches.”</p>
-                <span className="feature-insight-card__cta">View context <Icon name="arrow-up-right" size={12} /></span>
-              </div>
-            </div>
-          </article>
-          <article className="landing-feature landing-feature--connect">
-            <span className="landing-feature__icon">
-              <Icon name="lightbulb" size={20} />
-            </span>
-            <span className="landing-feature__number">03</span>
-            <h3>Ideas Connected to Work</h3>
-            <p>
-              Capture an idea now. Make it useful later. Notes, images, palettes, references and files can be connected to clients and projects instead of becoming forgotten fragments.
-            </p>
-            <div className="landing-feature__visual">
-              <div className="feature-connections">
-                <span>Notes</span>
-                <span>Images</span>
-                <span>Palettes</span>
-                <span>Files</span>
-                <span className="feature-connections__arrow"><Icon name="arrow-right" size={12} /></span>
-                <span className="feature-connections__target">Connected to Project</span>
-              </div>
-            </div>
-          </article>
-          <article className="landing-feature landing-feature--communication">
-            <span className="landing-feature__icon">
-              <Icon name="messages" size={20} />
-            </span>
-            <span className="landing-feature__number">04</span>
-            <h3>Communication Intelligence</h3>
-            <p>
-              Know what is happening around your clients. Lancee surfaces unanswered conversations, increasing activity, recent feedback and follow-ups that may have been missed.
-            </p>
-            <div className="landing-feature__visual">
-              <div className="feature-attention-card">
-                <small>CLIENT ATTENTION</small>
-                <strong>Kalahari Ember Gin</strong>
-                <div className="feature-attention-card__metrics">
-                  <span>Email <em>↑</em></span>
-                  <span>Meetings <em>↑</em></span>
-                  <span>Feedback <em>3</em></span>
-                </div>
-                <div className="feature-attention-card__bar">
-                  <span>Attention level</span>
-                  <strong>HIGH</strong>
-                  <i><span style={{ width: '78%' }} /></i>
-                </div>
-                <p>“Communication activity increased this week.”</p>
-              </div>
-            </div>
-          </article>
-          <article className="landing-feature landing-feature--meetings">
-            <span className="landing-feature__icon">
-              <Icon name="calendar" size={20} />
-            </span>
-            <span className="landing-feature__number">05</span>
-            <h3>Meetings That Become Context</h3>
-            <p>
-              Meetings shouldn&apos;t disappear when the call ends. Connect meetings to clients and projects so Lancee understands how much meeting activity surrounds the work.
-            </p>
-            <div className="landing-feature__visual">
-              <div className="feature-meetings-card">
-                <small>THIS WEEK</small>
-                <div className="feature-meetings-card__stats">
-                  <span><strong>4</strong> client meetings</span>
-                  <span><strong>2</strong> projects affected</span>
-                </div>
-                <div className="feature-meetings-card__rows">
-                  <div><strong>Juniper & Tide</strong><span>Meeting load <em>↑</em></span></div>
-                  <div><strong>Kalahari Ember Gin</strong><span>Normal</span></div>
-                </div>
-              </div>
-            </div>
-          </article>
-          <article className="landing-feature landing-feature--observe">
-            <span className="landing-feature__icon">
-              <Icon name="activity" size={20} />
-            </span>
-            <span className="landing-feature__number">06</span>
-            <h3>Automation with context.</h3>
-            <p>
-              Routine work can move automatically while important decisions remain yours. Automation works because Lancee understands the surrounding business context.
-            </p>
-            <div className="landing-feature__visual">
-              <div className="feature-automation-flow">
-                <span>Client approval</span>
-                <i><Icon name="chevron-down" size={10} /></i>
-                <span>Project updated</span>
-                <i><Icon name="chevron-down" size={10} /></i>
-                <span>Invoice prepared</span>
-                <i><Icon name="chevron-down" size={10} /></i>
-                <span className="is-approval">You approve</span>
-                <i><Icon name="chevron-down" size={10} /></i>
-                <span>Client receives invoice</span>
-              </div>
-            </div>
-          </article>
-        </div>
+        <ConnectedWorkspacePanel />
       </section>
 
       <section className="landing-connected" id="connected-intelligence" aria-labelledby="connected-intelligence-title">
+        <LandingAmbientRings />
         <div className="landing-connected__copy">
           <span className="landing-eyebrow">Connected Intelligence</span>
           <h2 id="connected-intelligence-title">Your work knows more than you think.</h2>
@@ -3886,6 +3834,7 @@ if (policyView !== 'landing') {
         id="decision-intelligence"
         aria-labelledby="decision-intelligence-title"
       >
+        <LandingAmbientRings />
         <div className="landing-intelligence__copy">
           <span className="landing-eyebrow">
             <i /> Decision intelligence
@@ -4125,6 +4074,7 @@ if (policyView !== 'landing') {
       </section>
 
       <section className="landing-cta">
+        <LandingAmbientRings />
         <BrandMark />
         <span className="landing-eyebrow"><i /> A lighter way to run your business</span>
         <h2>Carry the whole studio. Not the whole workload.</h2>
@@ -4194,7 +4144,7 @@ if (policyView !== 'landing') {
           aria-label={chatOpen ? 'Close Lancee chat' : 'Open Lancee chat'}
           onClick={() => setChatOpen((current) => !current)}
         >
-          <img src="/svg/animated_chat_orb_fixed.svg" alt="" />
+          <img src="/svg/ai-chat.svg" alt="" />
         </button>
       </aside>
 
@@ -4484,17 +4434,17 @@ function AuthScreen({
                   : 'Enter your details to start using lancee.'}
             </p>
           </div>
-          <div className="auth-security-note">
-            <Icon name="shield" size={17} />
-            Protected by an encrypted, HTTP-only workspace session.
-          </div>
           {!invitationToken && (
             <>
               <button className="button button--secondary auth-google" type="button" onClick={() => void continueWithGoogle()} disabled={busy || invitationLoading}>
                 <span className="auth-google__mark" aria-hidden="true">G</span>
                 {mode === 'login' ? 'Sign in with Google' : 'Sign up with Google'}
               </button>
-              <div className="auth-divider" aria-hidden="true"><span />or continue with email<span /></div>
+              <div className="auth-divider" role="separator" aria-label="Or continue with email">
+                <span aria-hidden="true" />
+                <span className="auth-divider__label">Or continue with email</span>
+                <span aria-hidden="true" />
+              </div>
             </>
           )}
           {mode === 'register' && (
@@ -4678,13 +4628,17 @@ function Modal({
   children: ReactNode
   wide?: boolean
 }) {
+  const dialogRef = useDialogFocus<HTMLElement>(true, onClose)
+
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section
+        ref={dialogRef}
         className={`modal${wide ? ' modal--wide' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
+        tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="modal__heading">
@@ -5033,6 +4987,7 @@ function CommandPalette({
   onCreateAutomation: () => void
 }) {
   const [query, setQuery] = useState('')
+  const paletteRef = useDialogFocus<HTMLElement>(open, onClose)
   const filtered = navItems
     .filter((item) => !item.adminOnly || isAdmin)
     .filter((item) =>
@@ -5042,7 +4997,15 @@ function CommandPalette({
 
   return (
     <div className="command-palette-backdrop" onMouseDown={onClose}>
-      <section className="command-palette" onMouseDown={(event) => event.stopPropagation()}>
+      <section
+        ref={paletteRef}
+        className="command-palette"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search pages and actions"
+        tabIndex={-1}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <label>
           <Icon name="search" size={19} />
           <input
@@ -5225,7 +5188,7 @@ function Sidebar({
           aria-label="Close navigation"
         />
       )}
-      <aside className={`sidebar${mobileOpen ? ' is-open' : ''}${collapsed ? ' is-collapsed' : ''}`}>
+      <aside id="workspace-navigation" className={`sidebar${mobileOpen ? ' is-open' : ''}${collapsed ? ' is-collapsed' : ''}`}>
         <div className="sidebar__logo">
           <BrandMark />
           <span>lancee</span>
@@ -6210,6 +6173,7 @@ function WorkspaceApp() {
   const [workspaceNotifications, setWorkspaceNotifications] = useState<WorkspaceNotification[]>([])
   const [workProjectId, setWorkProjectId] = useState('')
   const [messageFocus, setMessageFocus] = useState<{ folder: string; uid: number } | null>(null)
+  const [mailSettingsRequested, setMailSettingsRequested] = useState(false)
   const [integrations, setIntegrations] = useState<Integration[]>([])
   const [externalProviders, setExternalProviders] = useState<OpenConnectorProvider[]>([])
   const [gatewayStatus, setGatewayStatus] = useState<OpenConnectorStatus | null>(null)
@@ -6993,20 +6957,9 @@ function WorkspaceApp() {
     )
   }
 
-  const toggleGoogleDrive = async (integration: Integration) => {
-    setBusyId(integration.id)
+  const connectGoogleWorkspace = async () => {
+    setBusyId('drive')
     try {
-      if (integration.connected) {
-        await api.googleDrive.disconnect()
-        setIntegrations((current) =>
-          current.map((item) =>
-            item.id === integration.id ? { ...item, connected: false } : item,
-          ),
-        )
-        setToast('Google Workspace disconnected')
-        setBusyId(null)
-        return
-      }
       const authorizationUrl = await api.googleDrive.getAuthUrl()
       window.location.assign(authorizationUrl)
     } catch (error) {
@@ -7015,6 +6968,23 @@ function WorkspaceApp() {
           ? error.message
           : 'Unable to update Google Workspace.',
       )
+      setBusyId(null)
+    }
+  }
+
+  const disconnectGoogleWorkspace = async () => {
+    setBusyId('drive')
+    try {
+      await api.googleDrive.disconnect()
+      setIntegrations((current) => current.map((item) =>
+        item.id === 'drive' ? { ...item, connected: false } : item,
+      ))
+      setToast('Google Workspace disconnected.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to disconnect Google Workspace.'
+      setToast(message)
+      throw error
+    } finally {
       setBusyId(null)
     }
   }
@@ -7306,7 +7276,10 @@ function WorkspaceApp() {
             onConfigureCodex={() => setModal('codex-ai')}
             onConfigureCodexRuntime={() => setModal('codex-runtime')}
             onConfigurePaystack={() => setModal('paystack')}
-            onConfigureMail={() => navigatePage('messages')}
+            onConfigureMail={() => {
+              setMailSettingsRequested(true)
+              navigatePage('messages')
+            }}
             onConfigureWhatsApp={() => {
               if (user.role !== 'owner') {
                 setToast('Only the workspace owner can manage the WhatsApp connection.')
@@ -7321,7 +7294,8 @@ function WorkspaceApp() {
                 setModal('whatsapp')
               }).catch((error) => setToast(error instanceof Error ? error.message : 'Unable to load WhatsApp status.'))
             }}
-            onToggleGoogleDrive={(integration) => void toggleGoogleDrive(integration)}
+            onManageGoogleWorkspace={() => setModal('google-workspace')}
+            onConnectGoogleWorkspace={() => void connectGoogleWorkspace()}
             onOpenStorageSetup={(provider) => {
               setStorageSetupProvider(provider)
               navigatePage('files')
@@ -7374,6 +7348,8 @@ function WorkspaceApp() {
               onToast={setToast}
               focusMessage={messageFocus}
               onMessageFocusHandled={() => setMessageFocus(null)}
+              openConnectionSettings={mailSettingsRequested}
+              onConnectionSettingsHandled={() => setMailSettingsRequested(false)}
             />
           </Suspense>
         )
@@ -7492,7 +7468,9 @@ function WorkspaceApp() {
             <button
               className="mobile-menu-button"
               onClick={() => setMobileOpen(true)}
-              aria-label="Open navigation"
+              aria-label={mobileOpen ? 'Navigation is open' : 'Open navigation'}
+              aria-expanded={mobileOpen}
+              aria-controls="workspace-navigation"
             >
               <Icon name="menu" />
             </button>
@@ -7690,9 +7668,23 @@ function WorkspaceApp() {
           />
         </Modal>
       )}
+      {modal === 'google-workspace' && (
+        <Modal
+          title="Manage Google Workspace"
+          description="Review this workspace connection, restore access, or disconnect it from the danger zone."
+          onClose={() => setModal(null)}
+        >
+          <GoogleWorkspaceConnectionPanel
+            canManage={user.role === 'owner'}
+            onReconnect={connectGoogleWorkspace}
+            onDisconnect={disconnectGoogleWorkspace}
+            onCancel={() => setModal(null)}
+          />
+        </Modal>
+      )}
       {modal === 'paystack' && paystackConnection && (
         <Modal
-          title="Connect Paystack"
+          title={paystackConnection.configured ? 'Manage Paystack' : 'Connect Paystack'}
           description="Keep this workspace’s payment credential encrypted in the lancee backend."
           onClose={() => setModal(null)}
         >

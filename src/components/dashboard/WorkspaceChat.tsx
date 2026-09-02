@@ -390,12 +390,12 @@ export default function WorkspaceChat({ user }: { user: User }) {
       {open && (
         <div className="workspace-chat__panel">
           <header>
-            <div><span className="micro-label">Workspace assistant</span><strong>Ask about your work</strong></div>
+            <div><span className="micro-label">Chat to Lancee</span><strong>Hi, I’m Lancee 👋</strong></div>
             <button type="button" onClick={() => setOpen(false)} aria-label="Close assistant">×</button>
           </header>
           <div className="workspace-chat__messages" ref={messagesElement}>
             {messages.length === 0 && (
-              <p>Hermes is your Lancee chatmaster. It can use its native tools for conversation, research, browser work, files, memory, and orchestration, and uses Lancee tools when you ask about workspace business data or actions.</p>
+              <p>I’m your intelligent workspace assistant. I can use my native tools to chat, research, browse, work with files, remember useful context, and coordinate tasks. For workspace business data or actions, I’ll use my Lancee tools—and always ask before making changes. What shall we tackle?</p>
             )}
             {messages.map((item, index) => (
               <div className={`workspace-chat__message workspace-chat__message--${item.role}`} key={`${item.role}:${index}`}>
@@ -463,7 +463,7 @@ export default function WorkspaceChat({ user }: { user: User }) {
           </form>
         </div>
       )}
-      <button type="button" className="workspace-chat__toggle" onClick={() => setOpen((value) => !value)} aria-label="Open workspace assistant">✦ <span>Ask lancee</span></button>
+      <button type="button" className="workspace-chat__toggle" onClick={() => setOpen((value) => !value)} aria-label="Chat to Lancee"><img src="/svg/ai-chat.svg" alt="" /> <span>Chat to Lancee</span></button>
     </aside>
   )
 }

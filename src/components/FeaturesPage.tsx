@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { BUSINESS_IDENTITY } from '../lib/business'
+import ConnectedWorkspacePanel from './marketing/ConnectedWorkspacePanel'
+import ProductFrame from './marketing/ProductFrame'
 
 type FeatureIconName =
   | 'briefcase'
@@ -643,38 +645,11 @@ export default function FeaturesPage({
             {['Clients', 'Projects', 'Ideas', 'Files', 'Meetings', 'Calendar'].map((label) => <span key={label}>{label}</span>)}
           </div>
         </div>
-        <div className="workspace-composition" aria-label="Connected Lancee workspace example">
-          <div className="workspace-composition__rail">
-            <span className="is-active"><FeatureIcon name="grid" size={15} /></span>
-            <span><FeatureIcon name="briefcase" size={15} /></span>
-            <span><FeatureIcon name="lightbulb" size={15} /></span>
-            <span><FeatureIcon name="file" size={15} /></span>
-          </div>
-          <div className="workspace-composition__main">
-            <header><small>JUNIPER &amp; TIDE</small><span>Project workspace</span></header>
-            <div className="workspace-composition__insight">
-              <FeatureIcon name="sparkles" size={16} />
-              <p>Client activity is increasing as Friday&apos;s delivery approaches.</p>
-            </div>
-            <div className="workspace-composition__columns">
-              <article><small>PROJECT</small><strong>Packaging refresh</strong><span>In review · 72%</span></article>
-              <article><small>CONTEXT</small><strong>4 feedback items</strong><span>2 meetings this week</span></article>
-            </div>
-            <div className="workspace-composition__timeline">
-              <span><i /> Client brief</span><span><i /> Concepts</span><span className="is-current"><i /> Review</span><span><i /> Delivery</span>
-            </div>
-          </div>
-          <aside className="workspace-composition__aside">
-            <small>CONNECTED NOW</small>
-            <span><FeatureIcon name="user" size={14} /> Juniper &amp; Tide</span>
-            <span><FeatureIcon name="messages" size={14} /> Client feedback</span>
-            <span><FeatureIcon name="file" size={14} /> 12 project files</span>
-            <span><FeatureIcon name="wallet" size={14} /> Draft invoice</span>
-          </aside>
-        </div>
+        <ConnectedWorkspacePanel compact />
       </section>
 
       <section id="feature-group-money" className="feature-story feature-story--money" data-feature-story="money">
+        <ProductFrame label="Money" meta="Invoice connected" className="feature-product-frame">
         <div className="money-composition" aria-label="Invoice and payment flow example">
           <div className="money-composition__invoice">
             <header><span>INVOICE</span><strong>#1042</strong></header>
@@ -689,6 +664,7 @@ export default function FeaturesPage({
             ))}
           </div>
         </div>
+        </ProductFrame>
         <div className="feature-story__copy">
           <span className="landing-eyebrow"><i /> 02 — Money &amp; payments</span>
           <h2>From the quote<br /><em>to paid.</em></h2>
@@ -704,6 +680,7 @@ export default function FeaturesPage({
           <p>{groups[2].description}</p>
           <p className="feature-story__note">Every run stays visible. Important actions still wait for your approval.</p>
         </div>
+        <ProductFrame label="Automations" meta="Approval required" className="feature-product-frame">
         <div className="automation-composition" aria-label="Lancee workflow example">
           <div><small>TRIGGER</small><strong>Client approves final artwork</strong><span>Project · Juniper &amp; Tide</span></div>
           <i><FeatureIcon name="arrow-right" size={14} /></i>
@@ -713,9 +690,11 @@ export default function FeaturesPage({
           <i><FeatureIcon name="arrow-right" size={14} /></i>
           <div className="is-result"><small>RESULT</small><strong>Ready for you to send</strong><span>Nothing leaves without your say</span></div>
         </div>
+        </ProductFrame>
       </section>
 
       <section id="feature-group-connections" className="feature-story feature-story--connections" data-feature-story="connections">
+        <ProductFrame label="Connections" meta="Four tools online" className="feature-product-frame">
         <div className="connection-composition" aria-label="Lancee connections example">
           <svg viewBox="0 0 620 520" aria-hidden="true"><circle cx="310" cy="260" r="180" /><circle cx="310" cy="260" r="112" /><path d="M310 80V180M490 260H390M310 440V340M130 260H230" /></svg>
           <div className="connection-composition__core"><span className="brand-mark brand-mark--compact"><img src="/img/icon.png" alt="" /></span><strong>Lancee</strong><small>CONNECTED WORKSPACE</small></div>
@@ -724,6 +703,7 @@ export default function FeaturesPage({
           <span className="connection-composition__node is-store"><FeatureIcon name="store" size={18} /><small>Storefront</small></span>
           <span className="connection-composition__node is-mcp"><FeatureIcon name="layers" size={18} /><small>Lancee MCP</small></span>
         </div>
+        </ProductFrame>
         <div className="feature-story__copy">
           <span className="landing-eyebrow"><i /> 04 — Connections</span>
           <h2>Your tools, with<br /><em>shared context.</em></h2>
@@ -739,6 +719,7 @@ export default function FeaturesPage({
           <p>{groups[4].description}</p>
           <div className="feature-story__labels"><span>Typed tools</span><span>Approval gates</span><span>Workspace context</span><span>PDF Studio</span></div>
         </div>
+        <ProductFrame label="Assistant" meta="Workspace context on" className="feature-product-frame">
         <div className="assistant-composition" aria-label="Context-aware Lancee assistant example">
           <header><span><FeatureIcon name="sparkles" size={16} /> Lancee assistant</span><small>Workspace context on</small></header>
           <div className="assistant-composition__user">What needs me before Friday?</div>
@@ -749,9 +730,11 @@ export default function FeaturesPage({
           <div className="assistant-composition__context"><small>CONTEXT USED</small><span>Project</span><span>2 meetings</span><span>4 feedback items</span><span>Draft invoice</span></div>
           <button type="button">Review proposed actions <FeatureIcon name="arrow-right" size={13} /></button>
         </div>
+        </ProductFrame>
       </section>
 
       <section id="feature-group-review" className="feature-story feature-story--review" data-feature-story="review">
+        <ProductFrame label="Client review" meta="Two comments" className="feature-product-frame">
         <div className="review-composition" aria-label="Client review and approval example">
           <div className="review-composition__art"><span>J&amp;T</span><i className="review-pin review-pin--one">1</i><i className="review-pin review-pin--two">2</i></div>
           <div className="review-composition__panel">
@@ -761,6 +744,7 @@ export default function FeaturesPage({
             <button type="button"><FeatureIcon name="check-circle" size={14} /> Approved by client</button>
           </div>
         </div>
+        </ProductFrame>
         <div className="feature-story__copy">
           <span className="landing-eyebrow"><i /> 06 — Collaboration</span>
           <h2>Feedback that lands<br /><em>in the right place.</em></h2>
@@ -774,11 +758,13 @@ export default function FeaturesPage({
           <h2>Quietly trustworthy<br /><em>underneath.</em></h2>
           <p>{groups[6].description}</p>
         </div>
+        <ProductFrame label="Security & platform" meta="Protected" className="feature-product-frame">
         <div className="security-composition">
           {groups[6].features.map((feature) => (
             <div key={feature.title}><FeatureIcon name={feature.icon} size={17} /><span><strong>{feature.title}</strong><small>{feature.tags.join(' · ')}</small></span></div>
           ))}
         </div>
+        </ProductFrame>
       </section>
 
       <section className="capability-index" aria-labelledby="capability-index-title">

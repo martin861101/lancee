@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
 import type { ConnectedIntelligenceSummary, ConnectedOpportunity } from '../../lib/api'
+import { useDialogFocus } from '../../lib/useDialogFocus'
 import IntelligenceIcon from './IntelligenceIcon'
 import { finiteNumber, findClient, findProject, formatConfidence, formatNumber, humanLabel, plural, presentFinding } from './connected-intelligence-presentation'
 
@@ -13,7 +13,7 @@ export default function FindingExplanationDrawer({ opportunity, summary, onClose
   summary: ConnectedIntelligenceSummary
   onClose: () => void
 }) {
-  const closeRef = useRef<HTMLButtonElement>(null)
+  const drawerRef = useDialogFocus<HTMLElement>(true, onClose)
   const presentation = presentFinding(opportunity, summary)
   const observed = opportunity.metrics.observed || {}
   const baseline = opportunity.metrics.baseline || {}
@@ -27,26 +27,12 @@ export default function FindingExplanationDrawer({ opportunity, summary, onClose
     ? `${technicalMetric(observed.meetingMinutes, ' minutes')} observed exceeded the persisted 75th-percentile baseline of ${technicalMetric(baseline.percentile75MeetingMinutes, ' minutes')}.`
     : `The combined attention index was ${technicalMetric(finiteNumber(comparison.attentionIndex) === null ? null : Number(comparison.attentionIndex) * 100, 'th percentile')}, above the detector’s 75th-percentile threshold.`
 
-  useEffect(() => {
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    closeRef.current?.focus()
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    const handleKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handleKey)
-    return () => {
-      document.body.style.overflow = previousOverflow
-      window.removeEventListener('keydown', handleKey)
-      previouslyFocused?.focus()
-    }
-  }, [onClose])
-
   return (
     <div className="finding-drawer-backdrop" onMouseDown={onClose}>
-      <aside className="finding-drawer" role="dialog" aria-modal="true" aria-labelledby="finding-drawer-title" onMouseDown={(event) => event.stopPropagation()}>
+      <aside ref={drawerRef} className="finding-drawer" role="dialog" aria-modal="true" aria-labelledby="finding-drawer-title" tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}>
         <header className="finding-drawer__header">
           <div><span>Why Lancee noticed this</span><h2 id="finding-drawer-title">{presentation.title}</h2></div>
-          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close finding explanation"><IntelligenceIcon name="close" /></button>
+          <button type="button" onClick={onClose} aria-label="Close finding explanation"><IntelligenceIcon name="close" /></button>
         </header>
         <div className="finding-drawer__body">
           <section className="finding-drawer__intro"><p>{presentation.explanation}</p></section>

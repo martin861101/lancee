@@ -32,7 +32,7 @@ type MeetingRoomProps = {
   onLeave: () => void
 }
 
-type ControlIcon = 'mic' | 'camera' | 'screen' | 'people' | 'info' | 'leave' | 'notes'
+type ControlIcon = 'mic' | 'camera' | 'screen' | 'people' | 'info' | 'leave' | 'notes' | 'settings'
 
 function Icon({ name }: { name: ControlIcon }) {
   const paths: Record<ControlIcon, React.ReactNode> = {
@@ -43,6 +43,7 @@ function Icon({ name }: { name: ControlIcon }) {
     info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7h.01" /></>,
     leave: <><path d="M9 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4M14 8l5 4-5 4M19 12H8" /></>,
     notes: <><path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5" /></>,
+    settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.8 2.8-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1 1.55V21h-4v-.1a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06-2.8-2.8.06-.06A1.7 1.7 0 0 0 5.6 15a1.7 1.7 0 0 0-1.55-1H4v-4h.1a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.8-2.8.06.06A1.7 1.7 0 0 0 10 4.6 1.7 1.7 0 0 0 11 3.05V3h4v.1a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.8 2.8-.06.06A1.7 1.7 0 0 0 20.4 9c.1.63.66 1 1.55 1H22v4h-.1a1.7 1.7 0 0 0-1.55 1Z" /></>,
   }
   return <svg viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>
 }
@@ -120,15 +121,17 @@ function PreJoin({
   companyName?: string
   busy: boolean
   error: string
-  onJoin: (settings: { name: string; camera: boolean; microphone: boolean; cameraId: string; microphoneId: string }) => Promise<void>
+  onJoin: (settings: { name: string; camera: boolean; microphone: boolean; cameraId: string; microphoneId: string; speakerId: string }) => Promise<void>
 }) {
   const [name, setName] = useState(initialName)
   const [camera, setCamera] = useState(true)
   const [microphone, setMicrophone] = useState(true)
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([])
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([])
+  const [speakers, setSpeakers] = useState<MediaDeviceInfo[]>([])
   const [cameraId, setCameraId] = useState('')
   const [microphoneId, setMicrophoneId] = useState('')
+  const [speakerId, setSpeakerId] = useState('')
   const [mediaError, setMediaError] = useState('')
   const [meter, setMeter] = useState(0)
   const [previewKey, setPreviewKey] = useState(0)
@@ -154,6 +157,7 @@ function PreJoin({
         const devices = await navigator.mediaDevices.enumerateDevices()
         setCameras(devices.filter((device) => device.kind === 'videoinput'))
         setMicrophones(devices.filter((device) => device.kind === 'audioinput'))
+        setSpeakers(devices.filter((device) => device.kind === 'audiooutput'))
         setMediaError('')
         const audioTrack = stream.getAudioTracks()[0]
         if (audioTrack) {
@@ -205,7 +209,7 @@ function PreJoin({
             previewStream.getTracks().forEach((track) => track.stop())
             if (previewRef.current) previewRef.current.srcObject = null
           }
-          void onJoin({ name, camera, microphone, cameraId, microphoneId })
+          void onJoin({ name, camera, microphone, cameraId, microphoneId, speakerId })
             .finally(() => setPreviewKey((value) => value + 1))
         }} className="lancee-prejoin__panel">
           <span className="lancee-meeting-kicker">Ready to join?</span>
@@ -214,6 +218,7 @@ function PreJoin({
           {guest && <label>Display name<input required value={name} onChange={(event) => setName(event.target.value)} maxLength={120} /></label>}
           <label>Camera<select value={cameraId} onChange={(event) => setCameraId(event.target.value)} disabled={!camera}><option value="">System default</option>{cameras.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}</select></label>
           <label>Microphone<select value={microphoneId} onChange={(event) => setMicrophoneId(event.target.value)} disabled={!microphone}><option value="">System default</option>{microphones.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}</select></label>
+          <label>Speaker<select value={speakerId} onChange={(event) => setSpeakerId(event.target.value)}><option value="">System default</option>{speakers.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Speaker ${index + 1}`}</option>)}</select></label>
           <div className="lancee-mic-meter" aria-label="Microphone level"><span style={{ width: `${microphone ? meter : 0}%` }} /></div>
           {(mediaError || error) && <div className="lancee-meeting-error" role="alert">{error || mediaError}</div>}
           <button className="lancee-meeting-primary" type="submit" disabled={busy || !name.trim()}>{busy ? 'Joining…' : meeting.status === 'scheduled' && meeting.isHost ? 'Start and join' : 'Join meeting'}</button>
@@ -247,12 +252,18 @@ export default function MeetingRoom({
   const [microphoneEnabled, setMicrophoneEnabled] = useState(true)
   const [cameraEnabled, setCameraEnabled] = useState(true)
   const [screenSharing, setScreenSharing] = useState(false)
-  const [drawer, setDrawer] = useState<'participants' | 'info' | 'notes' | null>(null)
+  const [drawer, setDrawer] = useState<'participants' | 'info' | 'notes' | 'settings' | null>(null)
   const [notes, setNotes] = useState<MeetingNote[]>([])
   const [noteBody, setNoteBody] = useState('')
   const [savingNote, setSavingNote] = useState(false)
   const [ending, setEnding] = useState(false)
   const [clock, setClock] = useState(0)
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([])
+  const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([])
+  const [speakers, setSpeakers] = useState<MediaDeviceInfo[]>([])
+  const [cameraId, setCameraId] = useState('')
+  const [microphoneId, setMicrophoneId] = useState('')
+  const [speakerId, setSpeakerId] = useState('')
   const audioRoot = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -268,11 +279,24 @@ export default function MeetingRoom({
 
   useEffect(() => () => { room?.disconnect() }, [room])
 
+  useEffect(() => {
+    if (!room || !navigator.mediaDevices?.enumerateDevices) return
+    const loadDevices = async () => {
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      setCameras(devices.filter((device) => device.kind === 'videoinput'))
+      setMicrophones(devices.filter((device) => device.kind === 'audioinput'))
+      setSpeakers(devices.filter((device) => device.kind === 'audiooutput'))
+    }
+    void loadDevices()
+    navigator.mediaDevices.addEventListener?.('devicechange', loadDevices)
+    return () => navigator.mediaDevices.removeEventListener?.('devicechange', loadDevices)
+  }, [room])
+
   const activeParticipant = participants.find((participant) => participant.identity === activeIdentity)
     || participants.find((participant) => participant.getTrackPublication(Track.Source.ScreenShare)?.track)
     || participants[0]
 
-  const join = async (settings: { name: string; camera: boolean; microphone: boolean; cameraId: string; microphoneId: string }) => {
+  const join = async (settings: { name: string; camera: boolean; microphone: boolean; cameraId: string; microphoneId: string; speakerId: string }) => {
     setJoining(true)
     setError('')
     try {
@@ -313,6 +337,7 @@ export default function MeetingRoom({
         setError('The meeting ended or your connection was closed.')
       })
       await nextRoom.connect(credentials.serverUrl, credentials.token)
+      if (settings.speakerId) await nextRoom.switchActiveDevice('audiooutput', settings.speakerId)
       if (settings.microphone) {
         await nextRoom.localParticipant.setMicrophoneEnabled(true, settings.microphoneId ? { deviceId: settings.microphoneId } : undefined)
       }
@@ -321,6 +346,9 @@ export default function MeetingRoom({
       }
       setMicrophoneEnabled(settings.microphone)
       setCameraEnabled(settings.camera)
+      setCameraId(settings.cameraId)
+      setMicrophoneId(settings.microphoneId)
+      setSpeakerId(settings.speakerId)
       setRoom(nextRoom)
       updateParticipants()
     } catch (caught) {
@@ -353,6 +381,18 @@ export default function MeetingRoom({
       setScreenSharing((value) => !value)
       setParticipants([room.localParticipant, ...room.remoteParticipants.values()])
     } catch { setError('Screen sharing was cancelled or is unavailable.') }
+  }
+
+  const switchDevice = async (kind: 'audioinput' | 'videoinput' | 'audiooutput', deviceId: string) => {
+    if (!room) return
+    try {
+      await room.switchActiveDevice(kind, deviceId || 'default')
+      if (kind === 'audioinput') setMicrophoneId(deviceId)
+      if (kind === 'videoinput') setCameraId(deviceId)
+      if (kind === 'audiooutput') setSpeakerId(deviceId)
+    } catch {
+      setError('The selected device could not be used. Check its permissions and connection.')
+    }
   }
 
   const leave = () => {
@@ -422,11 +462,16 @@ export default function MeetingRoom({
 
         {drawer && (
           <aside className="lancee-meeting__drawer" aria-label={`${drawer} panel`}>
-            <header><h2>{drawer === 'participants' ? 'Participants' : drawer === 'notes' ? 'Internal notes' : 'Meeting information'}</h2><button type="button" onClick={() => setDrawer(null)} aria-label="Close panel">×</button></header>
+            <header><h2>{drawer === 'participants' ? 'Participants' : drawer === 'notes' ? 'Internal notes' : drawer === 'settings' ? 'Device settings' : 'Meeting information'}</h2><button type="button" onClick={() => setDrawer(null)} aria-label="Close panel">×</button></header>
             {drawer === 'participants' && <div className="lancee-meeting__people">{participants.map((participant) => (
               <div key={participant.identity}><span>{initials(participant.name || 'P')}</span><strong>{participant.name || 'Participant'}{participant === room.localParticipant ? ' (you)' : ''}</strong>{meeting.isHost && participant !== room.localParticipant && !guest && <button type="button" onClick={() => void remove(participant.identity)}>Remove</button>}</div>
             ))}</div>}
             {drawer === 'info' && <dl><dt>Scheduled</dt><dd>{new Date(meeting.scheduledStart).toLocaleString()}</dd>{meeting.clientName && <><dt>Client</dt><dd>{meeting.clientName}</dd></>}{meeting.projectName && <><dt>Project</dt><dd>{meeting.projectName}</dd></>}</dl>}
+            {drawer === 'settings' && <div className="lancee-meeting__devices">
+              <label>Camera<select value={cameraId} onChange={(event) => void switchDevice('videoinput', event.target.value)}><option value="">System default</option>{cameras.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}</select></label>
+              <label>Microphone<select value={microphoneId} onChange={(event) => void switchDevice('audioinput', event.target.value)}><option value="">System default</option>{microphones.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}</select></label>
+              <label>Speaker<select value={speakerId} onChange={(event) => void switchDevice('audiooutput', event.target.value)}><option value="">System default</option>{speakers.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Speaker ${index + 1}`}</option>)}</select></label>
+            </div>}
             {drawer === 'notes' && !guest && <><p className="lancee-meeting__private">Only workspace members can see these notes.</p><div className="lancee-meeting__notes">{notes.map((note) => <article key={note.id}><strong>{note.authorName}</strong><p>{note.body}</p><time>{new Date(note.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></article>)}</div><form onSubmit={saveNote}><textarea required value={noteBody} onChange={(event) => setNoteBody(event.target.value)} placeholder="Capture a decision or follow-up…" /><button type="submit" disabled={savingNote}>{savingNote ? 'Saving…' : 'Add note'}</button></form></>}
           </aside>
         )}
@@ -437,6 +482,7 @@ export default function MeetingRoom({
         <button type="button" className={!microphoneEnabled ? 'is-off' : ''} onClick={() => void toggleMicrophone()}><Icon name="mic" /><span>{microphoneEnabled ? 'Mute' : 'Unmute'}</span></button>
         <button type="button" className={!cameraEnabled ? 'is-off' : ''} onClick={() => void toggleCamera()}><Icon name="camera" /><span>{cameraEnabled ? 'Camera' : 'Start video'}</span></button>
         <button type="button" className={screenSharing ? 'is-active' : ''} onClick={() => void toggleScreen()}><Icon name="screen" /><span>Share</span></button>
+        <button type="button" className={drawer === 'settings' ? 'is-active' : ''} onClick={() => setDrawer(drawer === 'settings' ? null : 'settings')}><Icon name="settings" /><span>Devices</span></button>
         <button type="button" className={drawer === 'participants' ? 'is-active' : ''} onClick={() => setDrawer(drawer === 'participants' ? null : 'participants')}><Icon name="people" /><span>People</span></button>
         {!guest && <button type="button" className={drawer === 'notes' ? 'is-active' : ''} onClick={() => setDrawer(drawer === 'notes' ? null : 'notes')}><Icon name="notes" /><span>Notes</span></button>}
         <button type="button" className={drawer === 'info' ? 'is-active' : ''} onClick={() => setDrawer(drawer === 'info' ? null : 'info')}><Icon name="info" /><span>Info</span></button>
